@@ -1,0 +1,347 @@
+{
+  "acquired": true,
+  "date": "2026-11-09",
+  "unitsafe": {
+    "dataset": "radiativity/UnitSafe",
+    "license": "Apache-2.0",
+    "rows": 500,
+    "scibench_rows": 57,
+    "expected_error": {
+      "conversion": 376,
+      "dimension_mismatch": 62,
+      "koq_mismatch": 62
+    },
+    "conversion_rows": 376,
+    "signature_match": 334,
+    "signature_mismatch": 27,
+    "unit_unparsed": 15,
+    "bad_signature": 0,
+    "parsed_agreement": "334/361",
+    "parsed_agreement_ci95": {
+      "low": "0.893",
+      "high": "0.948",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "mismatch_units": {
+      "lm/W": 2,
+      "lux": 2,
+      "lm": 2,
+      "nkat/L": 2,
+      "kJ/mol": 1,
+      "rad": 1,
+      "R": 1,
+      "G": 1,
+      "mG": 1,
+      "Mx": 1,
+      "mlm": 1,
+      "fc": 1,
+      "lm/m\u00b2": 1,
+      "fL": 1,
+      "cd/m\u00b2": 1,
+      "deg\u00b2": 1,
+      "\u00b5kat/L": 1,
+      "g": 1,
+      "units/h": 1,
+      "arcsec": 1,
+      "arcmin": 1,
+      "\u00b5rad": 1,
+      "AU": 1
+    },
+    "mismatch_detail": [
+      {
+        "unit": "AU",
+        "pint": "dimensionless",
+        "published": "L:1",
+        "rows": 1
+      },
+      {
+        "unit": "G",
+        "pint": "T:-1",
+        "published": "I:-1,M:1,T:-2",
+        "rows": 1
+      },
+      {
+        "unit": "Mx",
+        "pint": "L:1,T:-1",
+        "published": "I:-1,L:2,M:1,T:-2",
+        "rows": 1
+      },
+      {
+        "unit": "R",
+        "pint": "L:2,M:1,N:-1,T:-2,\u0398:-1",
+        "published": "I:1,M:-1,T:1",
+        "rows": 1
+      },
+      {
+        "unit": "arcmin",
+        "pint": "dimensionless",
+        "published": "A:1",
+        "rows": 1
+      },
+      {
+        "unit": "arcsec",
+        "pint": "dimensionless",
+        "published": "A:1",
+        "rows": 1
+      },
+      {
+        "unit": "cd/m\u00b2",
+        "pint": "J:1,L:-2",
+        "published": "A:1,J:1,L:-2",
+        "rows": 1
+      },
+      {
+        "unit": "deg\u00b2",
+        "pint": "dimensionless",
+        "published": "A:2",
+        "rows": 1
+      },
+      {
+        "unit": "fL",
+        "pint": "L:3",
+        "published": "A:1,J:1,L:-2",
+        "rows": 1
+      },
+      {
+        "unit": "fc",
+        "pint": "L:1,T:-1",
+        "published": "A:1,J:1,L:-2",
+        "rows": 1
+      },
+      {
+        "unit": "g",
+        "pint": "M:1",
+        "published": "L:1,T:-2",
+        "rows": 1
+      },
+      {
+        "unit": "kJ/mol",
+        "pint": "L:2,M:1,N:-1,T:-2",
+        "published": "L:2,M:1,N:-1,T:-2,\u0398:-1",
+        "rows": 1
+      },
+      {
+        "unit": "lm",
+        "pint": "J:1",
+        "published": "A:1,J:1",
+        "rows": 2
+      },
+      {
+        "unit": "lm/W",
+        "pint": "J:1,L:-2,M:-1,T:3",
+        "published": "A:1,J:1,L:-2,M:-1,T:3",
+        "rows": 2
+      },
+      {
+        "unit": "lm/m\u00b2",
+        "pint": "J:1,L:-2",
+        "published": "A:1,J:1,L:-2",
+        "rows": 1
+      },
+      {
+        "unit": "lux",
+        "pint": "J:1,L:-2",
+        "published": "A:1,J:1,L:-2",
+        "rows": 2
+      },
+      {
+        "unit": "mG",
+        "pint": "T:-1",
+        "published": "I:-1,M:1,T:-2",
+        "rows": 1
+      },
+      {
+        "unit": "mlm",
+        "pint": "J:1",
+        "published": "A:1,J:1",
+        "rows": 1
+      },
+      {
+        "unit": "nkat/L",
+        "pint": "L:-3,N:1,T:-1",
+        "published": "N:1,T:-1",
+        "rows": 2
+      },
+      {
+        "unit": "rad",
+        "pint": "dimensionless",
+        "published": "L:2,T:-2",
+        "rows": 1
+      },
+      {
+        "unit": "units/h",
+        "pint": "J:1,L:-2,T:-1",
+        "published": "T:-1",
+        "rows": 1
+      },
+      {
+        "unit": "\u00b5kat/L",
+        "pint": "L:-3,N:1,T:-1",
+        "published": "N:1,T:-1",
+        "rows": 1
+      },
+      {
+        "unit": "\u00b5rad",
+        "pint": "dimensionless",
+        "published": "A:1",
+        "rows": 1
+      }
+    ],
+    "unparsed_units": {
+      "Gy(RBE)": 2,
+      "mg/kg/dose": 1,
+      "photons/m\u00b2": 1,
+      "neutrons/(m\u00b2\u00b7s)": 1,
+      "kvar": 1,
+      "m H\u2082O": 1,
+      "photons/s": 1,
+      "\u00b0F/1000ft": 1,
+      "IU": 1,
+      "Osm/kg": 1,
+      "mOsm/L": 1,
+      "mEq/h": 1,
+      "M\u2609": 1,
+      "Jy": 1
+    },
+    "koq_rows": 62,
+    "koq_scored": 0,
+    "dimension_mismatch_rows": 62,
+    "dimension_mismatch_scored": 0,
+    "dimension_mismatch_signature_same": 14,
+    "dimension_mismatch_signature_differ": 48,
+    "dimension_mismatch_signature_unparsed": 0,
+    "koq_signature_same": 47,
+    "koq_signature_differ": 9,
+    "koq_signature_unparsed": 6,
+    "numeric_answers_scored": 0,
+    "label": "ESTIMATE",
+    "sha256": "f7ba395958f70cfb80ff3a2559f9a428dc038cac06d35bf15a71d94f4ce92a8a"
+  },
+  "dronology": {
+    "dataset": "thearod5/dronology",
+    "license": "MIT",
+    "artifacts": 796,
+    "traces": 1063,
+    "trace_labels": {
+      "1": 1063
+    },
+    "gold_positive_links": 1063,
+    "negative_labels": 0,
+    "predicted_links": 0,
+    "gold_hits": 0,
+    "linker_recall": "0/1063",
+    "precision": null,
+    "precision_reason": "The published trace file has no negative labels.",
+    "label": "ESTIMATE",
+    "note": "predict() only links eight public headings, and only next to an ev- id. Dronology identifiers are not those headings. This is that linker on someone else's gold, not a new trace-recovery model.",
+    "sha256": {
+      "traces.csv": "445549cffea0e586cf4bede807e7200568f536c3c743c612142b9eed549e26d2",
+      "artifacts.csv": "a41ce5b4e12c962d8717038f598fef4f696f7fcb6621d7a65a147eea4aa3420a",
+      "matrices.csv": "75db13f7eac59f945ac22efd1ac71f5637c2aaeba50ac7ebfe11f360370594dc"
+    }
+  },
+  "jcs": {
+    "acquired": true,
+    "dataset": "cyberphone/json-canonicalization testdata",
+    "spec": "RFC 8785",
+    "license": "Apache-2.0",
+    "matched": [
+      "arrays.json",
+      "french.json",
+      "unicode.json",
+      "weird.json"
+    ],
+    "byte_matched": [
+      "arrays.json",
+      "french.json",
+      "unicode.json",
+      "weird.json"
+    ],
+    "byte_mismatched": [],
+    "float_skipped": [
+      "structures.json",
+      "values.json"
+    ],
+    "mismatched": [],
+    "label": "ESTIMATE",
+    "note": "A file with a fractional JSON number is skipped. This canonicalizer rejects floats. byte_matched means the UTF-8 bytes equal the published outhex image. The ledger hashes those bytes."
+  },
+  "nist_b8": {
+    "acquired": true,
+    "source": "https://www.nist.gov/pml/special-publication-811/nist-guide-si-appendix-b-conversion-factors/nist-guide-si-appendix-b8",
+    "retrieved": "2026-11-09",
+    "rows": 445,
+    "no_trailing_symbol": 103,
+    "agree": 105,
+    "other_definition": 7,
+    "disagree": 7,
+    "incompatible": 11,
+    "symbol_unknown": 212,
+    "disagree_pairs": [
+      "Btu>J",
+      "bbl>L",
+      "kcal>J",
+      "lb>kg"
+    ],
+    "disagree_detail": [
+      {
+        "pair": "Btu>J",
+        "pint": "1055.056",
+        "published": [
+          "1055.87000",
+          "1059.67000",
+          "1054.80000",
+          "1054.68000"
+        ]
+      },
+      {
+        "pair": "bbl>L",
+        "pint": "119.24047119599997",
+        "published": [
+          "158.987300"
+        ]
+      },
+      {
+        "pair": "kcal>J",
+        "pint": "4184.0",
+        "published": [
+          "4190.02000"
+        ]
+      },
+      {
+        "pair": "lb>kg",
+        "pint": "0.4535923700000001",
+        "published": [
+          "0.3732417"
+        ]
+      }
+    ],
+    "sha256": "3276ec9d294c99d084b338c3440a606c6d4cbeac9239bf5e98ad0605b7668e0c",
+    "label": "ESTIMATE",
+    "note": "US government table. Exact-factor boldface was not in the text fetch, so agreement is half the last printed digit. other_definition means pint matches a different row that uses the same two symbols."
+  },
+  "qure": {
+    "acquired": true,
+    "dataset": "10.5281/zenodo.16049822",
+    "license": "CC-BY-4.0",
+    "rows": 2187,
+    "defect": 651,
+    "ok": 1536,
+    "weak_word_tokens": 23,
+    "weak_word_on_both_labels": 21,
+    "weak_word_only_on_ok": [
+      "common",
+      "comparable"
+    ],
+    "weak_word_only_on_defect": [],
+    "requirements_copied": 0,
+    "scored": 0,
+    "sha256": "c6a0c872873ba54028b97361c4cf1d5ad488bdea622a922cbee33265814925d6",
+    "label": "ESTIMATE",
+    "note": "The weak_word token is not the defect label. Requirement text is not in this report."
+  },
+  "expert_holdout_written_by_this_run": false,
+  "label": "ESTIMATE",
+  "note": "These files were published by other people. This run did not rewrite them. They do not replace a blind set written by another engineer."
+}

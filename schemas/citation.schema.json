@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "citation.schema.json",
+  "title": "Citation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source_id", "uri", "content_hash", "label"],
+  "properties": {
+    "source_id": {"type": "string", "minLength": 1},
+    "uri": {"type": "string", "minLength": 1},
+    "content_hash": {"type": "string"},
+    "label": {
+      "enum": ["VERIFIED", "PARTIAL", "NOT_VERIFIED", "ASSUMPTION", "ESTIMATE"]
+    },
+    "partial_note": {"type": "string", "minLength": 1}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"label": {"const": "VERIFIED"}},
+        "required": ["label"]
+      },
+      "then": {
+        "properties": {"content_hash": {"pattern": "^[0-9a-f]{64}$"}}
+      }
+    },
+    {
+      "if": {
+        "properties": {"label": {"const": "PARTIAL"}},
+        "required": ["label"]
+      },
+      "then": {"required": ["partial_note"]}
+    }
+  ]
+}

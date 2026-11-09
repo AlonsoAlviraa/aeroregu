@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "calc_result.schema.json",
+  "title": "Calc result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["method_id", "method_version", "outputs"],
+  "properties": {
+    "method_id": {"type": "string"},
+    "method_version": {"type": "string"},
+    "outputs": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          {"type": "string", "pattern": "^-?\\d+\\.\\d+$"},
+          {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^-?\\d+\\.\\d+$"}
+          }
+        ]
+      }
+    }
+  }
+}

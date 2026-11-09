@@ -1,0 +1,40 @@
+{
+  "method_id": "rigid_body_point_mass",
+  "method_version": "rigid_body_point_mass@1.0.0",
+  "title": "project-defined screening illustration",
+  "label": "ASSUMPTION",
+  "equation": "required_vertical_force = quantize(mass * gravity * load_factor). Operative units share that force equally. The last operative unit absorbs the remainder so the sum matches the quantized total within one quantum. moment_about_cg = quantize(sum(force_i * (x_i - cg_x))).",
+  "law_note": "Newton's laws as written by this project for a screening illustration. This is not a handbook attribution.",
+  "quantum": "0.001",
+  "invariant": "vertical force balance within one quantum",
+  "not_a_certification_method": true,
+  "input_units": {
+    "mass_kg": "kilogram",
+    "gravity_m_s2": "meter / second ** 2",
+    "load_factor": "dimensionless",
+    "cg_x_m": "meter"
+  },
+  "inputs": {
+    "mass_kg": {"unit": "kg", "min": "1", "max": "5000"},
+    "gravity_m_s2": {"unit": "m/s^2", "min": "9", "max": "11"},
+    "load_factor": {"unit": "1", "min": "-2", "max": "4"},
+    "cg_x_m": {"unit": "m", "min": "-5", "max": "5"},
+    "unit_x_m": {"unit": "m", "count": 4, "min": "-10", "max": "10"},
+    "unit_operative": {"count": 4}
+  },
+  "outputs": [
+    "weight_n",
+    "required_vertical_force_n",
+    "unit_force_n",
+    "vertical_residual_n",
+    "moment_about_cg_n_m"
+  ],
+  "sources": [
+    {
+      "source_id": "project-newton-screen",
+      "uri": "https://aeroregu.local/cards/rigid_body_point_mass",
+      "content_hash": "assumption",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

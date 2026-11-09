@@ -1,0 +1,143 @@
+openapi: 3.0.3
+info:
+  title: aeroregu
+  version: 0.1.0
+  description: >
+    This tool assists a human reviewer. It does not determine compliance.
+    Screening illustration only. No authority acceptance is claimed.
+paths:
+  /health:
+    get:
+      operationId: health
+      responses:
+        "200":
+          description: Envelope with gateway name. Fixture when MODEL_BASE_URL is unset.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /calc/run:
+    post:
+      operationId: calcRun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [method_id, inputs]
+              properties:
+                method_id:
+                  type: string
+                inputs:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          description: Deterministic envelope, or abstain with no result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /ledger/append:
+    post:
+      operationId: ledgerAppend
+      responses:
+        "200":
+          description: Envelope whose result carries the new event hash.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /coverage/gaps:
+    get:
+      operationId: coverageGaps
+      parameters:
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Gap query. A gap is the absence of a closing status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /supervisor/run:
+    post:
+      operationId: supervisorRun
+      responses:
+        "200":
+          description: Supervisor graph result. Abstain omits result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /notes/check:
+    post:
+      operationId: notesCheck
+      responses:
+        "200":
+          description: Recompute a note. Missing inputs abstain with no numeric result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /requirements:
+    get:
+      operationId: requirements
+      responses:
+        "200":
+          description: Requirement identifiers. Titles without a hashed local file are NOT_VERIFIED.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /aircraft:
+    get:
+      operationId: aircraft
+      responses:
+        "200":
+          description: Synthetic aircraft record.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /export/zip:
+    post:
+      operationId: exportZip
+      responses:
+        "200":
+          description: Zip of the hash chain plus a verifier command.
+  /auth/login:
+    post:
+      operationId: login
+      responses:
+        "200":
+          description: Local demo session cookie.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+components:
+  schemas:
+    Envelope:
+      type: object
+      required: [sources, method_version, inputs_hash, confidence, abstain]
+      properties:
+        sources:
+          type: array
+          items:
+            type: object
+        method_version:
+          type: string
+        inputs_hash:
+          type: string
+        confidence:
+          type: string
+          enum: [deterministic, quoted, draft, abstain]
+        result:
+          nullable: true
+        abstain:
+          nullable: true

@@ -1,0 +1,67 @@
+[project]
+name = "aeroregu"
+version = "0.1.0"
+description = "Supervised evidence layer. Assists a human reviewer. Does not determine compliance."
+requires-python = ">=3.12"
+dependencies = [
+    "evidence-api",
+    "evidence-calc",
+    "evidence-coverage",
+    "evidence-domain",
+    "evidence-eval",
+    "evidence-ingest",
+    "evidence-kernel",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+evidence-api = { workspace = true }
+evidence-calc = { workspace = true }
+evidence-coverage = { workspace = true }
+evidence-domain = { workspace = true }
+evidence-eval = { workspace = true }
+evidence-ingest = { workspace = true }
+evidence-kernel = { workspace = true }
+
+[tool.uv.workspace]
+members = [
+    "packages/kernel",
+    "packages/calc",
+    "packages/ingest",
+    "packages/coverage",
+    "packages/eval",
+    "packages/domain",
+    "apps/api",
+]
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.122.1",
+    "httpx>=0.28.1",
+    "pip-audit>=2.7.3",
+    "pytest>=8.3.4",
+    "ruff>=0.8.4",
+]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "packages/kernel/tests",
+    "packages/calc/tests",
+    "packages/ingest/tests",
+    "packages/coverage/tests",
+    "packages/eval/tests",
+    "packages/domain/tests",
+    "apps/api/tests",
+    "tests",
+]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["bench/dev", "bench/holdout"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

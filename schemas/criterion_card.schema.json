@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "criterion_card.schema.json",
+  "title": "Criterion card",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["card_id", "author_actor", "requirement_ids", "applicability", "label", "statement"],
+  "properties": {
+    "card_id": {"type": "string", "minLength": 1},
+    "author_actor": {"type": "string", "minLength": 1},
+    "requirement_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "applicability": {"type": "string", "minLength": 1},
+    "label": {
+      "enum": ["VERIFIED", "PARTIAL", "NOT_VERIFIED", "ASSUMPTION", "ESTIMATE"]
+    },
+    "statement": {"type": "string", "minLength": 1}
+  }
+}

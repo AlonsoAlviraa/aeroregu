@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "coverage_cell.schema.json",
+  "title": "Coverage cell",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["cell_id", "axes", "inputs_hash", "status"],
+  "properties": {
+    "cell_id": {"type": "string", "minLength": 1},
+    "axes": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "inputs_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "status": {
+      "enum": ["calc", "justified_not_critical", "gap", "not_in_envelope"]
+    },
+    "evidence_event_hash": {"type": "string"}
+  }
+}

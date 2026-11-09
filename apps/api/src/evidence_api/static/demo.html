@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>aeroregu</title>
+<style>
+  body { font-family: Georgia, serif; margin: 2rem auto; max-width: 46rem; line-height: 1.45; background: #f4f1ea; color: #243027; }
+  button { font: inherit; margin: 0.3rem 0.4rem 0.3rem 0; padding: 0.35rem 0.7rem; }
+  pre { white-space: pre-wrap; background: #fffdf8; padding: 0.8rem; border: 1px solid #d9d3c7; }
+</style>
+</head>
+<body>
+  <p id="banner"><strong>This tool assists a human reviewer. It does not determine compliance.</strong></p>
+  <p>Aircraft SL-1 is synthetic. The load method is a project-defined screening illustration. A human signs the ledger. A reviewer sign-off stores the actor and the statement reviewed this event.</p>
+  <button id="show-requirements" type="button">Show requirement ids</button>
+  <button id="run-load" type="button">Run one load case</button>
+  <button id="show-coverage" type="button">Show coverage</button>
+  <button id="check-unit" type="button">Check a unit-scale note</button>
+  <button id="check-missing" type="button">Check a missing-thickness note</button>
+  <button id="export-zip" type="button">Export zip</button>
+  <pre id="out">Ready.</pre>
+<script>
+async function show(url, options) {
+  const response = await fetch(url, options);
+  const text = await response.text();
+  let shown = text;
+  try {
+    const data = JSON.parse(text);
+    if (data.result && data.result.cell_count) {
+      shown = JSON.stringify({
+        confidence: data.confidence,
+        method_version: data.method_version,
+        cell_count: data.result.cell_count,
+        calc_count: data.result.calc_count,
+        gap_count: data.result.gap_count,
+        calc_cells: (data.result.calc_cells || []).slice(0, 3),
+        gaps: (data.result.gaps || []).slice(0, 3)
+      }, null, 2);
+    } else {
+      shown = JSON.stringify(data, null, 2);
+    }
+  } catch (err) {
+    shown = text;
+  }
+  document.getElementById("out").textContent = shown.slice(0, 4000);
+}
+function post(url, body) {
+  return show(url, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)
+  });
+}
+async function authorSession() {
+  const response = await fetch("/auth/login", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({actor_id: "author", password: "author-local"})
+  });
+  if (!response.ok) {
+    document.getElementById("out").textContent = await response.text();
+    return false;
+  }
+  return true;
+}
+document.getElementById("show-requirements").onclick = () => show("/requirements");
+document.getElementById("run-load").onclick = async () => {
+  if (await authorSession()) post("/calc/run", {example: "first_cell"});
+};
+document.getElementById("show-coverage").onclick = () => show("/coverage/gaps");
+document.getElementById("check-unit").onclick = () => post("/notes/check", {example: "unit_scale"});
+document.getElementById("check-missing").onclick = () => post("/notes/check", {example: "missing_input"});
+document.getElementById("export-zip").onclick = async () => {
+  if (!(await authorSession())) return;
+  const response = await fetch("/export/zip", {method: "POST", credentials: "same-origin"});
+  if (!response.ok) {
+    document.getElementById("out").textContent = await response.text();
+    return;
+  }
+  const blob = await response.blob();
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "evidence-chain.zip";
+  link.click();
+  document.getElementById("out").textContent = "Export started. The zip README names the verifier command.";
+};
+</script>
+</body>
+</html>

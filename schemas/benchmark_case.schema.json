@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "benchmark_case.schema.json",
+  "title": "Benchmark case",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["case_id", "artifact_kind", "faults", "expected", "artifact", "provenance"],
+  "properties": {
+    "case_id": {"type": "string", "minLength": 1},
+    "artifact_kind": {"enum": ["note", "matrix"]},
+    "faults": {"type": "array", "items": {"type": "string"}},
+    "expected": {"type": "string"},
+    "artifact": {"type": "object"},
+    "provenance": {"$ref": "provenance.schema.json"},
+    "agent_turns": {"type": "array"}
+  }
+}

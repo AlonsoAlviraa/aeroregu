@@ -1,0 +1,33 @@
+[project]
+name = "evidence-api"
+version = "0.1.0"
+description = "FastAPI demo. One static HTML page."
+requires-python = ">=3.12"
+dependencies = [
+    "evidence-calc",
+    "evidence-coverage",
+    "evidence-domain",
+    "evidence-eval",
+    "evidence-ingest",
+    "evidence-kernel",
+    "fastapi>=0.115.6",
+    "uvicorn>=0.34.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/evidence_api"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/evidence_api/static/demo.html" = "evidence_api/static/demo.html"
+
+[tool.uv.sources]
+evidence-calc = { workspace = true }
+evidence-coverage = { workspace = true }
+evidence-domain = { workspace = true }
+evidence-eval = { workspace = true }
+evidence-ingest = { workspace = true }
+evidence-kernel = { workspace = true }

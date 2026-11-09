@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "envelope.schema.json",
+  "title": "Output envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sources", "method_version", "inputs_hash", "confidence", "abstain"],
+  "properties": {
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "citation.schema.json"}
+    },
+    "method_version": {"type": "string", "minLength": 1},
+    "inputs_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "confidence": {"enum": ["deterministic", "quoted", "draft", "abstain"]},
+    "result": {},
+    "abstain": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reason", "escalate_to"],
+          "properties": {
+            "reason": {"type": "string", "minLength": 1},
+            "escalate_to": {"const": "human_engineer"}
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"confidence": {"const": "abstain"}},
+        "required": ["confidence"]
+      },
+      "then": {
+        "properties": {"result": false},
+        "required": ["abstain"],
+        "not": {"properties": {"abstain": {"type": "null"}}}
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "confidence": {"enum": ["deterministic", "quoted", "draft"]}
+        },
+        "required": ["confidence"]
+      },
+      "then": {"required": ["result"]}
+    },
+    {
+      "if": {
+        "properties": {"method_version": {"pattern": "^llm_extract@"}},
+        "required": ["method_version"]
+      },
+      "then": {
+        "properties": {"confidence": {"enum": ["quoted", "draft", "abstain"]}}
+      }
+    }
+  ]
+}

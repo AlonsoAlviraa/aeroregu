@@ -1,0 +1,39 @@
+{
+  "method_id": "bolt_screen",
+  "method_version": "bolt_screen@1.0.0",
+  "title": "project-defined screening illustration",
+  "label": "ASSUMPTION",
+  "equation": "interaction = quantize(sqrt(rs^2 + rt^2), 0.001), where rs and rt are shear and tensile stress divided by the project allowable.",
+  "note": "Screening illustration, not a certification method. Not attributed to a handbook.",
+  "quantum": "0.001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "shear_force_n": "newton",
+    "tensile_force_n": "newton",
+    "area_mm2": "millimeter ** 2",
+    "shear_allowable_mpa": "megapascal",
+    "tensile_allowable_mpa": "megapascal"
+  },
+  "required": [
+    "shear_force_n",
+    "tensile_force_n",
+    "area_mm2",
+    "shear_allowable_mpa",
+    "tensile_allowable_mpa"
+  ],
+  "limits": {
+    "area_mm2": {"min_exclusive": "0", "max": "1000000"},
+    "shear_allowable_mpa": {"min_exclusive": "0", "max": "10000"},
+    "tensile_allowable_mpa": {"min_exclusive": "0", "max": "10000"},
+    "shear_force_n": {"min": "-1000000000", "max": "1000000000"},
+    "tensile_force_n": {"min": "-1000000000", "max": "1000000000"}
+  },
+  "sources": [
+    {
+      "source_id": "project-bolt-screen",
+      "uri": "https://aeroregu.local/cards/bolt_screen",
+      "content_hash": "assumption",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

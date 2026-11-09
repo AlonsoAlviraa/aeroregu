@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "calc_input.schema.json",
+  "title": "Calc input",
+  "type": "object",
+  "additionalProperties": {
+    "oneOf": [
+      {"type": "string", "pattern": "^-?\\d+(\\.\\d+)?$"},
+      {"type": "boolean"},
+      {
+        "type": "array",
+        "items": {
+          "oneOf": [
+            {"type": "string", "pattern": "^-?\\d+(\\.\\d+)?$"},
+            {"type": "boolean"}
+          ]
+        }
+      }
+    ]
+  }
+}

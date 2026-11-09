@@ -1,0 +1,49 @@
+{
+  "as365_uff_expected_sha256": "b8f1a54300f12b05bb7f4f4802cd2d3f89b9aae6cf9fda81f4c287a263fb3c41",
+  "as365_uff_hash_matches": true,
+  "as365_uff_in_register": true,
+  "as365_uff_sha256": "b8f1a54300f12b05bb7f4f4802cd2d3f89b9aae6cf9fda81f4c287a263fb3c41",
+  "bearing_zip_in_register": true,
+  "bearing_zip_sha256": "816ccb70e9866692276bc3ab2095c885bdb39fe69b146e4163072d177d5aab0f",
+  "command": "make bench",
+  "date": "2026-11-09",
+  "docling": "2.146.0",
+  "frozen": {
+    "b2_dev": true,
+    "b3_dev_gold": true,
+    "b3_second_gold": true,
+    "b4_drill": true
+  },
+  "label": "VERIFIED",
+  "nasa_19890004039_expected_sha256": "9f924ea50e0068013825354ec43d6b41ff28c2e24dac67bb6de577ef83d8e779",
+  "nasa_19890004039_hash_matches": true,
+  "nasa_19890004039_sha256": "9f924ea50e0068013825354ec43d6b41ff28c2e24dac67bb6de577ef83d8e779",
+  "nasa_tm_101040_expected_sha256": "5ee682caf7d0ce2f95f327fcb3f9ea2ba5ff7ab25d79f8f4aba08a9a6f79fbed",
+  "nasa_tm_101040_sha256": "5ee682caf7d0ce2f95f327fcb3f9ea2ba5ff7ab25d79f8f4aba08a9a6f79fbed",
+  "nasa_tm_hash_matches": true,
+  "notes": [
+    "VERIFIED means these versions and hashes were read in this process.",
+    "date is the day this process ran, not the retrieval date of each file.",
+    "This file is not a B1, B2, B3, B4, or single-LLM result.",
+    "Package versions are the versions importlib saw in this environment.",
+    "The expert held-out sets are not part of this manifest.",
+    "docling NOT_INSTALLED means the reader abstains.",
+    "s1_seed_controls_sampling is false. The seed labels the fixed schedule."
+  ],
+  "packages": {
+    "evidence-calc": "0.1.0",
+    "evidence-eval": "0.1.0",
+    "evidence-ingest": "0.1.0",
+    "evidence-kernel": "0.1.0",
+    "pint": "0.26.2",
+    "pydantic": "2.14.2",
+    "pypdf": "6.21.4"
+  },
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.12.12",
+  "s1_planned_cases": 100000,
+  "s1_seed": 20261103,
+  "s1_seed_controls_sampling": false,
+  "s1_version": "s1@1.0.0",
+  "uv_lock_sha256": "63c3f3ab4642c806fb2e27eab3614b66f9ad3fffee40a6ee35b79d988f5d59fb"
+}

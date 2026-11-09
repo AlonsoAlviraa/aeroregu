@@ -1,0 +1,10 @@
+title = "aeroregu local allowlist"
+# Fixture hashes and the lockfile are not credentials.
+# The pattern scan in tools/security/secret_scan.py still reads these paths.
+
+[allowlist]
+paths = [
+  '''uv.lock''',
+  '''bench/''',
+  '''packages/domain/data/''',
+]

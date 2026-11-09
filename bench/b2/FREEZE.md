@@ -1,0 +1,1 @@
+Changing this hash means the development cases changed. Do not update it to chase a score. If the cases must change, write the date and the reason in the same commit. The expert held-out directories are separate and stay empty until someone other than the checker author fills them.

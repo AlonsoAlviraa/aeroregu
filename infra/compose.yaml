@@ -1,0 +1,10 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      EVIDENCE_GATEWAY: fixture
+    command: ["uv", "run", "python", "-m", "evidence_api"]

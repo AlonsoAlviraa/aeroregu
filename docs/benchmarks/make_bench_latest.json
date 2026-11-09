@@ -1,0 +1,899 @@
+{
+  "b1": {
+    "author_statement": false,
+    "benchmark": "B1",
+    "expert_holdout_cases": 0,
+    "expert_holdout_files": 0,
+    "fault_types": 0,
+    "label": "NOT_VERIFIED",
+    "note": "The domain expert has not authored the held-out set.",
+    "ready": false,
+    "scored": false
+  },
+  "b2": {
+    "agent": {
+      "judge_correct": "8/8",
+      "label": "ESTIMATE",
+      "llm_numeric_violation": 0,
+      "note": "Synthetic reports. Identifier shapes, not clause quotations."
+    },
+    "agent_chain": {
+      "judge_correct": "8/8",
+      "label": "ESTIMATE",
+      "llm_numeric_violation": 0,
+      "note": "Synthetic reports. Identifier shapes, not clause quotations."
+    },
+    "beats_hash_blind": true,
+    "beats_no_agent": false,
+    "beats_single_llm": "NOT_VERIFIED",
+    "benchmark": "B2",
+    "cases": 8,
+    "date": "2026-11-03",
+    "expert_holdout_author_statement": false,
+    "expert_holdout_cases": 0,
+    "expert_holdout_ready": false,
+    "expert_holdout_score": {
+      "abstained": 0,
+      "judge_correct": "0/0",
+      "label": "NOT_VERIFIED",
+      "note": "The expert held-out directory is not ready to score.",
+      "scored": false
+    },
+    "hash_blind": {
+      "false_coverage_recall": "0.000",
+      "false_coverage_recall_ci95": {
+        "high": "0.658",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "judge_ci95": {
+        "high": "0.929",
+        "low": "0.409",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "judge_correct": "6/8",
+      "precision": "0.750",
+      "precision_ci95": {
+        "high": "0.929",
+        "low": "0.409",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "recall": "1.000",
+      "recall_ci95": {
+        "high": "1.000",
+        "low": "0.610",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "span_accuracy": "1.000",
+      "span_accuracy_ci95": {
+        "high": "1.000",
+        "low": "0.676",
+        "method": "wilson",
+        "z": "1.96"
+      }
+    },
+    "label": "ESTIMATE",
+    "no_agent": {
+      "false_coverage_recall": "1.000",
+      "false_coverage_recall_ci95": {
+        "high": "1.000",
+        "low": "0.342",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "judge_ci95": {
+        "high": "1.000",
+        "low": "0.676",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "judge_correct": "8/8",
+      "precision": "1.000",
+      "precision_ci95": {
+        "high": "1.000",
+        "low": "0.610",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "recall": "1.000",
+      "recall_ci95": {
+        "high": "1.000",
+        "low": "0.610",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "span_accuracy": "1.000",
+      "span_accuracy_ci95": {
+        "high": "1.000",
+        "low": "0.610",
+        "method": "wilson",
+        "z": "1.96"
+      }
+    },
+    "notes": [
+      "The hash-blind linker ignores the hash. The verifier drops a zero hash.",
+      "The spec no-agent baseline is that verifier. It is not an LLM.",
+      "The specialist chain ties the verifier on these cases, so it does not beat it.",
+      "A live single-LLM baseline was not run.",
+      "Headings CS 27.301 Loads and CS 29.301 Loads were seen on 2026-11-09.",
+      "SC-VTOL-02 headings seen the same day: VTOL.2200, VTOL.2210, VTOL.2215,",
+      "VTOL.2220, VTOL.2225, and VTOL.2230. Paragraphs were not copied.",
+      "An identifier outside that heading list is not linked.",
+      "The old CS-27 document-library URL returned 404 on 2026-11-03.",
+      "The CS-29 Amendment 12 page was read on 2026-11-03 and states no licence.",
+      "The expert held-out directory is empty, so it was not scored."
+    ],
+    "public_headings_only": true,
+    "span_probe": {
+      "chain_abstains": true,
+      "event_hash": "9405f8448acd8e088710b9d2f5c267ceae5256f548602ee4bc7ef28a715ebf01",
+      "event_type": "abstain",
+      "frozen_set": false,
+      "label": "ESTIMATE",
+      "note": "One synthetic sentence. Not in the frozen dev hash.",
+      "queue": "human_engineer",
+      "verifier_links": true
+    },
+    "split": "dev",
+    "verifier": {
+      "false_coverage_recall": "1.000",
+      "false_coverage_recall_ci95": {
+        "high": "1.000",
+        "low": "0.342",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "judge_ci95": {
+        "high": "1.000",
+        "low": "0.676",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "judge_correct": "8/8",
+      "precision": "1.000",
+      "precision_ci95": {
+        "high": "1.000",
+        "low": "0.610",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "recall": "1.000",
+      "recall_ci95": {
+        "high": "1.000",
+        "low": "0.610",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "span_accuracy": "1.000",
+      "span_accuracy_ci95": {
+        "high": "1.000",
+        "low": "0.610",
+        "method": "wilson",
+        "z": "1.96"
+      }
+    }
+  },
+  "b3": {
+    "assumption_span_found": true,
+    "assumption_value": null,
+    "beats_no_agent": true,
+    "beats_page_limited_reader": true,
+    "beats_single_llm": "NOT_VERIFIED",
+    "benchmark": "B3",
+    "date": "2026-11-03",
+    "dev_pdf_scored": true,
+    "document": "NASA-TM-101040",
+    "empty_text_abstained": true,
+    "expert_holdout": false,
+    "expert_holdout_llm_numeric_violation": 0,
+    "field_accuracy": "1.000",
+    "field_accuracy_ci95": {
+      "high": "1.000",
+      "low": "0.676",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "field_pages": {
+      "blade_count": 2,
+      "flight_condition_count": 6,
+      "gravity": 2,
+      "level_flight_ratio_high": 6,
+      "level_flight_ratio_low": 6,
+      "strain_gage_count": 7,
+      "turning_flight_ratio_high": 6,
+      "turning_flight_ratio_low": 6
+    },
+    "fields_correct": "8/8",
+    "label": "ESTIMATE",
+    "load_case_ids": [
+      "V3101",
+      "V3103",
+      "V3105",
+      "V3106",
+      "V3109",
+      "V3111"
+    ],
+    "load_case_ids_found": true,
+    "load_case_value": null,
+    "load_factor_abstain_hash": "811013f0299ef8161f374ae1f59f6beead69d5e13c5b324078d73208848453f7",
+    "load_factor_column_abstained": true,
+    "load_factor_value": null,
+    "no_agent_ci95": {
+      "high": "0.324",
+      "low": "0.000",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "no_agent_field_accuracy": "0.000",
+    "no_agent_fields_correct": "0/8",
+    "notes": [
+      "Gold and checker were written in the same session. This is not a held-out set.",
+      "ready is false. dev_pdf_scored only means the local PDF matched the dev patterns.",
+      "The spec no-agent baseline reads no pages and returns no fields.",
+      "Beating that baseline is a trivial comparison.",
+      "The two-page count is a separate page-limited reader.",
+      "The full-document reader uses the same patterns on every page.",
+      "Page text comes from evidence_ingest.pdf.read_pdf_pages.",
+      "A live single-LLM baseline was not run.",
+      "Field hits pass through JudgeInput. A reasoning field is not a hit.",
+      "The assumption span is quoted and is not turned into a number.",
+      "Assumption and load-case spans are ledger events written by the orchestrator.",
+      "NTRS lists an Aerospatiale co-author.",
+      "The citation page says public use is permitted."
+    ],
+    "page_limited_ci95": {
+      "high": "0.591",
+      "low": "0.071",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "page_limited_field_accuracy": "0.250",
+    "page_limited_fields_correct": "2/8",
+    "page_limited_misses": [
+      "strain_gage_count",
+      "flight_condition_count",
+      "level_flight_ratio_low",
+      "level_flight_ratio_high",
+      "turning_flight_ratio_low",
+      "turning_flight_ratio_high"
+    ],
+    "pdf_present": true,
+    "quoted_span_hashes": [
+      "60d5cdbdf20b3ea2d900b59d8c5f0414757a1eb50b3ddd3c0ec6130a57809ada",
+      "a9a5ce224d6b939ab3b15743dd610c0f8ffd0c3fd407ebc04f894869d57bfc74",
+      "5968bd613c8420519a3bef2a094a9f18435a1e4e71c88f9aaae3f507cbe2ac52"
+    ],
+    "ready": false,
+    "sha256": "5ee682caf7d0ce2f95f327fcb3f9ea2ba5ff7ab25d79f8f4aba08a9a6f79fbed",
+    "source_url": "https://ntrs.nasa.gov/citations/19890010753",
+    "unit_error_detected": true
+  },
+  "b3_quotes": {
+    "abstain_ok": true,
+    "expert_holdout": false,
+    "false_alarms": 0,
+    "label": "ESTIMATE",
+    "llm_numeric_violation": 0,
+    "matched": "8/8",
+    "ready": true,
+    "recall_ci95": {
+      "high": "1.000",
+      "low": "0.676",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "recorded_fields": [
+      {
+        "name": "blade_count",
+        "unit": "dimensionless",
+        "value": "3"
+      },
+      {
+        "name": "gravity",
+        "unit": "meter / second ** 2",
+        "value": "9.8"
+      },
+      {
+        "name": "strain_gage_count",
+        "unit": "dimensionless",
+        "value": "31"
+      },
+      {
+        "name": "flight_condition_count",
+        "unit": "dimensionless",
+        "value": "23"
+      },
+      {
+        "name": "level_flight_ratio_low",
+        "unit": "dimensionless",
+        "value": "0.14"
+      },
+      {
+        "name": "level_flight_ratio_high",
+        "unit": "dimensionless",
+        "value": "0.37"
+      },
+      {
+        "name": "turning_flight_ratio_low",
+        "unit": "dimensionless",
+        "value": "0.26"
+      },
+      {
+        "name": "turning_flight_ratio_high",
+        "unit": "dimensionless",
+        "value": "0.35"
+      }
+    ],
+    "sha256": "5ee682caf7d0ce2f95f327fcb3f9ea2ba5ff7ab25d79f8f4aba08a9a6f79fbed"
+  },
+  "b3_second": {
+    "absent_from_second_memo": [
+      "V3109",
+      "V3111"
+    ],
+    "beats_no_agent": true,
+    "beats_single_llm": "NOT_VERIFIED",
+    "column_abstain_hash": "eb28845348424fa594b17cf55729bfd14f829a50c42d1f69991a33d4c79a6706",
+    "decimal_fields_correct": "4/4",
+    "document": "NASA-19890004039",
+    "event_hashes": [
+      "8685898a6efacd1672645bf23ec6ed66b74083f57e00956db5ba4221f300d02e",
+      "20898367fb69f5bf9e8493d6ff192c48e54187996d68bbc3c98ffbc270be1dc6",
+      "e994c70712783a5989f61a304cbedfe3e6dba84d536ef802faa9974cb4a4a85d",
+      "47dacd1816a7ed93918c39e28972787ac4859b8371720110875e8083dd74e4ef"
+    ],
+    "expert_holdout": false,
+    "field_accuracy_ci95": {
+      "high": "1.000",
+      "low": "0.566",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "field_pages": {
+      "blade_count_word": 5,
+      "level_flight_ratio_high": 8,
+      "level_flight_ratio_low": 8,
+      "lift_curve_slope": 3,
+      "rotor_radius_m": 4
+    },
+    "fields_correct": "5/5",
+    "flight_table_column_abstained": true,
+    "label": "ESTIMATE",
+    "llm_numeric_violation": 0,
+    "no_agent_ci95": {
+      "high": "0.434",
+      "low": "0.000",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "no_agent_fields_correct": "0/5",
+    "note": "Gold and checker were written in the same session. This is not a held-out set. Beating the no-read baseline is trivial. A word label is counted in the field score and is not written as a number.",
+    "page_limited_ci95": {
+      "high": "0.434",
+      "low": "0.000",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "page_limited_fields_correct": "0/5",
+    "pdf_present": true,
+    "recorded_fields": [
+      {
+        "name": "rotor_radius_m",
+        "unit": "m",
+        "value": "5.25"
+      },
+      {
+        "name": "lift_curve_slope",
+        "unit": "1",
+        "value": "5.7"
+      },
+      {
+        "name": "level_flight_ratio_low",
+        "unit": "1",
+        "value": "0.14"
+      },
+      {
+        "name": "level_flight_ratio_high",
+        "unit": "1",
+        "value": "0.37"
+      }
+    ],
+    "scored": true,
+    "shared_with_first_memo": [
+      "V3101",
+      "V3103",
+      "V3105",
+      "V3106"
+    ],
+    "table_magnitudes_stored": false,
+    "unit_abstain_hashes": [],
+    "word_labels_not_recomputed": [
+      "blade_count_word"
+    ]
+  },
+  "b4": {
+    "as365": {
+      "abscissa_steps": [
+        "1.22070E-04",
+        "1.22070E-04",
+        "1.22070E-04"
+      ],
+      "abscissa_unit": "s",
+      "abstain_hash": "041ae9e6e55f97fad06adac48532367722c532278c536f475971eace09e7a14b",
+      "abstain_reason": "limit_not_in_file",
+      "declared_counts": [
+        737280,
+        737280,
+        737280
+      ],
+      "duration_at_8192_s": [
+        "90",
+        "90",
+        "90"
+      ],
+      "duration_matches_paper_60s": false,
+      "external_limit_applied": false,
+      "file_present": true,
+      "function_ids": [
+        "P11X",
+        "P11Y",
+        "P11Z"
+      ],
+      "hash_match": true,
+      "label": "PARTIAL",
+      "length_abstain_hash": "32da441125544d3a1fecb68b48dcd7e7606edc5582c32f9cd5e41e97c015841b",
+      "length_abstain_reason": "record_length_disagrees",
+      "limit_in_header": false,
+      "note": "Header unit was read. Declared value counts were checked. No sample was stored. No exceedance limit is in the header. The sUAS clipping figure 60 m/s2 is not in this header and is not applied. The 90-second header length does not match the article's 60-second record. The fetched article text does not state 90 seconds. Not scored.",
+      "ordinate_label": "Acceleration",
+      "ordinate_unit": "m/s^2",
+      "ordinate_units": [
+        "m/s^2",
+        "m/s^2",
+        "m/s^2"
+      ],
+      "pint_accepts_ordinate": true,
+      "record_count": 3,
+      "samples_counted": false,
+      "scored": false,
+      "step_matches_8192_hz": true,
+      "structure_matches": true,
+      "suas_clip_limit_in_header": false,
+      "value_counts": [
+        737280,
+        737280,
+        737280
+      ]
+    },
+    "benchmark": "B4",
+    "candidate_url": "https://data.nasa.gov/dataset/cmapss-jet-engine-simulated-data",
+    "drill": {
+      "abstain_hash": "c9fed286a632b84353b404d70d0668c9d0751ec881724dd54130bb1374faa590",
+      "abstain_ok": true,
+      "detector_ci95": {
+        "high": "1.000",
+        "low": "0.342",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "detector_correct": "2/2",
+      "event_hashes": [
+        "22d8dbf52866a972b993b8ee32b9eb66848da6cbad274ff8b171bdeac613e0fe",
+        "137ecba66b8f2c864d80a2d97cb09b3bd804df285ea4eff1383bb0dad1161814"
+      ],
+      "false_alarms": "0/1",
+      "label": "ESTIMATE",
+      "naive_correct": "1/2",
+      "note": "Not a public dataset. B4 is not ready.",
+      "public_file": false,
+      "series_sha256": "f680297b53b9898e26296cd7ba4b9c70c6692201a318d75df02a9becc5865117",
+      "source": "founder-owned synthetic",
+      "version": "b4-drill@1.0.0"
+    },
+    "label": "NOT_VERIFIED",
+    "note": "Registered local files: data_SSF.zip. Acceleration files: 150. Bare first lines: 150. Files at the published length: 150. Shortest 80128, longest 80128. Path tokens: ['Ball', 'CA', 'H', 'IN', 'OU']. Files whose class token is a published code: 30. Abstain reason: unit_not_in_file. No exceedance count was computed. Compiled Python files: 3. They were not executed. The exceedance drill is founder-owned synthetic and is not B4.",
+    "public_archive": {
+      "abstain_hash": "c9a9bf06e7235b3c862101cdbac2d0c26d98e5b4760ae689e9b2758972ba5eb2",
+      "abstain_reason": "unit_not_in_file",
+      "acceleration_files": 150,
+      "bare_first_lines": 150,
+      "files_matching_published_length": 150,
+      "files_whose_class_token_is_published": 30,
+      "first_file_lines": 80128,
+      "grid_cells": 15,
+      "grid_cells_with_ten_files": 15,
+      "label": "NOT_VERIFIED",
+      "length_matches_claim": true,
+      "longest_file_lines": 80128,
+      "path_tokens": [
+        "Ball",
+        "CA",
+        "H",
+        "IN",
+        "OU"
+      ],
+      "published_length_claim": 80128,
+      "pyc_executed": false,
+      "pyc_files": 3,
+      "scored": false,
+      "sensor_range_applied": false,
+      "shortest_file_lines": 80128,
+      "speeds": [
+        "1000",
+        "1500",
+        "2000"
+      ],
+      "speeds_match_claim": true,
+      "unit_in_first_line": false
+    },
+    "ready": false,
+    "unregistered_files": []
+  },
+  "programme": {
+    "allowed": true,
+    "b1_scored": false,
+    "b2_dev_frozen": true,
+    "b2_holdout_scored": false,
+    "b3_dev_frozen": true,
+    "b3_holdout_scored": false,
+    "b3_second_frozen": true,
+    "b3_single_llm_known": false,
+    "b4_drill_frozen": true,
+    "label": "ESTIMATE",
+    "note": "allowed protects the frozen dev files. programme_complete is not the 12-month goal. B1 schema validity is not a score. The B2 and B3 expert directories are not scored. B2 and B3 single-LLM results must be true or false, not NOT_VERIFIED.",
+    "open_legal_rows": 5,
+    "programme_complete": false,
+    "signed_reviews": 0,
+    "single_llm_known": false,
+    "unsigned_expert_cases": false
+  },
+  "quarantine_duplicate_citation": {
+    "abstention_matches_gold": false,
+    "challenger_reason_ignored": true,
+    "detected": false,
+    "event_hash": "7efb61e3b71f1a4e7a7845d3c509477ef5d42f597eeee853ee48b15f9643246f",
+    "event_type": "abstain",
+    "fault": "duplicate_citation",
+    "label": "ESTIMATE",
+    "note": "Checker says clean. The system abstains and queues the case. That is not a detection.",
+    "protocol_abstain": true,
+    "queue": "human_engineer",
+    "recall": "0/1",
+    "recall_ci95": {
+      "high": "0.793",
+      "low": "0.000",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "system_verdict": "abstain",
+    "verdict": "clean"
+  },
+  "s1": {
+    "abstention_correctness": "1.000",
+    "abstention_correctness_ci95": {
+      "high": "1.000",
+      "low": "0.999",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "cases": 100000,
+    "checker_recall": {
+      "arithmetic": "7000/7000",
+      "bad_citation": "7000/7000",
+      "broken_hash": "7000/7000",
+      "contradictory_requirements": "7000/7000",
+      "false_coverage": "7000/7000",
+      "missing_input": "0/0",
+      "outside_validity": "7000/7000",
+      "sign": "7000/7000",
+      "stale_revision": "7000/7000",
+      "unit_mismatch": "7000/7000",
+      "unit_scale": "7000/7000",
+      "wrong_input": "7000/7000"
+    },
+    "checker_recall_ci95": {
+      "arithmetic": {
+        "high": "1.000",
+        "low": "0.999",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "bad_citation": {
+        "high": "1.000",
+        "low": "0.999",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "broken_hash": {
+        "high": "1.000",
+        "low": "0.999",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "contradictory_requirements": {
+        "high": "1.000",
+        "low": "0.999",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "false_coverage": {
+        "high": "1.000",
+        "low": "0.999",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "missing_input": null,
+      "outside_validity": {
+        "high": "1.000",
+        "low": "0.999",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "sign": {
+        "high": "1.000",
+        "low": "0.999",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "stale_revision": {
+        "high": "1.000",
+        "low": "0.999",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "unit_mismatch": {
+        "high": "1.000",
+        "low": "0.999",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "unit_scale": {
+        "high": "1.000",
+        "low": "0.999",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "wrong_input": {
+        "high": "1.000",
+        "low": "0.999",
+        "method": "wilson",
+        "z": "1.96"
+      }
+    },
+    "compound_complete": "1.000",
+    "compound_complete_ci95": {
+      "high": "1.000",
+      "low": "1.000",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "compound_complete_is_a_pass": true,
+    "date": "2026-11-03",
+    "difficulty_recall": {
+      "easy": "29000/29000",
+      "hard": "22000/22000",
+      "medium": "49000/49000"
+    },
+    "difficulty_recall_ci95": {
+      "easy": {
+        "high": "1.000",
+        "low": "1.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "hard": {
+        "high": "1.000",
+        "low": "1.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "medium": {
+        "high": "1.000",
+        "low": "1.000",
+        "method": "wilson",
+        "z": "1.96"
+      }
+    },
+    "expert_holdout_used": false,
+    "false_alarm_rate": "0.000",
+    "false_alarm_rate_ci95": {
+      "high": "0.000",
+      "low": "0.000",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "generator_version": "s1@1.0.0",
+    "label": "ESTIMATE",
+    "llm_numeric_violation": 0,
+    "naive_recall": {
+      "arithmetic": "0/7000",
+      "bad_citation": "0/7000",
+      "broken_hash": "0/7000",
+      "contradictory_requirements": "0/7000",
+      "false_coverage": "0/7000",
+      "missing_input": "0/0",
+      "outside_validity": "0/7000",
+      "sign": "0/7000",
+      "stale_revision": "0/7000",
+      "unit_mismatch": "0/7000",
+      "unit_scale": "0/7000",
+      "wrong_input": "0/7000"
+    },
+    "seed": 20261103,
+    "seed_controls_sampling": false,
+    "shift_recall": {
+      "in_distribution": {
+        "arithmetic": "3500/3500",
+        "bad_citation": "3500/3500",
+        "broken_hash": "3500/3500",
+        "contradictory_requirements": "3500/3500",
+        "false_coverage": "3500/3500",
+        "missing_input": "0/0",
+        "outside_validity": "3500/3500",
+        "sign": "3500/3500",
+        "stale_revision": "3500/3500",
+        "unit_mismatch": "3500/3500",
+        "unit_scale": "3500/3500",
+        "wrong_input": "3500/3500"
+      },
+      "shifted": {
+        "arithmetic": "3500/3500",
+        "bad_citation": "3500/3500",
+        "broken_hash": "3500/3500",
+        "contradictory_requirements": "3500/3500",
+        "false_coverage": "3500/3500",
+        "missing_input": "0/0",
+        "outside_validity": "3500/3500",
+        "sign": "3500/3500",
+        "stale_revision": "3500/3500",
+        "unit_mismatch": "3500/3500",
+        "unit_scale": "3500/3500",
+        "wrong_input": "3500/3500"
+      }
+    },
+    "shift_recall_ci95": {
+      "in_distribution": {
+        "arithmetic": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "bad_citation": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "broken_hash": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "contradictory_requirements": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "false_coverage": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "missing_input": null,
+        "outside_validity": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "sign": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "stale_revision": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "unit_mismatch": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "unit_scale": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "wrong_input": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      },
+      "shifted": {
+        "arithmetic": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "bad_citation": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "broken_hash": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "contradictory_requirements": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "false_coverage": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "missing_input": null,
+        "outside_validity": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "sign": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "stale_revision": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "unit_mismatch": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "unit_scale": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        },
+        "wrong_input": {
+          "high": "1.000",
+          "low": "0.999",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      }
+    }
+  }
+}
