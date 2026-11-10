@@ -38,6 +38,20 @@ def test_exemplars_score_every_difficulty() -> None:
     assert summary["shift_abstention_ci95"]["shifted"]["method"] == "wilson"
 
 
+def test_exemplars_split_false_alarms_and_abstention_by_fault() -> None:
+    summary = public_summary(score_exemplars())
+    assert summary["false_alarm_by_fault"]["unit_scale"] == "0/13"
+    assert summary["false_alarm_by_fault"]["arithmetic"] == "0/12"
+    assert summary["false_alarm_by_fault"]["broken_hash"] == "0/12"
+    assert summary["false_alarm_by_fault_ci95"]["sign"]["method"] == "wilson"
+    assert summary["false_alarm_by_fault_rate"]["sign"] == "0.000"
+    assert summary["abstention_by_fault"]["missing_input"] == "1/1"
+    assert summary["abstention_by_fault_rate"]["missing_input"] == "1.000"
+    assert summary["abstention_by_fault_ci95"]["missing_input"]["low"] == "0.207"
+    assert summary["abstention_by_fault"]["sign"] == "0/0"
+    assert summary["abstention_by_fault_ci95"]["sign"] is None
+
+
 def test_equal_shift_recall_is_reported_as_no_drop() -> None:
     recalls = {fault: "1/1" for fault in ("unit_scale", "sign")}
     recalls["missing_input"] = "0/0"

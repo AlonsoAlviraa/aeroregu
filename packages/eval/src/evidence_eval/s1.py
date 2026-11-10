@@ -116,6 +116,10 @@ def _score(cases) -> dict[str, Any]:
     seen = 0
     difficulty_hits: dict[str, int] = defaultdict(int)
     difficulty_total: dict[str, int] = defaultdict(int)
+    false_alarm_hits: dict[str, int] = defaultdict(int)
+    false_alarm_eligible: dict[str, int] = defaultdict(int)
+    abstain_hits_by: dict[str, int] = defaultdict(int)
+    abstain_total_by: dict[str, int] = defaultdict(int)
     for case in cases:
         seen += 1
         violations += llm_numeric_violations(case)
@@ -127,6 +131,17 @@ def _score(cases) -> dict[str, Any]:
         shift = case["artifact"]["distribution"]
         difficulty = case["artifact"]["difficulty"]
         difficulty_total[difficulty] += 1
+        gold = set(case["faults"])
+        for fault in SINGLE_FAULTS:
+            if fault in gold:
+                if expected == "abstain":
+                    abstain_total_by[fault] += 1
+                    abstain_hits_by[fault] += int(got == "abstain")
+                elif got == "abstain":
+                    abstain_total_by[fault] += 1
+            else:
+                false_alarm_eligible[fault] += 1
+                false_alarm_hits[fault] += int(fault in found)
         if expected == "clean":
             clean_total += 1
             shift_clean[shift] += 1
@@ -185,11 +200,34 @@ def _score(cases) -> dict[str, Any]:
         "clean_total": clean_total,
         "false_alarm_rate": _ratio(false_alarms, clean_total),
         "false_alarm_rate_ci95": wilson(false_alarms, clean_total),
+        "false_alarm_by_fault": {
+            fault: f"{false_alarm_hits[fault]}/{false_alarm_eligible[fault]}"
+            for fault in SINGLE_FAULTS
+        },
+        "false_alarm_by_fault_rate": {
+            fault: _ratio(false_alarm_hits[fault], false_alarm_eligible[fault])
+            for fault in SINGLE_FAULTS
+        },
+        "false_alarm_by_fault_ci95": {
+            fault: wilson(false_alarm_hits[fault], false_alarm_eligible[fault])
+            for fault in SINGLE_FAULTS
+        },
         "naive_false_alarms": naive_false_alarms,
         "abstain_ok": abstain_ok,
         "abstain_total": abstain_total,
         "abstention_correctness": _ratio(abstain_ok, abstain_total),
         "abstention_correctness_ci95": wilson(abstain_ok, abstain_total),
+        "abstention_by_fault": {
+            fault: f"{abstain_hits_by[fault]}/{abstain_total_by[fault]}" for fault in SINGLE_FAULTS
+        },
+        "abstention_by_fault_rate": {
+            fault: _ratio(abstain_hits_by[fault], abstain_total_by[fault])
+            for fault in SINGLE_FAULTS
+        },
+        "abstention_by_fault_ci95": {
+            fault: wilson(abstain_hits_by[fault], abstain_total_by[fault])
+            for fault in SINGLE_FAULTS
+        },
         "llm_numeric_violation": violations,
         "compound_any_hit": _ratio(compound_any, compound_total),
         "compound_complete": _ratio(compound_complete, compound_total),
@@ -237,6 +275,9 @@ def _score(cases) -> dict[str, Any]:
             "Rates are this run's counts. They are not a certification result.",
             "compound_complete counts a case only when every injected fault is returned.",
             "bench/b1/expert_holdout was not read.",
+            "A per-fault false alarm is a fault named when it was not injected.",
+            "missing_input is the only fault whose correct action is to abstain.",
+            "0/0 abstention means that fault never abstained.",
         ],
     }
 
@@ -280,8 +321,14 @@ def public_summary(report: dict[str, Any]) -> dict[str, Any]:
         "naive_recall",
         "false_alarm_rate",
         "false_alarm_rate_ci95",
+        "false_alarm_by_fault",
+        "false_alarm_by_fault_rate",
+        "false_alarm_by_fault_ci95",
         "abstention_correctness",
         "abstention_correctness_ci95",
+        "abstention_by_fault",
+        "abstention_by_fault_rate",
+        "abstention_by_fault_ci95",
         "llm_numeric_violation",
         "shift_recall",
         "shift_recall_ci95",
@@ -356,9 +403,10 @@ def write_report(report: dict[str, Any]) -> Path:
         f"Compound complete is a pass: {report['compound_complete_is_a_pass']}.",
         shift_gap_note(report),
         "",
-        "Per-fault recall, false-alarm rate, abstention correctness, both",
-        "distribution-shift intervals, and easy/medium/hard recall are in",
-        "s1_latest.json. Label: ESTIMATE.",
+        "Per-fault recall is checker_recall. Per-fault false alarms are",
+        "false_alarm_by_fault. Per-fault abstention is abstention_by_fault.",
+        "Shift intervals and easy/medium/hard recall are in the same file.",
+        "Label: ESTIMATE.",
         "",
     ]
     text_path = folder / "s1_latest.md"

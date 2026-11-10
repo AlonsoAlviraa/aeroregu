@@ -21,6 +21,7 @@ Compound complete: 1.000. Wilson 95%: {'low': '1.000', 'high': '1.000', 'method'
 Compound complete is a pass: True.
 ESTIMATE: shifted recall equals in-distribution recall on every scored single fault. This split did not lower the checker.
 
-Per-fault recall, false-alarm rate, abstention correctness, both
-distribution-shift intervals, and easy/medium/hard recall are in
-s1_latest.json. Label: ESTIMATE.
+Per-fault recall is checker_recall. Per-fault false alarms are
+false_alarm_by_fault. Per-fault abstention is abstention_by_fault.
+Shift intervals and easy/medium/hard recall are in the same file.
+Label: ESTIMATE.
