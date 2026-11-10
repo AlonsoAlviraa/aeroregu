@@ -273,11 +273,11 @@
     "retrieved": "2026-11-09",
     "rows": 445,
     "no_trailing_symbol": 103,
-    "agree": 105,
+    "agree": 106,
     "other_definition": 7,
     "disagree": 7,
     "incompatible": 11,
-    "symbol_unknown": 212,
+    "symbol_unknown": 211,
     "disagree_pairs": [
       "Btu>J",
       "bbl>L",
@@ -297,21 +297,21 @@
       },
       {
         "pair": "bbl>L",
-        "pint": "119.24047119599997",
+        "pint": "119.2404711960000000000000000",
         "published": [
           "158.987300"
         ]
       },
       {
         "pair": "kcal>J",
-        "pint": "4184.0",
+        "pint": "4184",
         "published": [
           "4190.02000"
         ]
       },
       {
         "pair": "lb>kg",
-        "pint": "0.4535923700000001",
+        "pint": "0.45359237",
         "published": [
           "0.3732417"
         ]

@@ -22,6 +22,11 @@ def test_conversion_interval_for_a_multiplicative_unit() -> None:
     from evidence_calc.units import conversion_interval
 
     assert conversion_interval("meter", "meter") == Decimal("1")
+    foot = conversion_interval("meter", "foot")
+    exact = Decimal(1250) / Decimal(381)
+    floated = Decimal("3.2808398950131235")
+    assert isinstance(foot, Decimal)
+    assert abs(foot - exact) < abs(floated - exact)
     assert conversion_interval("meter", "second") == "incompatible"
     assert conversion_interval("°C", "K") is None
 

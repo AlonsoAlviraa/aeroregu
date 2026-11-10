@@ -40,7 +40,7 @@ Source: https://github.com/cyberphone/json-canonicalization testdata. The LICENS
 
 ## NIST SP 811 Appendix B.8
 
-Source: the NIST Guide to the SI, Appendix B.8, retrieved 2026-11-09. Rows: 445. No trailing symbol: 103. Symbol unknown to pint: 212. Interval factor agrees: 105. Same symbols, another printed definition: 7. Disagree: 7 [{'pair': 'Btu>J', 'pint': '1055.056', 'published': ['1055.87000', '1059.67000', '1054.80000', '1054.68000']}, {'pair': 'bbl>L', 'pint': '119.24047119599997', 'published': ['158.987300']}, {'pair': 'kcal>J', 'pint': '4184.0', 'published': ['4190.02000']}, {'pair': 'lb>kg', 'pint': '0.4535923700000001', 'published': ['0.3732417']}]. Incompatible dimensions: 11. Boldface exact factors were not in the text fetch. This is not B1.
+Source: the NIST Guide to the SI, Appendix B.8, retrieved 2026-11-09. Rows: 445. No trailing symbol: 103. Symbol unknown to pint: 211. Interval factor agrees: 106. Same symbols, another printed definition: 7. Disagree: 7 [{'pair': 'Btu>J', 'pint': '1055.056', 'published': ['1055.87000', '1059.67000', '1054.80000', '1054.68000']}, {'pair': 'bbl>L', 'pint': '119.2404711960000000000000000', 'published': ['158.987300']}, {'pair': 'kcal>J', 'pint': '4184', 'published': ['4190.02000']}, {'pair': 'lb>kg', 'pint': '0.45359237', 'published': ['0.3732417']}]. Incompatible dimensions: 11. Boldface exact factors were not in the text fetch. This is not B1.
 
 ## QuRE
 

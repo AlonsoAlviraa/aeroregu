@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from pint import UnitRegistry
@@ -8,6 +9,7 @@ from pint.errors import UndefinedUnitError
 from evidence_calc.errors import AbstainError
 
 _UREG = UnitRegistry()
+_DECIMAL_UREG = UnitRegistry(non_int_type=Decimal)
 _UNITS: dict[str, Any] = {}
 
 
@@ -55,21 +57,22 @@ _PINT_BASE = {
 def conversion_interval(left: str, right: str) -> Any:
     """Size of one left unit measured in right units.
 
-    Two units minus one unit. Pint refuses that subtraction for offset
-    units such as degree Celsius, and this function then returns None.
-    The string incompatible means the dimensions differ.
+    The magnitude is a Decimal. A float magnitude is not stringified.
+    Pint refuses the subtraction for offset units such as degree Celsius,
+    and this function then returns None. The string incompatible means
+    the dimensions differ.
     """
-    from decimal import Decimal
-
     try:
-        left_unit = _unit(left)
-        right_unit = _unit(right)
+        left_unit = _decimal_quantity(left)
+        right_unit = _decimal_quantity(right)
         if not left_unit.is_compatible_with(right_unit):
             return "incompatible"
-        magnitude = ((2 * left_unit) - (1 * left_unit)).to(right_unit).magnitude
+        magnitude = ((2 * left_unit) - (1 * left_unit)).to(right_unit.units).magnitude
     except Exception:
         return None
-    return Decimal(str(magnitude))
+    if not isinstance(magnitude, Decimal):
+        return None
+    return magnitude
 
 
 def dimension_exponents(name: str) -> dict[str, int] | None:
@@ -95,19 +98,11 @@ def dimension_exponents(name: str) -> dict[str, int] | None:
 
 def same_unit(left: str, right: str) -> bool:
     """True when the units match and the scale factor is one."""
-    from decimal import Decimal
-
-    left_name = _normalize_unit(left)
-    right_name = _normalize_unit(right)
     try:
-        left_unit = _unit(left_name)
-        right_unit = _unit(right_name)
-        if not left_unit.is_compatible_with(right_unit):
-            return False
-        magnitude = (1 * left_unit).to(right_unit).magnitude
-        return Decimal(str(magnitude)) == Decimal(1)
+        magnitude = conversion_interval(left, right)
     except (UndefinedUnitError, ValueError, TypeError):
         return False
+    return isinstance(magnitude, Decimal) and magnitude == Decimal(1)
 
 
 def _normalize_unit(name: str) -> str:
@@ -117,6 +112,10 @@ def _normalize_unit(name: str) -> str:
         "1": "dimensionless",
     }
     return aliases.get(name, name)
+
+
+def _decimal_quantity(name: str):
+    return _DECIMAL_UREG.Quantity(Decimal(1), _normalize_unit(name))
 
 
 def _unit(name: str):

@@ -124,9 +124,9 @@ def test_acquired_public_files_match_the_pins() -> None:
     nist = report.get("nist_b8") or {}
     if nist.get("acquired"):
         assert nist["rows"] == 445
-        assert nist["agree"] == 105
+        assert nist["agree"] == 106
         assert nist["disagree"] == 7
-        assert published["nist_b8"]["agree"] == 105
+        assert published["nist_b8"]["agree"] == 106
         assert published["nist_b8"]["disagree_pairs"] == nist["disagree_pairs"]
         assert published["nist_b8"]["disagree_detail"] == nist["disagree_detail"]
         assert {item["pair"] for item in nist["disagree_detail"]} == {
