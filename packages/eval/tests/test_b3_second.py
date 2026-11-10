@@ -41,6 +41,9 @@ def test_second_memo_is_dev_gold_not_a_held_out_set() -> None:
     assert report["scored"] is True
     assert report["expert_holdout"] is False
     assert report["fields_correct"] == "5/5"
+    assert report["full_text_misses"] == []
+    assert report["field_recall"]["rotor_radius_m"] == "1/1"
+    assert report["field_recall_ci95"]["rotor_radius_m"]["method"] == "wilson"
     assert report["page_limited_fields_correct"] == "0/5"
     assert report["no_agent_fields_correct"] == "0/5"
     assert report["beats_single_llm"] == "NOT_VERIFIED"

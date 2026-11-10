@@ -8,6 +8,17 @@ def test_snapshot_keeps_the_b3_page_map(tmp_path):
             "b2": {
                 "beats_no_agent": False,
                 "beats_single_llm": "NOT_VERIFIED",
+                "agent_chain": {
+                    "case_recall": {"b2-dev-true-00": "1/1", "b2-dev-false-06": "1/1"},
+                    "case_recall_ci95": {
+                        "b2-dev-true-00": {"low": "0.207", "high": "1.000"},
+                        "b2-dev-false-06": {"low": "0.207", "high": "1.000"},
+                    },
+                    "case_kind": {
+                        "b2-dev-true-00": "link",
+                        "b2-dev-false-06": "false_coverage",
+                    },
+                },
                 "span_probe": {"verifier_links": True, "chain_abstains": True},
             },
             "b3": {
@@ -81,6 +92,7 @@ def test_snapshot_keeps_the_b3_page_map(tmp_path):
     text = path.read_text(encoding="utf-8")
     assert '"blade_count": 2' in text
     brief = (tmp_path / "make_bench_latest.md").read_text(encoding="utf-8")
+    assert "B2 case b2-dev-false-06 (false_coverage): 1/1." in brief
     assert "B3 field blade_count: 1/1." in brief
     assert "B3 field strain_gage_count: 0/1." in brief
     assert "B3 ready: None. dev_pdf_scored: None." in brief

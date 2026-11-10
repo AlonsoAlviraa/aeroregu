@@ -606,10 +606,16 @@ def _agent_chain_dev() -> dict[str, Any]:
     false_total = 0
     false_alarms = 0
     abstentions = 0
+    case_recall: dict[str, str] = {}
+    case_recall_ci95: dict[str, Any] = {}
+    case_kind: dict[str, str] = {}
     cases = dev_cases()
     with tempfile.TemporaryDirectory() as tmp:
         ledger = Ledger(Path(tmp) / "b2.sqlite3", "bench")
         for index, case in enumerate(cases):
+            case_id = case["case_id"]
+            kind = "link" if case["gold_links"] else "false_coverage"
+            case_kind[case_id] = kind
             evidence = case["evidence"][0]
             outcome = run_identifier_case(
                 ledger,
@@ -622,6 +628,7 @@ def _agent_chain_dev() -> dict[str, Any]:
             )
             if outcome.get("queue"):
                 abstentions += 1
+                case_recall[case_id] = "abstain"
             if case["gold_links"]:
                 link_total += 1
                 expected = case["gold_links"][0][0]
@@ -633,6 +640,10 @@ def _agent_chain_dev() -> dict[str, Any]:
                 false_hits += int(ok)
                 if outcome.get("requirement_id"):
                     false_alarms += 1
+            if case_id not in case_recall:
+                hit = int(ok)
+                case_recall[case_id] = f"{hit}/1"
+                case_recall_ci95[case_id] = wilson(hit, 1)
             hits += int(ok)
         violations = _result_number_violations(ledger.events())
     return {
@@ -645,6 +656,9 @@ def _agent_chain_dev() -> dict[str, Any]:
         "false_alarms": f"{false_alarms}/{false_total}",
         "false_alarm_ci95": wilson(false_alarms, false_total),
         "abstentions": abstentions,
+        "case_recall": case_recall,
+        "case_recall_ci95": case_recall_ci95,
+        "case_kind": case_kind,
         "llm_numeric_violation": violations,
         "label": "ESTIMATE",
         "note": (

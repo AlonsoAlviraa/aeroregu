@@ -50,15 +50,39 @@ def _b3_alarm_line(b3: dict[str, Any]) -> str:
     )
 
 
-def _b3_field_lines(b3: dict[str, Any]) -> list[str]:
-    recall = b3.get("field_recall") or {}
-    intervals = b3.get("field_recall_ci95") or {}
+def _field_recall_lines(prefix: str, report: dict[str, Any]) -> list[str]:
+    recall = report.get("field_recall") or {}
+    intervals = report.get("field_recall_ci95") or {}
     if not isinstance(recall, dict) or not recall:
         return []
     return [
-        f"B3 field {name}: {recall[name]}. Wilson 95% {_ci(intervals.get(name))}."
+        f"{prefix} {name}: {recall[name]}. Wilson 95% {_ci(intervals.get(name))}."
         for name in sorted(recall)
     ]
+
+
+def _b3_field_lines(b3: dict[str, Any]) -> list[str]:
+    return _field_recall_lines("B3 field", b3)
+
+
+def _b2_case_lines(b2: dict[str, Any]) -> list[str]:
+    chain = b2.get("agent_chain") or {}
+    recall = chain.get("case_recall") or {}
+    kinds = chain.get("case_kind") or {}
+    intervals = chain.get("case_recall_ci95") or {}
+    if not isinstance(recall, dict) or not recall:
+        return []
+    lines: list[str] = []
+    for case_id in sorted(recall):
+        kind = kinds.get(case_id, "unknown")
+        hit = recall[case_id]
+        if hit == "abstain":
+            lines.append(f"B2 case {case_id} ({kind}): abstain.")
+            continue
+        lines.append(
+            f"B2 case {case_id} ({kind}): {hit}. Wilson 95% {_ci(intervals.get(case_id))}."
+        )
+    return lines
 
 
 def _b3_baseline_line(b3: dict[str, Any]) -> str:
@@ -244,6 +268,13 @@ def _second_pdf_absent(report: dict[str, Any]) -> bool:
     if report.get("pdf_present") is True:
         return False
     return report.get("pdf_present") is False or report.get("scored") is False
+
+
+def _second_lines(report: dict[str, Any]) -> list[str]:
+    lines = [_second_line(report)]
+    if report.get("fields_correct"):
+        lines.extend(_field_recall_lines("B3 second field", report))
+    return lines
 
 
 def _second_line(report: dict[str, Any]) -> str:
@@ -483,11 +514,12 @@ def _brief(benchmarks: dict[str, Any], note: str) -> str:
         f"B2 beats_no_agent: {b2.get('beats_no_agent')}. "
         f"beats_single_llm: {b2.get('beats_single_llm')}.",
         f"B2 public headings only: {b2.get('public_headings_only')}.",
+        *_b2_case_lines(b2),
         _chain_numeric_line(b2),
         _span_probe_line(b2.get("span_probe") or {}),
         _two_pack_line(b2.get("two_pack_probe") or {}),
         *_b3_lines(b3, benchmarks),
-        _second_line(benchmarks.get("b3_second") or {}),
+        *_second_lines(benchmarks.get("b3_second") or {}),
         *_b4_lines(b4),
         f"Duplicate citation recall: {quarantine.get('recall')}. "
         f"Wilson 95%: {_ci(quarantine.get('recall_ci95'))}. "

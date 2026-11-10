@@ -59,6 +59,9 @@ def test_b2_dev_links_and_false_coverage() -> None:
     assert report["agent_chain"]["false_alarm_ci95"]["low"] == "0.000"
     assert report["agent_chain"]["false_alarm_ci95"]["method"] == "wilson"
     assert report["agent_chain"]["abstentions"] == 0
+    assert len(report["agent_chain"]["case_recall"]) == 8
+    assert report["agent_chain"]["case_recall"]["b2-dev-true-00"] == "1/1"
+    assert report["agent_chain"]["case_kind"]["b2-dev-false-06"] == "false_coverage"
     assert report["agent_chain"]["llm_numeric_violation"] == 0
     assert "span probe" in report["agent_chain"]["note"]
     notes = " ".join(report["notes"])

@@ -83,6 +83,7 @@ def score_second() -> dict[str, Any]:
     shallow_hits = _hits(shallow, judged_field, _quote)
     alarms, emitted = _false_alarms(full, judged_field, _quote)
     shallow_alarms, shallow_emitted = _false_alarms(shallow, judged_field, _quote)
+    field_recall, field_recall_ci95, full_text_misses = _field_recall(full, judged_field, _quote)
     hashes, unit_abstains, numeric_violations, recorded = _record_fields(full)
     total = len(GOLD_FIELDS)
     decimal_hits, words = _split_hits(full, judged_field, _quote)
@@ -112,6 +113,9 @@ def score_second() -> dict[str, Any]:
         "abstentions_correct": (f"{_abstention_hits(words, recorded, column)}/2"),
         "abstention_ci95": wilson(_abstention_hits(words, recorded, column), 2),
         "field_pages": _pages(pages, judged_field, _quote),
+        "full_text_misses": full_text_misses,
+        "field_recall": field_recall,
+        "field_recall_ci95": field_recall_ci95,
         "event_hashes": hashes,
         "llm_numeric_violation": numeric_violations,
         "recorded_fields": recorded,
@@ -273,6 +277,35 @@ def _abstention_hits(words: list[str], recorded: list[dict[str, str]], column: b
     word_not_stored = "blade_count_word" in words and "blade_count_word" not in recorded_names
     table_not_stored = bool(column)
     return int(word_not_stored) + int(table_not_stored)
+
+
+def _field_recall(
+    text: str,
+    judged_field,
+    quote,
+) -> tuple[dict[str, str], dict[str, Any], list[str]]:
+    from evidence_eval.score import wilson
+
+    recall: dict[str, str] = {}
+    intervals: dict[str, Any] = {}
+    misses: list[str] = []
+    for field in GOLD_FIELDS:
+        ok = int(_field_accepted(text, field, judged_field, quote))
+        name = field["name"]
+        recall[name] = f"{ok}/1"
+        intervals[name] = wilson(ok, 1)
+        if ok == 0:
+            misses.append(name)
+    return recall, intervals, misses
+
+
+def _field_accepted(text: str, field: dict[str, str], judged_field, quote) -> bool:
+    quoted = quote(text, field)
+    if not judged_field(field["name"], quoted, field["value_text"]):
+        return False
+    if quoted is None or not _measured_ok(quoted["value_text"], field["unit_text"]):
+        return False
+    return _challenger_accepts(text, quoted)
 
 
 def _hits(text: str, judged_field, quote) -> int:
