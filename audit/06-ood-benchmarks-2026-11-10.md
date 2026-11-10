@@ -28,7 +28,10 @@ PARTIAL: Unparsed 61. Reason: The unit id did not spell, or conversion_interval 
 PARTIAL: Offset rows not scored 2. Reason: offset unit.
 VERIFIED: Incompatible 4. Reason: conversion_interval returned incompatible.
 VERIFIED: Bad factors 0.
-VERIFIED: Wilson 95 percent low 0.731 high 0.888.
+VERIFIED: Compared 90.
+VERIFIED: Offset interval none 2.
+VERIFIED: Tokens withheld 0.
+VERIFIED: Wilson 95 percent low 0.731 high 0.888. Method wilson.
 VERIFIED: Disagree arc_minute|revolution pint 0.00004629629629629629629629629631 published 0.00004629629629629629629629629630.
 VERIFIED: Disagree arc_second|revolution pint 7.716049382716049382716049385E-7 published 7.716049382716049382716049383E-7.
 VERIFIED: Disagree barrel|meter ** 3 pint 0.1192404711960000000000000000 published 0.158987294928.
@@ -124,7 +127,8 @@ VERIFIED: Measured: Count of publisher class tokens.
 NOT VERIFIED: Not measured: Which class is correct. No classifier exists.
 NOT VERIFIED: Scored 0. Missing component: requirement-quality classifier.
 VERIFIED: File rows 1316. Class tokens only. Requirement text was not copied.
-VERIFIED: Class counts {'NSR': 802, 'SR': 514}.
+VERIFIED: Class counts {"NSR": 802, "SR": 514}.
+VERIFIED: Requirements copied 0.
 PARTIAL: DataCite abstract rows 1317, NSR 801, SR 516. abstract_matches_file is false.
 
 ## MobSTr-safetycase
@@ -160,6 +164,7 @@ VERIFIED: Trace elements 174.
 VERIFIED: Publisher links 174.
 VERIFIED: Predicted links 0.
 VERIFIED: Comparable links 0.
+VERIFIED: Negative labels 0.
 VERIFIED: Precision is null. The file has no negative labels.
 NOT VERIFIED: Scored 0. Missing component: publisher labels are artifact references, not the eight public headings. Recall was not computed.
 VERIFIED: Trace type AddressedByFMEA count 1.
