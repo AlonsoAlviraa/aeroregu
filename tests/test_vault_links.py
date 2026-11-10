@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 
+import pytest
 from evidence_kernel.paths import repo_root
 
 _LINK = re.compile(r"\[\[([^\]|#]+)")
@@ -25,6 +26,8 @@ def _targets(text: str) -> list[str]:
 
 def test_every_vault_note_is_named_in_the_index_and_every_link_resolves() -> None:
     root = _vault()
+    if not (root / "00-Indice.md").is_file():
+        pytest.skip("Workspace vault missing; needs local AIRBUS/regulacion tree.")
     notes = list(root.rglob("*.md"))
     stems = {path.stem for path in notes}
     index = (root / "00-Indice.md").read_text(encoding="utf-8")
