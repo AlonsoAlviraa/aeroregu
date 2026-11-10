@@ -64,6 +64,14 @@ def test_b2_dev_links_and_false_coverage() -> None:
     assert "VTOL.2225" in notes
     assert "not copied" in notes
     probe = report["span_probe"]
+    two_pack = report["two_pack_probe"]
+    assert two_pack["frozen_set"] is False
+    assert two_pack["verifier_links"] == 2
+    assert two_pack["chain_links"] == 2
+    assert two_pack["chain_matches_verifier"] is True
+    assert two_pack["beats_verifier"] is False
+    assert two_pack["llm_numeric_violation"] == 0
+    assert "not a win" in two_pack["note"]
     assert probe["frozen_set"] is False
     assert probe["verifier_links"] is True
     assert probe["chain_abstains"] is True

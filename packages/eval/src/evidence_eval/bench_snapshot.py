@@ -153,6 +153,15 @@ def _load_factor_line(report: dict[str, Any]) -> str:
     return f"B3 load-factor column abstained. Value empty. {recorded}."
 
 
+def _two_pack_line(probe: dict[str, Any]) -> str:
+    if not probe:
+        return "B2 two-pack probe: absent."
+    return (
+        f"B2 two-pack probe: chain matches verifier {probe.get('chain_matches_verifier')}. "
+        "Not a win. Not in the frozen dev set."
+    )
+
+
 def _span_probe_line(probe: dict[str, Any]) -> str:
     if not probe:
         return "B2 span probe: absent."
@@ -406,6 +415,7 @@ def _brief(benchmarks: dict[str, Any], note: str) -> str:
         f"B2 public headings only: {b2.get('public_headings_only')}.",
         _chain_numeric_line(b2),
         _span_probe_line(b2.get("span_probe") or {}),
+        _two_pack_line(b2.get("two_pack_probe") or {}),
         *_b3_lines(b3, benchmarks),
         _second_line(benchmarks.get("b3_second") or {}),
         *_b4_lines(b4),

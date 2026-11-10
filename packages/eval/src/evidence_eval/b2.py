@@ -303,12 +303,14 @@ def score_b2() -> dict[str, Any]:
         "beats_single_llm": "NOT_VERIFIED",
         "agent_chain": chain,
         "span_probe": span_probe(),
+        "two_pack_probe": two_pack_probe(),
         "public_headings_only": heading_gate_ok(),
         "notes": [
             "The hash-blind linker ignores the hash. The verifier drops a zero hash.",
             "The spec no-agent baseline is that verifier. It is not an LLM.",
             "The specialist chain ties the verifier on these cases, so it does not beat it.",
             "Chain intervals cover the 8 dev cases only. The span probe is excluded.",
+            "The two-pack probe is excluded too. A tie there is not a win.",
             "A live single-LLM baseline was not run.",
             "Headings CS 27.301 Loads and CS 29.301 Loads were seen on 2026-11-09.",
             "SC-VTOL-02 headings seen the same day: VTOL.2200, VTOL.2210, VTOL.2215,",
@@ -318,6 +320,45 @@ def score_b2() -> dict[str, Any]:
             "The CS-29 Amendment 12 page was read on 2026-11-03 and states no licence.",
             "The expert held-out directory is empty, so it was not scored.",
         ],
+    }
+
+
+def two_pack_probe() -> dict[str, Any]:
+    """Two packs, two headings. Not part of the frozen dev hash."""
+    import tempfile
+    from pathlib import Path
+
+    from evidence_kernel.ledger import Ledger
+
+    from evidence_eval.agent_case import map_report
+
+    text = "Pack ev-1 addresses VTOL.2210. Pack ev-2 addresses VTOL.2215."
+    evidence = [
+        {"id": "ev-1", "hash": "ab" * 32},
+        {"id": "ev-2", "hash": "cd" * 32},
+    ]
+    links, flags = predict(text, evidence, check_hash=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        ledger = Ledger(Path(tmp) / "two.sqlite3", "bench")
+        outcome = map_report(
+            ledger,
+            text=text,
+            evidence=evidence,
+            tenant_id="bench",
+            actor_id="orchestrator",
+            created_at="2026-11-10T18:40:00Z",
+        )
+    verifier = {(link["requirement_id"], link["evidence_id"]) for link in links}
+    chain = {(link["requirement_id"], link["evidence_id"]) for link in outcome["links"]}
+    return {
+        "frozen_set": False,
+        "verifier_links": len(links),
+        "chain_links": len(outcome["links"]),
+        "chain_matches_verifier": verifier == chain and flags == set() and outcome["queue"] is None,
+        "beats_verifier": False,
+        "llm_numeric_violation": outcome["llm_numeric_violation"],
+        "label": "ESTIMATE",
+        "note": "Two synthetic sentences. Not in the frozen dev hash. A tie is not a win.",
     }
 
 
