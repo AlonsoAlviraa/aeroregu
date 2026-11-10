@@ -118,6 +118,36 @@ def test_a_holdout_case_with_a_hash_can_be_scored(tmp_path) -> None:
     assert scored["judge_correct"] == "1/1"
     assert scored["abstained"] == 0
     assert scored["judge_ci95"]["method"] == "wilson"
+    assert scored["false_alarms"] == "0/1"
+    assert scored["abstentions_correct"] == "0/0"
+    assert scored["llm_numeric_violation"] == 0
+
+
+def test_an_empty_evidence_list_abstains_when_there_is_no_gold_link(tmp_path) -> None:
+    import json
+
+    from evidence_eval.b2 import score_expert_holdout
+    from evidence_eval.holdout_gate import REQUIRED_SENTENCE
+
+    case = {
+        "case_id": "expert-b2-empty",
+        "report": "Pack ev-9 names no requirement.",
+        "gold_links": [],
+        "evidence": [],
+        "provenance": {
+            "author": "domain-expert",
+            "statement": "No employer material.",
+        },
+    }
+    (tmp_path / "AUTHOR.md").write_text(REQUIRED_SENTENCE + "\n", encoding="utf-8")
+    (tmp_path / "one.json").write_text(json.dumps(case), encoding="utf-8")
+    scored = score_expert_holdout(tmp_path)
+    assert scored["scored"] is False
+    assert scored["abstained"] == 1
+    assert scored["abstentions_correct"] == "1/1"
+    assert scored["abstention_ci95"]["method"] == "wilson"
+    assert scored["false_alarms"] == "0/0"
+    assert scored["llm_numeric_violation"] == 0
 
 
 def test_a_b2_case_without_the_employer_phrase_is_rejected(tmp_path) -> None:

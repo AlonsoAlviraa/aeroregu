@@ -96,16 +96,25 @@ def score_expert_holdout(folder: Path | None = None) -> dict[str, Any]:
     judged = 0
     judged_hits = 0
     abstained = 0
+    abstain_ok = 0
+    false_alarms = 0
+    predicted = 0
     try:
         for path in sorted(target.glob("*.json")):
             if not _accept_holdout_case(path):
                 continue
             case = json.loads(path.read_text(encoding="utf-8"))
             evidence = case.get("evidence")
+            gold = _gold_pairs(case)
             if not isinstance(evidence, list) or not evidence:
                 abstained += 1
+                if not gold:
+                    abstain_ok += 1
                 continue
             links, _flags = predict(str(case["report"]), evidence, check_hash=True)
+            pred = {(link["requirement_id"], link["evidence_id"]) for link in links}
+            false_alarms += len(pred - gold)
+            predicted += len(pred)
             judged += 1
             if judged_match(str(case["case_id"]), links, case["gold_links"]):
                 judged_hits += 1
@@ -117,24 +126,48 @@ def score_expert_holdout(folder: Path | None = None) -> dict[str, Any]:
             "label": "NOT_VERIFIED",
             "note": "The scorer stopped. The case text is not in this report.",
         }
+    from evidence_eval.score import wilson
+
+    rates = {
+        "false_alarms": f"{false_alarms}/{predicted}",
+        "false_alarm_ci95": wilson(false_alarms, predicted),
+        "abstentions_correct": f"{abstain_ok}/{abstained}",
+        "abstention_ci95": wilson(abstain_ok, abstained),
+        "llm_numeric_violation": 0,
+    }
     if judged == 0:
         return {
             "scored": False,
             "judge_correct": "0/0",
             "abstained": abstained,
             "label": "NOT_VERIFIED",
-            "note": "Nothing was scored. An empty evidence list abstains.",
+            "note": (
+                "Nothing was scored. An empty evidence list abstains. "
+                "That abstention is correct only when the case has no gold link. "
+                "No numeric result is stored."
+            ),
+            **rates,
         }
-    from evidence_eval.score import wilson
-
     return {
         "scored": True,
         "judge_correct": f"{judged_hits}/{judged}",
         "judge_ci95": wilson(judged_hits, judged),
         "abstained": abstained,
         "label": "ESTIMATE",
-        "note": "Scored with the frozen hash verifier. Not used to change the checker.",
+        "note": (
+            "Scored with the frozen hash verifier. Not used to change the checker. "
+            "No numeric result is stored, so llm_numeric_violation is 0."
+        ),
+        **rates,
     }
+
+
+def _gold_pairs(case: dict[str, Any]) -> set[tuple[str, str]]:
+    pairs: set[tuple[str, str]] = set()
+    for item in case.get("gold_links") or []:
+        if _link_pair(item):
+            pairs.add((item[0], item[1]))
+    return pairs
 
 
 def _link_pair(item: object) -> bool:
