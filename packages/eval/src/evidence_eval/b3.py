@@ -110,6 +110,8 @@ def score_b3() -> dict[str, Any]:
     shallow = "\n".join(pages[:2])
     full_hits = _hit_count(full)
     shallow_hits = _hit_count(shallow)
+    false_alarms, emitted = _false_alarms(full)
+    shallow_alarms, shallow_emitted = _false_alarms(shallow)
     page_limited_misses = _missed_fields(shallow)
     field_pages = _field_pages(pages)
     total = len(GOLD_FIELDS)
@@ -156,6 +158,12 @@ def score_b3() -> dict[str, Any]:
         "quoted_span_hashes": quoted,
         "expert_holdout": holdout["scored"],
         "expert_holdout_llm_numeric_violation": holdout.get("llm_numeric_violation", 0),
+        "false_alarms": f"{false_alarms}/{emitted}",
+        "false_alarm_ci95": wilson(false_alarms, emitted),
+        "page_limited_false_alarms": f"{shallow_alarms}/{shallow_emitted}",
+        "page_limited_false_alarm_ci95": wilson(shallow_alarms, shallow_emitted),
+        "abstentions_correct": f"{_abstention_hits(abstained, load_factor, assumption)}/3",
+        "abstention_ci95": wilson(_abstention_hits(abstained, load_factor, assumption), 3),
         "beats_page_limited_reader": full_hits > shallow_hits,
         "beats_no_agent": full_hits > 0,
         "beats_single_llm": "NOT_VERIFIED",
@@ -164,6 +172,8 @@ def score_b3() -> dict[str, Any]:
             "ready is false. dev_pdf_scored only means the local PDF matched the dev patterns.",
             "The spec no-agent baseline reads no pages and returns no fields.",
             "Beating that baseline is a trivial comparison.",
+            "A false alarm is an emitted field whose value is not the gold value.",
+            "The abstention count is empty text, the load-factor column, and the assumption span.",
             "The two-page count is a separate page-limited reader.",
             "The full-document reader uses the same patterns on every page.",
             "Page text comes from evidence_ingest.pdf.read_pdf_pages.",
@@ -300,6 +310,22 @@ def _accepted(text: str, field: dict[str, str]) -> bool:
 
 def _hit_count(text: str) -> int:
     return sum(1 for field in GOLD_FIELDS if _accepted(text, field))
+
+
+def _false_alarms(text: str) -> tuple[int, int]:
+    alarms = 0
+    emitted = 0
+    for field in GOLD_FIELDS:
+        if _quote(text, field) is None:
+            continue
+        emitted += 1
+        if not _accepted(text, field):
+            alarms += 1
+    return alarms, emitted
+
+
+def _abstention_hits(empty_text: bool, load_factor: bool, assumption: bool) -> int:
+    return int(empty_text) + int(load_factor) + int(assumption)
 
 
 def _field_pages(pages: list[str]) -> dict[str, int | None]:

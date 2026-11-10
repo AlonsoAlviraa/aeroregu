@@ -37,6 +37,19 @@ def _ci(block: object) -> str:
     return f"{low} to {high}"
 
 
+def _b3_alarm_line(b3: dict[str, Any]) -> str:
+    if "false_alarms" not in b3:
+        return "B3 false alarms: absent."
+    return (
+        f"B3 false alarms: {b3.get('false_alarms')}. "
+        f"Wilson 95%: {_ci(b3.get('false_alarm_ci95'))}. "
+        f"Page-limited false alarms: {b3.get('page_limited_false_alarms')}. "
+        f"Abstentions correct: {b3.get('abstentions_correct')}. "
+        f"Wilson 95%: {_ci(b3.get('abstention_ci95'))}. "
+        "Beating the no-read baseline is trivial."
+    )
+
+
 def _b3_baseline_line(b3: dict[str, Any]) -> str:
     no_agent = str(b3.get("no_agent_fields_correct", ""))
     if b3.get("beats_no_agent") is True and no_agent.startswith("0/"):
@@ -325,6 +338,7 @@ def _b3_lines(b3: dict[str, Any], benchmarks: dict[str, Any]) -> list[str]:
         f"B3 no-agent: {b3.get('no_agent_fields_correct')}. "
         f"Wilson 95%: {_ci(b3.get('no_agent_ci95'))}.",
         _b3_baseline_line(b3),
+        _b3_alarm_line(b3),
         f"B3 misses: {json.dumps(b3.get('page_limited_misses'))}.",
         f"B3 pages: {json.dumps(b3.get('field_pages'))}.",
         f"B3 beats_single_llm: {b3.get('beats_single_llm')}.",
