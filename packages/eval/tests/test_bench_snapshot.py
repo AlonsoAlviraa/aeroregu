@@ -93,6 +93,7 @@ def test_snapshot_keeps_the_b3_page_map(tmp_path):
     assert "V3109" in brief
     assert "chain abstains True" in brief
     assert "Programme complete: False" in brief
+    assert "Dev false alarms by fault: absent." in brief
     assert "Drill frozen: True" in brief
     assert "Flight-table column abstained: True" in brief
     assert "Unit abstains: 0" in brief

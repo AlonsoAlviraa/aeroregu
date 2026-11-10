@@ -309,6 +309,16 @@ def main(argv: list[str] | None = None) -> int:
             quotes = score_nasa_quotes(quote_ledger)
         benchmarks = {
             "b1": b1_status(),
+            "dev": {
+                "cases": checker["cases"],
+                "label": "ESTIMATE",
+                "false_alarm_by_fault": checker["false_alarm_by_fault"],
+                "false_alarm_by_fault_ci95": checker["false_alarm_by_fault_ci95"],
+                "abstention_by_fault": checker["abstention_by_fault"],
+                "abstention_by_fault_ci95": checker["abstention_by_fault_ci95"],
+                "fault_counts": checker["fault_counts"],
+                "note": checker["note"],
+            },
             "b2": score_b2(),
             "b3": b3_status(),
             "b3_second": score_second(),

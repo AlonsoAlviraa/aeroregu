@@ -162,6 +162,23 @@ def _two_pack_line(probe: dict[str, Any]) -> str:
     )
 
 
+def _dev_fault_line(dev: dict[str, Any]) -> str:
+    if not dev:
+        return "Dev false alarms by fault: absent."
+    alarms = dev.get("false_alarm_by_fault") or {}
+    abstain = dev.get("abstention_by_fault") or {}
+    nonzero = [name for name, value in alarms.items() if not str(value).startswith("0/")]
+    if nonzero:
+        alarm_text = ", ".join(f"{name} {alarms[name]}" for name in nonzero)
+    else:
+        alarm_text = "all zero"
+    return (
+        f"Dev false alarms by fault: {alarm_text}. "
+        f"Abstention missing_input {abstain.get('missing_input')}. "
+        "Same-author dev split. Not the expert holdout."
+    )
+
+
 def _span_probe_line(probe: dict[str, Any]) -> str:
     if not probe:
         return "B2 span probe: absent."
@@ -410,6 +427,7 @@ def _brief(benchmarks: dict[str, Any], note: str) -> str:
         "NOT VERIFIED: this file is not an expert-authored held-out result.",
         "",
         f"B1 ready: {b1.get('ready')}. Cases: {b1.get('expert_holdout_cases')}.",
+        _dev_fault_line(benchmarks.get("dev") or {}),
         f"B2 beats_no_agent: {b2.get('beats_no_agent')}. "
         f"beats_single_llm: {b2.get('beats_single_llm')}.",
         f"B2 public headings only: {b2.get('public_headings_only')}.",

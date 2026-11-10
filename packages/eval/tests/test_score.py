@@ -32,6 +32,14 @@ def test_dev_deterministic_recall_is_one() -> None:
     assert report["missing_input_total"] >= 2
     assert report["missing_input_ok"] == report["missing_input_total"]
     assert report["llm_numeric_violation"] == 0
+    for fault, value in report["false_alarm_by_fault"].items():
+        assert value == "0/22", fault
+        assert report["false_alarm_by_fault_ci95"][fault]["method"] == "wilson"
+    assert report["abstention_by_fault"]["missing_input"] == "2/2"
+    assert report["abstention_by_fault_ci95"]["missing_input"]["method"] == "wilson"
+    assert report["abstention_by_fault"]["unit_scale"] == "0/0"
+    assert report["abstention_by_fault_ci95"]["unit_scale"] is None
+    assert report["note"] == "Same-author split. Not the expert holdout."
     for case in load_split("dev"):
         if case["expected"] != "abstain":
             continue

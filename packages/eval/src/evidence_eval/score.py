@@ -13,6 +13,13 @@ from evidence_eval.detect import DETERMINISTIC_FAULTS, assess, llm_numeric_viola
 
 _QUANTUM = Decimal("0.001")
 _Z = Decimal("1.96")
+SCORED_FAULTS = DETERMINISTIC_FAULTS + (
+    "stale_revision",
+    "false_coverage",
+    "broken_hash",
+    "bad_span",
+    "missing_input",
+)
 
 
 def load_split(split: str) -> list[dict[str, Any]]:
@@ -65,11 +72,35 @@ def score_cases(
     missing_ok = 0
     violations = 0
     mismatches: list[dict[str, str]] = []
+    false_alarm_hits: dict[str, int] = defaultdict(int)
+    false_alarm_eligible: dict[str, int] = defaultdict(int)
+    abstain_hits: dict[str, int] = defaultdict(int)
+    abstain_total: dict[str, int] = defaultdict(int)
     for case in cases:
         violations += llm_numeric_violations(case)
         assessed = assess_fn(case["artifact"])
         got = assessed["verdict"]
         expected = case["expected"]
+        found = set(assessed.get("faults") or [])
+        gold = set(case.get("faults") or [])
+        envelope = assessed.get("envelope") or {}
+        correct_abstain = (
+            got == "abstain"
+            and "result" not in envelope
+            and envelope.get("confidence") == "abstain"
+        )
+        if expected == "abstain":
+            abstain_total["missing_input"] += 1
+            abstain_hits["missing_input"] += int(correct_abstain)
+        elif got == "abstain":
+            for fault in gold:
+                if fault in SCORED_FAULTS:
+                    abstain_total[fault] += 1
+        for fault in SCORED_FAULTS:
+            if fault in gold:
+                continue
+            false_alarm_eligible[fault] += 1
+            false_alarm_hits[fault] += int(fault in found)
         if expected == "clean":
             clean_total += 1
             if got != "clean":
@@ -128,6 +159,21 @@ def score_cases(
         "missing_input_total": missing_total,
         "abstention_correctness": _rate(missing_ok, missing_total),
         "abstention_correctness_ci95": wilson(missing_ok, missing_total),
+        "false_alarm_by_fault": {
+            fault: f"{false_alarm_hits[fault]}/{false_alarm_eligible[fault]}"
+            for fault in SCORED_FAULTS
+        },
+        "false_alarm_by_fault_ci95": {
+            fault: wilson(false_alarm_hits[fault], false_alarm_eligible[fault])
+            for fault in SCORED_FAULTS
+        },
+        "abstention_by_fault": {
+            fault: f"{abstain_hits[fault]}/{abstain_total[fault]}" for fault in SCORED_FAULTS
+        },
+        "abstention_by_fault_ci95": {
+            fault: wilson(abstain_hits[fault], abstain_total[fault]) for fault in SCORED_FAULTS
+        },
+        "note": "Same-author split. Not the expert holdout.",
         "llm_numeric_violation": violations,
         "fault_recall": fault_recall,
         "fault_counts": fault_counts,
