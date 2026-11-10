@@ -21,7 +21,7 @@ from evidence_kernel.envelope import make_envelope, project_source
 from evidence_kernel.ledger import Ledger
 from evidence_kernel.orchestrator import record
 
-from evidence_eval.b2 import ID_RE, PUBLIC_HEADINGS, _nearest_evidence_id, predict
+from evidence_eval.b2 import ID_RE, PUBLIC_HEADINGS, _is_sha256, _nearest_evidence_id, predict
 from evidence_eval.quote_pipeline import challenge
 
 _EVIDENCE = re.compile(r"\bev-\d+\b")
@@ -80,6 +80,9 @@ def run_identifier_case(
         return _queued(digest)
     if _EVIDENCE.fullmatch(recorded.evidence_id) is None:
         digest = _queue(ledger, tenant_id, actor_id, created_at, "bad_evidence_id")
+        return _queued(digest)
+    if evidence_hash != "0" * 64 and not _is_sha256(evidence_hash):
+        digest = _queue(ledger, tenant_id, actor_id, created_at, "hash_missing")
         return _queued(digest)
     if evidence_hash == "0" * 64:
         digest = _flag_zero_hash(

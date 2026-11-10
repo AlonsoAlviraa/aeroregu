@@ -32,6 +32,14 @@ PUBLIC_HEADINGS = frozenset(
 EV_RE = re.compile(r"\bev-\d+\b")
 ZERO_HASH = "0" * 64
 
+
+def _is_sha256(value: object) -> bool:
+    """A stored hash is 64 hex characters. A missing or short value is not one."""
+    if not isinstance(value, str) or len(value) != 64:
+        return False
+    return all(char in "0123456789abcdef" for char in value.casefold())
+
+
 # Headings were read on 2026-11-09. Paragraphs are not stored.
 # CS 27.301 Loads, CS 29.301 Loads, and the six VTOL.22xx headings below.
 
@@ -538,7 +546,7 @@ def predict(
         if check_hash and digest == ZERO_HASH:
             flags.add(pair)
             continue
-        if check_hash and (not isinstance(digest, str) or digest.strip() == ""):
+        if check_hash and not _is_sha256(digest):
             continue
         links.append(
             {

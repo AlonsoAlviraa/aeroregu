@@ -308,6 +308,12 @@ def test_a_missing_hash_is_not_a_link() -> None:
     assert flags == set()
 
 
+def test_a_short_hash_is_not_a_link() -> None:
+    links, flags = predict("Pack ev-9 addresses VTOL.2210.", [{"id": "ev-9", "hash": "ab"}])
+    assert links == []
+    assert flags == set()
+
+
 def test_a_pack_missing_from_the_register_is_not_a_zero_hash() -> None:
     links, flags = predict("Pack ev-1 addresses VTOL.2210.", [])
     assert links == []

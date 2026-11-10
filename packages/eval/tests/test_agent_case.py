@@ -3,6 +3,7 @@ from evidence_kernel.ledger import Ledger
 
 WHEN = "2026-11-03T21:00:00Z"
 TEXT = "Pack ev-1 addresses VTOL.2210 with a stored hash."
+HASH = "ab" * 32
 
 
 def test_one_identifier_is_mapped_and_scribed(tmp_path) -> None:
@@ -11,6 +12,7 @@ def test_one_identifier_is_mapped_and_scribed(tmp_path) -> None:
         ledger,
         text=TEXT,
         evidence_id="ev-1",
+        evidence_hash=HASH,
         tenant_id="demo",
         actor_id="orchestrator",
         created_at=WHEN,
@@ -21,6 +23,23 @@ def test_one_identifier_is_mapped_and_scribed(tmp_path) -> None:
     body = ledger.events()[-1]["body"]
     assert body["event_type"] == "requirement_recorded"
     assert body["actor_id"] == "orchestrator"
+
+
+def test_a_missing_chain_hash_is_not_recorded(tmp_path) -> None:
+    ledger = Ledger(tmp_path / "t.sqlite3", "demo")
+    outcome = run_identifier_case(
+        ledger,
+        text=TEXT,
+        evidence_id="ev-1",
+        tenant_id="demo",
+        actor_id="orchestrator",
+        created_at=WHEN,
+    )
+    assert outcome["queue"] == "human_engineer"
+    assert outcome["requirement_id"] is None
+    body = ledger.events()[-1]["body"]
+    assert body["event_type"] == "abstain"
+    assert body["payload"]["reason"] == "hash_missing"
 
 
 def test_a_pack_the_sentence_does_not_name_is_not_recorded(tmp_path) -> None:
