@@ -526,12 +526,41 @@ def inspect_as365_header() -> dict[str, object]:
         "label": "PARTIAL",
         "note": (
             "Header unit was read. Declared value counts were checked. "
-            "No sample was stored. No exceedance limit is in the header. "
+            "No sample was stored. "
+            f"{_limit_sentence(limit_in_header)} "
             "The sUAS clipping figure 60 m/s2 is not in this header and is not applied. "
             "The 90-second header length does not match the article's 60-second record. "
             "The fetched article text does not state 90 seconds. Not scored."
         ),
     }
+
+
+def _limit_sentence(limit_in_header: bool) -> str:
+    if limit_in_header:
+        return "A header line has the word limit and a number. That number was not applied."
+    return "No exceedance limit is in the header."
+
+
+def _header_has_limit(lines: list[str]) -> bool:
+    """A whole word limit plus a number. The substring inside unlimited is not a limit."""
+    for line in lines:
+        words = [part.strip(":,;").casefold() for part in line.split()]
+        if "limit" not in words:
+            continue
+        if any(_number_token(part) for part in line.split()):
+            return True
+    return False
+
+
+def _number_token(part: str) -> bool:
+    token = part.strip(":,;")
+    if token == "":
+        return False
+    try:
+        Decimal(token)
+    except Exception:
+        return False
+    return True
 
 
 def _uff_structure(path: Path) -> dict[str, object]:
@@ -600,7 +629,7 @@ def _uff_structure(path: Path) -> dict[str, object]:
         "abscissa_steps": increments,
         "value_counts": counts,
         "structure_matches": declared == counts and len(declared) == records and records > 0,
-        "header_limit": any("limit" in line.casefold() for line in headers),
+        "header_limit": _header_has_limit(headers),
         "header_token_60": any(part == "60" for line in headers for part in line.split()),
         "ordinate_units": ordinate_units,
     }

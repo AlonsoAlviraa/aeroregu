@@ -439,3 +439,32 @@ def test_m_s2_and_m_s_caret_2_are_the_same_unit(tmp_path) -> None:
         encoding="utf-8",
     )
     assert score_series_file(series) == 2
+
+
+def test_unlimited_is_not_an_exceedance_limit(tmp_path) -> None:
+    from evidence_eval.b4 import _uff_structure
+
+    header = tmp_path / "series.uff"
+    header.write_text(
+        "\n".join(
+            [
+                "-1",
+                "58",
+                "P11X",
+                "NONE",
+                "unlimited channel",
+                "NONE",
+                "12 0 0 0 Acceleration m/s^2",
+                "0 0 0 0 NONE NONE",
+                "0 0 0 0 NONE NONE",
+                "1.0",
+                "-1",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert _uff_structure(header)["header_limit"] is False
+    stated = tmp_path / "stated.uff"
+    stated.write_text("Limit 2.0 m/s^2\n", encoding="utf-8")
+    assert _uff_structure(stated)["header_limit"] is True
