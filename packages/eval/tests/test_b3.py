@@ -57,6 +57,9 @@ def test_b3_scores_the_local_nasa_tm_when_present() -> None:
     assert report["abstention_ci95"]["method"] == "wilson"
     assert report["no_agent_fields_correct"] == "0/8"
     assert report["page_limited_fields_correct"].startswith("2/")
+    assert report["full_text_misses"] == []
+    assert report["field_recall"]["blade_count"] == "1/1"
+    assert report["field_recall_ci95"]["blade_count"]["method"] == "wilson"
     assert len(report["page_limited_misses"]) == 6
     assert "blade_count" not in report["page_limited_misses"]
     assert "gravity" not in report["page_limited_misses"]

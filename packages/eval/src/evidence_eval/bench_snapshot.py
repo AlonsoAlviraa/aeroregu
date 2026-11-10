@@ -50,6 +50,17 @@ def _b3_alarm_line(b3: dict[str, Any]) -> str:
     )
 
 
+def _b3_field_lines(b3: dict[str, Any]) -> list[str]:
+    recall = b3.get("field_recall") or {}
+    intervals = b3.get("field_recall_ci95") or {}
+    if not isinstance(recall, dict) or not recall:
+        return []
+    return [
+        f"B3 field {name}: {recall[name]}. Wilson 95% {_ci(intervals.get(name))}."
+        for name in sorted(recall)
+    ]
+
+
 def _b3_baseline_line(b3: dict[str, Any]) -> str:
     no_agent = str(b3.get("no_agent_fields_correct", ""))
     if b3.get("beats_no_agent") is True and no_agent.startswith("0/"):
@@ -438,6 +449,7 @@ def _b3_lines(b3: dict[str, Any], benchmarks: dict[str, Any]) -> list[str]:
     return [
         f"B3 ready: {b3.get('ready')}. dev_pdf_scored: {b3.get('dev_pdf_scored')}.",
         f"B3 fields: {b3.get('fields_correct')}. Wilson 95%: {_ci(b3.get('field_accuracy_ci95'))}.",
+        *_b3_field_lines(b3),
         _quote_line(benchmarks.get("b3_quotes") or {}),
         _load_factor_line(b3),
         f"B3 page-limited: {b3.get('page_limited_fields_correct')}. "

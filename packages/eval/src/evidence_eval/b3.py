@@ -114,6 +114,7 @@ def score_b3() -> dict[str, Any]:
     shallow_alarms, shallow_emitted = _false_alarms(shallow)
     page_limited_misses = _missed_fields(shallow)
     field_pages = _field_pages(pages)
+    field_recall, field_recall_ci95, full_text_misses = _field_recall(full)
     total = len(GOLD_FIELDS)
     unit_error = _unit_error_detected()
     abstained = _empty_text_abstains()
@@ -144,6 +145,9 @@ def score_b3() -> dict[str, Any]:
         "page_limited_field_accuracy": _ratio(shallow_hits, total),
         "page_limited_ci95": wilson(shallow_hits, total),
         "page_limited_misses": page_limited_misses,
+        "full_text_misses": full_text_misses,
+        "field_recall": field_recall,
+        "field_recall_ci95": field_recall_ci95,
         "field_pages": field_pages,
         "unit_error_detected": unit_error,
         "empty_text_abstained": abstained,
@@ -373,6 +377,22 @@ def _field_pages(pages: list[str]) -> dict[str, int | None]:
 
 def _missed_fields(text: str) -> list[str]:
     return [field["name"] for field in GOLD_FIELDS if not _accepted(text, field)]
+
+
+def _field_recall(text: str) -> tuple[dict[str, str], dict[str, Any], list[str]]:
+    from evidence_eval.score import wilson
+
+    recall: dict[str, str] = {}
+    intervals: dict[str, Any] = {}
+    misses: list[str] = []
+    for field in GOLD_FIELDS:
+        hits = int(_accepted(text, field))
+        name = field["name"]
+        recall[name] = f"{hits}/1"
+        intervals[name] = wilson(hits, 1)
+        if hits == 0:
+            misses.append(name)
+    return recall, intervals, misses
 
 
 def judged_field(name: str, quote: dict[str, Any] | None, gold: str) -> bool:

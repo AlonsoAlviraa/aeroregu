@@ -19,6 +19,11 @@ def test_snapshot_keeps_the_b3_page_map(tmp_path):
                 "no_agent_ci95": {"low": "0.000", "high": "0.324"},
                 "beats_no_agent": True,
                 "page_limited_misses": ["strain_gage_count"],
+                "field_recall": {"blade_count": "1/1", "strain_gage_count": "0/1"},
+                "field_recall_ci95": {
+                    "blade_count": {"low": "0.207", "high": "1.000"},
+                    "strain_gage_count": {"low": "0.000", "high": "0.793"},
+                },
                 "field_pages": {"blade_count": 2, "strain_gage_count": 7},
                 "beats_single_llm": "NOT_VERIFIED",
                 "load_factor_column_abstained": True,
@@ -76,6 +81,8 @@ def test_snapshot_keeps_the_b3_page_map(tmp_path):
     text = path.read_text(encoding="utf-8")
     assert '"blade_count": 2' in text
     brief = (tmp_path / "make_bench_latest.md").read_text(encoding="utf-8")
+    assert "B3 field blade_count: 1/1." in brief
+    assert "B3 field strain_gage_count: 0/1." in brief
     assert "B3 ready: None. dev_pdf_scored: None." in brief
     assert "strain_gage_count" in brief
     assert "B2 public headings only: None." in brief
