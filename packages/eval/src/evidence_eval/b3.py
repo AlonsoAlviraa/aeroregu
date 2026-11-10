@@ -300,12 +300,19 @@ def _pdf_pages(path: Path) -> list[str]:
 
 
 def _accepted(text: str, field: dict[str, str]) -> bool:
-    from evidence_eval.quote_pipeline import measured_value_ok
+    from evidence_kernel.contracts import ExtractorOutput, SpanQuote
+    from evidence_kernel.disagreement import decide
+
+    from evidence_eval.quote_pipeline import challenge, measured_value_ok
 
     quoted = _quote(text, field)
     if not judged_field(field["name"], quoted, field["value_text"]):
         return False
-    return quoted is not None and measured_value_ok(quoted["value_text"], field["unit_text"])
+    if quoted is None or not measured_value_ok(quoted["value_text"], field["unit_text"]):
+        return False
+    span = SpanQuote.model_validate(quoted)
+    extractor = ExtractorOutput(fields=[span], clause_ids=[], assumptions=[])
+    return decide(extractor, challenge(text, span)) == "continue"
 
 
 def _hit_count(text: str) -> int:

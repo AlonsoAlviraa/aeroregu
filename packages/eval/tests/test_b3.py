@@ -1,6 +1,21 @@
 from evidence_eval.b3 import judged_field, score_b3
 
 
+def test_a_matching_span_is_accepted_and_a_challenger_hit_is_not(monkeypatch) -> None:
+    from evidence_eval.b3 import GOLD_FIELDS, _accepted
+    from evidence_kernel.contracts import ChallengerOutput
+
+    field = GOLD_FIELDS[0]
+    assert _accepted("number of blades = 3", field) is True
+
+    def attack(text: str, span: object) -> ChallengerOutput:
+        del text, span
+        return ChallengerOutput(attack="hit", reason="span", evidence_span="3")
+
+    monkeypatch.setattr("evidence_eval.quote_pipeline.challenge", attack)
+    assert _accepted("number of blades = 3", field) is False
+
+
 def test_b3_scores_the_local_nasa_tm_when_present() -> None:
     report = score_b3()
     if not report["pdf_present"]:
