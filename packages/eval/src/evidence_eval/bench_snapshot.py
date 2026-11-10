@@ -106,6 +106,17 @@ def _s1_extra(s1: dict[str, Any]) -> list[str]:
             )
         elif scored:
             lines.append("S1 shift: in-distribution and shifted differ.")
+        alarms = s1.get("shift_false_alarms") or {}
+        abstain = s1.get("shift_abstention_correctness") or {}
+        if isinstance(alarms, dict) and alarms:
+            lines.append(
+                "S1 shift false alarms: "
+                f"in_distribution {alarms.get('in_distribution')}, "
+                f"shifted {alarms.get('shifted')}. "
+                "Abstention: "
+                f"in_distribution {abstain.get('in_distribution')}, "
+                f"shifted {abstain.get('shifted')}."
+            )
         intervals = s1.get("shift_recall_ci95") or {}
         shifted_ci = intervals.get("shifted") if isinstance(intervals, dict) else None
         if isinstance(shifted_ci, dict):

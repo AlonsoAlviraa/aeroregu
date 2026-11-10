@@ -105,6 +105,10 @@ def _score(cases) -> dict[str, Any]:
     naive_false_alarms = 0
     abstain_total = 0
     abstain_ok = 0
+    shift_clean: dict[str, int] = defaultdict(int)
+    shift_false_alarms: dict[str, int] = defaultdict(int)
+    shift_abstain_total: dict[str, int] = defaultdict(int)
+    shift_abstain_ok: dict[str, int] = defaultdict(int)
     compound_total = 0
     compound_any = 0
     compound_complete = 0
@@ -125,18 +129,22 @@ def _score(cases) -> dict[str, Any]:
         difficulty_total[difficulty] += 1
         if expected == "clean":
             clean_total += 1
+            shift_clean[shift] += 1
             if got == "clean":
                 difficulty_hits[difficulty] += 1
             else:
                 false_alarms += 1
+                shift_false_alarms[shift] += 1
             if naive != "clean":
                 naive_false_alarms += 1
             continue
         if expected == "abstain":
             abstain_total += 1
+            shift_abstain_total[shift] += 1
             envelope_ok = got == "abstain"
             if envelope_ok:
                 abstain_ok += 1
+                shift_abstain_ok[shift] += 1
                 difficulty_hits[difficulty] += 1
             continue
         if expected == "detect:compound":
@@ -201,6 +209,22 @@ def _score(cases) -> dict[str, Any]:
             }
             for shift in ("in_distribution", "shifted")
         },
+        "shift_false_alarms": {
+            shift: f"{shift_false_alarms[shift]}/{shift_clean[shift]}"
+            for shift in ("in_distribution", "shifted")
+        },
+        "shift_false_alarm_ci95": {
+            shift: wilson(shift_false_alarms[shift], shift_clean[shift])
+            for shift in ("in_distribution", "shifted")
+        },
+        "shift_abstention_correctness": {
+            shift: _ratio(shift_abstain_ok[shift], shift_abstain_total[shift])
+            for shift in ("in_distribution", "shifted")
+        },
+        "shift_abstention_ci95": {
+            shift: wilson(shift_abstain_ok[shift], shift_abstain_total[shift])
+            for shift in ("in_distribution", "shifted")
+        },
         "difficulty_recall": {
             level: f"{difficulty_hits[level]}/{difficulty_total[level]}"
             for level in ("easy", "medium", "hard")
@@ -261,6 +285,10 @@ def public_summary(report: dict[str, Any]) -> dict[str, Any]:
         "llm_numeric_violation",
         "shift_recall",
         "shift_recall_ci95",
+        "shift_false_alarms",
+        "shift_false_alarm_ci95",
+        "shift_abstention_correctness",
+        "shift_abstention_ci95",
         "difficulty_recall",
         "difficulty_recall_ci95",
         "compound_complete",
@@ -309,6 +337,16 @@ def write_report(report: dict[str, Any]) -> Path:
         f"Checker single-fault hits match the case totals: {checker_single_faults_pass(report)}.",
         f"Naive baseline still misses those faults: {naive_baseline_still_naive(report)}.",
         f"False alarms on clean cases: {report['false_alarms']} / {report['clean_total']}.",
+        (
+            "False alarms by shift: "
+            f"in_distribution {report['shift_false_alarms']['in_distribution']}, "
+            f"shifted {report['shift_false_alarms']['shifted']}."
+        ),
+        (
+            "Abstention by shift: "
+            f"in_distribution {report['shift_abstention_correctness']['in_distribution']}, "
+            f"shifted {report['shift_abstention_correctness']['shifted']}."
+        ),
         f"llm_numeric_violation: {report['llm_numeric_violation']}.",
         f"Compound any-hit: {report['compound_any_hit']}.",
         f"Compound complete: {report['compound_complete']}. "

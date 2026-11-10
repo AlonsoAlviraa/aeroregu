@@ -30,6 +30,12 @@ def test_exemplars_score_every_difficulty() -> None:
     for level in ("easy", "medium", "hard"):
         assert summary["difficulty_recall_ci95"][level]["method"] == "wilson"
     assert summary["compound_complete_ci95"]["method"] == "wilson"
+    assert summary["shift_false_alarms"]["in_distribution"] == "0/1"
+    assert summary["shift_false_alarms"]["shifted"] == "0/0"
+    assert summary["shift_false_alarm_ci95"]["shifted"] is None
+    assert summary["shift_abstention_correctness"]["in_distribution"] is None
+    assert summary["shift_abstention_correctness"]["shifted"] == "1.000"
+    assert summary["shift_abstention_ci95"]["shifted"]["method"] == "wilson"
 
 
 def test_equal_shift_recall_is_reported_as_no_drop() -> None:
