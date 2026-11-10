@@ -181,6 +181,22 @@ def test_a_wrong_quote_pdf_hash_stores_no_numbers(tmp_path, monkeypatch) -> None
         assert token not in body
 
 
+def test_quote_gate_ready_is_not_benchmark_ready(tmp_path) -> None:
+    from evidence_eval.quote_pipeline import quotes_ok
+
+    ledger = Ledger(tmp_path / "quotes.sqlite3", "bench")
+    report = score_nasa_quotes(ledger)
+    if report["matched"] == "0/0":
+        assert report["ready"] is False
+        return
+    assert report["matched"] == "8/8"
+    assert report["ready"] is True
+    assert report["benchmark_ready"] is False
+    assert report["llm_numeric_violation"] == 0
+    assert quotes_ok(report) is True
+    assert "does not mean B3 is ready" in report["note"]
+
+
 def test_quotes_ok_rejects_an_extra_decimal() -> None:
     report = {
         "ready": True,

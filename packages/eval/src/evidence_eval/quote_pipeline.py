@@ -247,6 +247,7 @@ def score_nasa_quotes(ledger: Ledger) -> dict[str, Any]:
 
     return {
         "ready": True,
+        "benchmark_ready": False,
         "label": "ESTIMATE",
         "matched": f"{matched}/{total}",
         "false_alarms": false_alarms,
@@ -256,6 +257,10 @@ def score_nasa_quotes(ledger: Ledger) -> dict[str, Any]:
         "recall_ci95": wilson(matched, total),
         "sha256": digest,
         "expert_holdout": False,
+        "note": (
+            "Same-session gold. Not a held-out set. "
+            "ready means the quote gate ran. It does not mean B3 is ready."
+        ),
     }
 
 
