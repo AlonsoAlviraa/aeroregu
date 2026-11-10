@@ -591,13 +591,29 @@ def score_b3_holdout(folder: Path | None = None) -> dict[str, Any]:
 
 
 def _field_hit(field: dict[str, Any], document: str) -> bool:
+    from evidence_kernel.contracts import ExtractorOutput, SpanQuote
+    from evidence_kernel.disagreement import decide
+
+    from evidence_eval.quote_pipeline import challenge
+
     value = str(field.get("value_text", ""))
     if not _value_token(value, document):
         return False
     unit = str(field.get("unit_text", "1"))
-    if unit in {"", "1", "dimensionless"}:
-        return True
-    return _declared_unit_follows(value, unit, document)
+    if unit not in {"", "1", "dimensionless"} and not _declared_unit_follows(value, unit, document):
+        return False
+    match = _first_equal_measurement(value, document)
+    if match is None:
+        return False
+    span = SpanQuote(
+        name=str(field.get("name", "field")),
+        value_text=value,
+        unit_text=unit or "1",
+        span_start=match.start(),
+        span_end=match.end(),
+    )
+    extractor = ExtractorOutput(fields=[span], clause_ids=[], assumptions=[])
+    return decide(extractor, challenge(document, span)) == "continue"
 
 
 def _declared_unit_follows(value: str, unit: str, document: str) -> bool:
@@ -623,20 +639,30 @@ def _declared_unit_follows(value: str, unit: str, document: str) -> bool:
     return False
 
 
-def _value_token(value: str, document: str) -> bool:
+def _first_equal_measurement(value: str, document: str):
     from decimal import Decimal
 
     try:
         target = Decimal(value)
     except Exception:
-        return False
+        return None
     for match in _measurement_matches(document):
         try:
             if Decimal(match.group()) == target:
-                return True
+                return match
         except Exception:
             continue
-    return False
+    return None
+
+
+def _value_token(value: str, document: str) -> bool:
+    from decimal import Decimal
+
+    try:
+        Decimal(value)
+    except Exception:
+        return False
+    return _first_equal_measurement(value, document) is not None
 
 
 def _measurement_matches(document: str):

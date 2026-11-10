@@ -42,9 +42,18 @@ def propose(text: str, pattern: str, name: str, unit_text: str) -> ExtractorOutp
 
 def challenge(text: str, field: SpanQuote) -> ChallengerOutput:
     snippet = text[field.span_start : field.span_end]
-    if snippet != field.value_text:
-        return ChallengerOutput(attack="hit", reason="span", evidence_span=snippet)
-    return ChallengerOutput(attack="miss", reason="span_matches", evidence_span=snippet)
+    if snippet == field.value_text or _same_number(snippet, field.value_text):
+        return ChallengerOutput(attack="miss", reason="span_matches", evidence_span=snippet)
+    return ChallengerOutput(attack="hit", reason="span", evidence_span=snippet)
+
+
+def _same_number(left: str, right: str) -> bool:
+    from decimal import Decimal
+
+    try:
+        return Decimal(left) == Decimal(right)
+    except Exception:
+        return False
 
 
 def line_is_one_number(line: str) -> bool:

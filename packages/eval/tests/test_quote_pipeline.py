@@ -46,6 +46,23 @@ def test_a_word_is_not_parsed_as_a_number(tmp_path) -> None:
     assert len(outcome["event_hash"]) == 64
 
 
+def test_a_decimal_equivalent_span_matches() -> None:
+    from evidence_eval.quote_pipeline import challenge
+
+    text = "blade count 4.0"
+    start = text.index("4.0")
+    field = SpanQuote(
+        name="blade_count",
+        value_text="4",
+        unit_text="1",
+        span_start=start,
+        span_end=start + 3,
+    )
+    result = challenge(text, field)
+    assert result.attack == "miss"
+    assert result.reason == "span_matches"
+
+
 def test_bad_span_goes_to_the_human_queue(tmp_path) -> None:
     ledger = Ledger(tmp_path / "t.sqlite3", "demo")
     forged = SpanQuote(
