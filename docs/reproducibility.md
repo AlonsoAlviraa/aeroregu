@@ -14,9 +14,9 @@ GNU make 4.4.1 was installed on this Windows machine from ezwinports on 2026-11-
 
 `make bench` runs `uv run python -m evidence_eval bench`. That scores the smoke dev split, the naive baseline, S1 (100,000 cases, generator `s1@1.0.0`, seed label 20261103, which does not drive a random sampler), B2, both NASA memoranda when their PDFs are present, the quote path, and B4 status. It also writes `docs/reproducibility/manifest.json` and `docs/benchmarks/make_bench_latest.md`.
 
-The workflow file `.github/workflows/ci.yml` runs that same command on `ubuntu-latest` after `uv sync --frozen`. NOT VERIFIED: this repository has not shown a completed GitHub run of that job. The NASA PDFs, the bearing zip, and the AS365 UFF are not in git, so a clean checkout reports those files as not scored and still runs S1.
+The workflow file `.github/workflows/ci.yml` runs that same command on `ubuntu-latest` after `uv sync --frozen`. VERIFIED on 2026-11-10: GitHub Actions run 42862445978, commit `ca4921d`, completed with `make-bench`, `test-ubuntu-latest`, `test-windows-latest`, and `supply-chain` successful. `make-bench` took 2 minutes 16 seconds. The NASA PDFs, the bearing zip, and the AS365 UFF are not in git, so that clean checkout reports those files as not scored and still runs S1. That run does not replace the checked-in snapshot from the local 2436016 ms `make bench`, and it does not complete the programme.
 
-CODE CHECK on 2026-11-09, not a new 100000-case run: a checkout without the gitignored NASA PDFs, the bearing zip, and the AS365 UFF does not crash the bench path, B3 and B4 are not scored, S1 does not need those files, and a successful GitHub Actions run is still NOT VERIFIED.
+CODE CHECK on 2026-11-09, not a new 100000-case run: a checkout without the gitignored NASA PDFs, the bearing zip, and the AS365 UFF does not crash the bench path, B3 and B4 are not scored, and S1 does not need those files. The Actions run above is the 2026-11-10 verification of that job.
 
 ## What is pinned
 

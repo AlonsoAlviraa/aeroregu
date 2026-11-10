@@ -2,7 +2,7 @@
 
 This tool assists a human reviewer. It does not determine compliance.
 
-NOT VERIFIED: signed reviews are 0. No external engineer has reviewed this repository. This file is a request. It names the subset. It does not name a reviewer. It is not a completed review. It does not claim certification, authority acceptance, or a qualified tool. The 12-month programme is not complete. `programme_complete` is false. This folder has no commit and no GitHub remote. GitHub was not used.
+NOT VERIFIED: signed reviews are 0. No external engineer has reviewed this repository. This file is a request. It names the subset. It does not name a reviewer. It is not a completed review. It does not claim certification, authority acceptance, or a qualified tool. The 12-month programme is not complete. `programme_complete` is false. The repository is https://github.com/AlonsoAlviraa/aeroregu. That remote is not a signed review.
 
 Date opened: 2026-11-04. Not legal advice.
 
