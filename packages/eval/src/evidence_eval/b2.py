@@ -534,9 +534,11 @@ def predict(
             continue
         record = by_id.get(evidence_id)
         pair = (match.group(), evidence_id)
-        bad_hash = record is None or record.get("hash") == ZERO_HASH
-        if check_hash and bad_hash:
+        digest = record.get("hash") if isinstance(record, dict) else None
+        if check_hash and digest == ZERO_HASH:
             flags.add(pair)
+            continue
+        if check_hash and (not isinstance(digest, str) or digest.strip() == ""):
             continue
         links.append(
             {

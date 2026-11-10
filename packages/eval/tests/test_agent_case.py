@@ -41,6 +41,22 @@ def test_a_pack_the_sentence_does_not_name_is_not_recorded(tmp_path) -> None:
     assert all(event["body"]["event_type"] != "requirement_recorded" for event in ledger.events())
 
 
+def test_a_pack_missing_from_the_register_is_not_called_a_zero_hash(tmp_path) -> None:
+    ledger = Ledger(tmp_path / "t.sqlite3", "demo")
+    outcome = map_report(
+        ledger,
+        text=TEXT,
+        evidence=[],
+        tenant_id="demo",
+        actor_id="orchestrator",
+        created_at=WHEN,
+    )
+    assert outcome["queue"] == "human_engineer"
+    assert outcome["links"] == []
+    assert outcome["false_coverage"] == []
+    assert all(event["body"]["event_type"] != "recompute_flag" for event in ledger.events())
+
+
 def test_an_unseen_heading_is_not_recorded(tmp_path) -> None:
     ledger = Ledger(tmp_path / "t.sqlite3", "demo")
     outcome = run_identifier_case(
