@@ -6,7 +6,6 @@ from evidence_coverage.status import StatusError, gap_report, invalidate_mass_sh
 from evidence_kernel.canonical import inputs_hash
 from evidence_kernel.ledger import Ledger
 
-
 USED_CELL_COUNT = 3 * 3 * 3 * 5
 
 

@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 def main() -> int:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     lock = tomllib.loads((root / "uv.lock").read_text(encoding="utf-8"))
     components = []
     for package in lock.get("package", []):
