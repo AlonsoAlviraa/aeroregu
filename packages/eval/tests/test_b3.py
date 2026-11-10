@@ -1,6 +1,20 @@
 from evidence_eval.b3 import judged_field, score_b3
 
 
+def test_a_challenger_attack_on_a_quoted_span_is_abstained(monkeypatch) -> None:
+    from evidence_eval.b3 import _record_quoted_spans
+    from evidence_kernel.contracts import ChallengerOutput
+
+    def attack(source: str, span: object) -> ChallengerOutput:
+        del source, span
+        return ChallengerOutput(attack="hit", reason="span", evidence_span="beam")
+
+    monkeypatch.setattr("evidence_eval.quote_pipeline.challenge", attack)
+    recorded, abstains = _record_quoted_spans("assumed to be a beam")
+    assert recorded == []
+    assert len(abstains) == 1
+
+
 def test_a_matching_span_is_accepted_and_a_challenger_hit_is_not(monkeypatch) -> None:
     from evidence_eval.b3 import GOLD_FIELDS, _accepted
     from evidence_kernel.contracts import ChallengerOutput
@@ -74,6 +88,7 @@ def test_b3_scores_the_local_nasa_tm_when_present() -> None:
     assert len(report["load_factor_abstain_hash"]) == 64
     assert report["load_factor_value"] is None
     assert len(report["quoted_span_hashes"]) == 3
+    assert report["quoted_span_abstains"] == []
     assert all(len(item) == 64 for item in report["quoted_span_hashes"])
     assert report["expert_holdout"] is False
 

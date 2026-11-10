@@ -121,7 +121,7 @@ def score_b3() -> dict[str, Any]:
     load_cases = _load_case_ids(full)
     load_factor = _load_factor_column_abstains(full)
     load_factor_hash = _record_load_factor_abstain(load_factor)
-    quoted = _record_quoted_spans(full)
+    quoted, quoted_abstains = _record_quoted_spans(full)
     from evidence_eval.score import wilson
 
     return {
@@ -156,6 +156,7 @@ def score_b3() -> dict[str, Any]:
         "load_factor_value": None,
         "load_factor_abstain_hash": load_factor_hash,
         "quoted_span_hashes": quoted,
+        "quoted_span_abstains": quoted_abstains,
         "expert_holdout": holdout["scored"],
         "expert_holdout_llm_numeric_violation": holdout.get("llm_numeric_violation", 0),
         "false_alarms": f"{false_alarms}/{emitted}",
@@ -187,12 +188,12 @@ def score_b3() -> dict[str, Any]:
     }
 
 
-def _record_quoted_spans(text: str) -> list[str]:
+def _record_quoted_spans(text: str) -> tuple[list[str], list[str]]:
     import tempfile
     from pathlib import Path
 
     from evidence_kernel.contracts import ExtractorOutput, ScribeOutput, ScribeSentence, SpanQuote
-    from evidence_kernel.disagreement import decide
+    from evidence_kernel.disagreement import decide, enqueue
     from evidence_kernel.envelope import make_envelope, project_source
     from evidence_kernel.ledger import Ledger
     from evidence_kernel.orchestrator import record
@@ -205,6 +206,7 @@ def _record_quoted_spans(text: str) -> list[str]:
         "V3109, and V3111",
     )
     hashes: list[str] = []
+    abstains: list[str] = []
     with tempfile.TemporaryDirectory() as tmp:
         ledger = Ledger(Path(tmp) / "b3.sqlite3", "bench")
         for index, fragment in enumerate(fragments):
@@ -219,6 +221,15 @@ def _record_quoted_spans(text: str) -> list[str]:
             )
             extractor = ExtractorOutput(fields=[field], clause_ids=[], assumptions=[])
             if decide(extractor, challenge(text, field)) == "human_queue":
+                abstains.append(
+                    enqueue(
+                        ledger,
+                        tenant_id="bench",
+                        actor_id="orchestrator",
+                        created_at=f"2026-11-03T21:21:{index:02d}Z",
+                        reason="agent_disagreement",
+                    )
+                )
                 continue
             envelope = make_envelope(
                 sources=[project_source("quote", "https://aeroregu.local/quote", "ASSUMPTION")],
@@ -242,7 +253,7 @@ def _record_quoted_spans(text: str) -> list[str]:
                 sentences=[ScribeSentence(text="The span is recorded.", ledger_event_hash=digest)]
             )
             hashes.append(digest)
-    return hashes
+    return hashes, abstains
 
 
 def _assumption_span(text: str) -> bool:
