@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from evidence_kernel.paths import repo_root
 
 REQUIRED = (
