@@ -1,6 +1,6 @@
 # make bench snapshot
 
-ESTIMATE: written by make bench in one process.
+ESTIMATE: counts are the 2026-11-10 make bench, exit 0, elapsed 582382 ms. The per-fault false-alarm and abstention lines were rendered from that same JSON. Not a new 100000-case run.
 
 NOT VERIFIED: this file is not an expert-authored held-out result.
 
@@ -20,7 +20,7 @@ B3 no-agent: 0/8. Wilson 95%: 0.000 to 0.324.
 B3 beats_no_agent is true because the no-read baseline scored 0. That comparison is trivial.
 B3 false alarms: 0/8. Wilson 95%: 0.000 to 0.324. Page-limited false alarms: 0/2. Abstentions correct: 3/3. Wilson 95%: 0.438 to 1.000. Beating the no-read baseline is trivial.
 B3 misses: ["strain_gage_count", "flight_condition_count", "level_flight_ratio_low", "level_flight_ratio_high", "turning_flight_ratio_low", "turning_flight_ratio_high"].
-B3 pages: {"blade_count": 2, "gravity": 2, "strain_gage_count": 7, "flight_condition_count": 6, "level_flight_ratio_low": 6, "level_flight_ratio_high": 6, "turning_flight_ratio_low": 6, "turning_flight_ratio_high": 6}.
+B3 pages: {"blade_count": 2, "flight_condition_count": 6, "gravity": 2, "level_flight_ratio_high": 6, "level_flight_ratio_low": 6, "strain_gage_count": 7, "turning_flight_ratio_high": 6, "turning_flight_ratio_low": 6}.
 B3 beats_single_llm: NOT_VERIFIED.
 B3 second memorandum: 5/5 full text, 0/5 on the first two pages. Wilson 95%: 0.566 to 1.000. Decimals on the ledger: 4/4. Word label not recomputed: blade_count_word. Ledger events: 4. llm_numeric_violation: 0. Recorded: rotor_radius_m 5.25 m; lift_curve_slope 5.7 1; level_flight_ratio_low 0.14 1; level_flight_ratio_high 0.37 1. Shared flight ids: ['V3101', 'V3103', 'V3105', 'V3106']. Absent: ['V3109', 'V3111']. Flight-table column abstained: True. Unit abstains: 0. No table magnitude stored. Same-session gold. Not a held-out set. False alarms: 0/5. Wilson 95%: 0.000 to 0.434. Page-limited false alarms: 0/0. Abstentions correct: 2/2. Wilson 95%: 0.342 to 1.000. Beating the no-read baseline is trivial.
 B4 ready: False.
@@ -44,6 +44,30 @@ S1 unit_scale: checker 7000/7000, naive 0/7000, Wilson 95% 0.999 to 1.000.
 S1 wrong_input: checker 7000/7000, naive 0/7000, Wilson 95% 0.999 to 1.000.
 S1 false-alarm rate: 0.000. Wilson 95%: 0.000 to 0.000.
 S1 abstention correctness: 1.000. Wilson 95%: 0.999 to 1.000.
+S1 arithmetic false alarms: 0/85000. Wilson 95% 0.000 to 0.000.
+S1 bad_citation false alarms: 0/93000. Wilson 95% 0.000 to 0.000.
+S1 broken_hash false alarms: 0/85000. Wilson 95% 0.000 to 0.000.
+S1 contradictory_requirements false alarms: 0/93000. Wilson 95% 0.000 to 0.000.
+S1 false_coverage false alarms: 0/93000. Wilson 95% 0.000 to 0.000.
+S1 missing_input false alarms: 0/93000. Wilson 95% 0.000 to 0.000.
+S1 outside_validity false alarms: 0/93000. Wilson 95% 0.000 to 0.000.
+S1 sign false alarms: 0/93000. Wilson 95% 0.000 to 0.000.
+S1 stale_revision false alarms: 0/93000. Wilson 95% 0.000 to 0.000.
+S1 unit_mismatch false alarms: 0/93000. Wilson 95% 0.000 to 0.000.
+S1 unit_scale false alarms: 0/93000. Wilson 95% 0.000 to 0.000.
+S1 wrong_input false alarms: 0/93000. Wilson 95% 0.000 to 0.000.
+S1 arithmetic abstention: 0/0. Wilson 95% absent.
+S1 bad_citation abstention: 0/0. Wilson 95% absent.
+S1 broken_hash abstention: 0/0. Wilson 95% absent.
+S1 contradictory_requirements abstention: 0/0. Wilson 95% absent.
+S1 false_coverage abstention: 0/0. Wilson 95% absent.
+S1 missing_input abstention: 7000/7000. Wilson 95% 0.999 to 1.000.
+S1 outside_validity abstention: 0/0. Wilson 95% absent.
+S1 sign abstention: 0/0. Wilson 95% absent.
+S1 stale_revision abstention: 0/0. Wilson 95% absent.
+S1 unit_mismatch abstention: 0/0. Wilson 95% absent.
+S1 unit_scale abstention: 0/0. Wilson 95% absent.
+S1 wrong_input abstention: 0/0. Wilson 95% absent.
 S1 easy: 29000/29000. Wilson 95% 1.000 to 1.000.
 S1 medium: 49000/49000. Wilson 95% 1.000 to 1.000.
 S1 hard: 22000/22000. Wilson 95% 1.000 to 1.000.

@@ -81,6 +81,25 @@ def _s1_lines(s1: dict[str, Any]) -> list[str]:
         f"S1 abstention correctness: {s1.get('abstention_correctness')}. "
         f"Wilson 95%: {_ci(s1.get('abstention_correctness_ci95'))}."
     )
+    lines.extend(_s1_fault_rates(s1))
+    return lines
+
+
+def _s1_fault_rates(s1: dict[str, Any]) -> list[str]:
+    alarms = s1.get("false_alarm_by_fault") or {}
+    alarm_ci = s1.get("false_alarm_by_fault_ci95") or {}
+    abstain = s1.get("abstention_by_fault") or {}
+    abstain_ci = s1.get("abstention_by_fault_ci95") or {}
+    if not isinstance(alarms, dict):
+        return []
+    lines: list[str] = []
+    for fault in sorted(alarms):
+        interval = alarm_ci.get(fault) if isinstance(alarm_ci, dict) else None
+        lines.append(f"S1 {fault} false alarms: {alarms[fault]}. Wilson 95% {_ci(interval)}.")
+    if isinstance(abstain, dict):
+        for fault in sorted(abstain):
+            interval = abstain_ci.get(fault) if isinstance(abstain_ci, dict) else None
+            lines.append(f"S1 {fault} abstention: {abstain[fault]}. Wilson 95% {_ci(interval)}.")
     return lines
 
 

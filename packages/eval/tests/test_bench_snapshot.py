@@ -84,6 +84,7 @@ def test_snapshot_keeps_the_b3_page_map(tmp_path):
     assert "0.676 to 1.000" in brief
     assert "trivial" in brief
     assert "S1 sign: checker 1/1, naive 0/1" in brief
+    assert "S1 sign false alarms:" not in brief
     assert "did not lower the checker" in brief
     assert "S1 shifted sign: 1/1. Wilson 95% 0.207 to 1.000." in brief
     assert "S1 easy: 1/1" in brief
@@ -99,6 +100,35 @@ def test_snapshot_keeps_the_b3_page_map(tmp_path):
     assert "Unit abstains: 0" in brief
     assert "Sensor range applied: False" in brief
     assert "load-factor column abstained" in brief
+
+
+def test_s1_per_fault_rates_are_printed(tmp_path):
+    from evidence_eval.bench_snapshot import write_bench_snapshot
+
+    write_bench_snapshot(
+        {
+            "s1": {
+                "checker_recall": {},
+                "false_alarm_by_fault": {"sign": "0/13", "arithmetic": "0/12"},
+                "false_alarm_by_fault_ci95": {
+                    "sign": {"low": "0.000", "high": "0.228"},
+                    "arithmetic": None,
+                },
+                "abstention_by_fault": {"missing_input": "1/1", "sign": "0/0"},
+                "abstention_by_fault_ci95": {
+                    "missing_input": {"low": "0.207", "high": "1.000"},
+                    "sign": None,
+                },
+            }
+        },
+        note="ESTIMATE: test fixture.",
+        folder=tmp_path,
+    )
+    brief = (tmp_path / "make_bench_latest.md").read_text(encoding="utf-8")
+    assert "S1 sign false alarms: 0/13. Wilson 95% 0.000 to 0.228." in brief
+    assert "S1 arithmetic false alarms: 0/12. Wilson 95% absent." in brief
+    assert "S1 missing_input abstention: 1/1. Wilson 95% 0.207 to 1.000." in brief
+    assert "S1 sign abstention: 0/0. Wilson 95% absent." in brief
 
 
 def test_a_missing_second_pdf_is_not_scored(tmp_path):
