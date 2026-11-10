@@ -218,7 +218,7 @@ def _holdout_reason(path: Path) -> str | None:
     if not isinstance(provenance, dict):
         return "provenance"
     author = str(provenance.get("author", "")).strip()
-    if not author or author.casefold() == "aeroregu":
+    if not author or "aeroregu" in author.casefold():
         return "author"
     statement = str(provenance.get("statement", "")).casefold()
     if "no employer" not in statement and "not employer" not in statement:

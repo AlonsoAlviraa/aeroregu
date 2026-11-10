@@ -52,6 +52,19 @@ def test_the_checker_author_is_rejected(tmp_path) -> None:
     assert report["ready"] is False
 
 
+def test_a_longer_checker_name_is_not_a_b3_author(tmp_path) -> None:
+    fields = [{"name": "other", "value_text": "1", "unit_text": "1"}]
+    (tmp_path / "self.json").write_text(
+        json.dumps(_case(fields, author="aeroregu helper")),
+        encoding="utf-8",
+    )
+    report = validate_b3_holdout(tmp_path)
+    assert report["rejected"] == 1
+    assert report["reject_reasons"] == {"author": 1}
+    assert report["ready"] is False
+    assert report["scored"] is False
+
+
 def test_a_dev_document_hash_is_rejected(tmp_path) -> None:
     from evidence_eval.b3 import EXPECTED_SHA256
 

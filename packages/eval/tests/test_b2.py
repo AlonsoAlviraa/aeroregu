@@ -118,6 +118,30 @@ def test_a_complete_b2_holdout_case_is_valid_and_not_scored(tmp_path) -> None:
     assert report["scored"] is False
 
 
+def test_a_longer_checker_name_is_not_a_b2_author(tmp_path) -> None:
+    import json
+
+    from evidence_eval.b2 import validate_b2_holdout
+    from evidence_eval.holdout_gate import REQUIRED_SENTENCE
+
+    case = {
+        "case_id": "expert-b2-self",
+        "report": "Pack ev-9 addresses VTOL.2210 with a stored hash.",
+        "gold_links": [["VTOL.2210", "ev-9"]],
+        "provenance": {
+            "author": "aeroregu helper",
+            "statement": "No employer material.",
+        },
+    }
+    (tmp_path / "AUTHOR.md").write_text(REQUIRED_SENTENCE + "\n", encoding="utf-8")
+    (tmp_path / "one.json").write_text(json.dumps(case), encoding="utf-8")
+    report = validate_b2_holdout(tmp_path)
+    assert report["valid"] == 0
+    assert report["reject_reasons"] == {"author": 1}
+    assert report["ready"] is False
+    assert report["scored"] is False
+
+
 def test_a_holdout_case_with_a_hash_can_be_scored(tmp_path) -> None:
     import json
 
