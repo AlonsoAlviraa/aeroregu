@@ -136,8 +136,13 @@ def _baseline_failed(report: dict) -> bool:
 
 
 def _ledger_numbers_ok(benchmarks: dict) -> bool:
-    chain = (benchmarks.get("b2") or {}).get("agent_chain") or {}
-    if chain.get("llm_numeric_violation", 0) != 0:
+    b2 = benchmarks.get("b2") or {}
+    for key in ("agent_chain", "two_pack_probe", "span_probe"):
+        block = b2.get(key) or {}
+        if isinstance(block, dict) and block.get("llm_numeric_violation", 0) != 0:
+            return False
+    quarantine = benchmarks.get("quarantine_duplicate_citation") or {}
+    if isinstance(quarantine, dict) and quarantine.get("llm_numeric_violation", 0) != 0:
         return False
     second = benchmarks.get("b3_second") or {}
     if second.get("scored") and second.get("llm_numeric_violation", 0) != 0:

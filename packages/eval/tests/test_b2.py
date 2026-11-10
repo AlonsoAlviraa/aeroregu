@@ -76,6 +76,7 @@ def test_b2_dev_links_and_false_coverage() -> None:
     assert "not a win" in two_pack["note"]
     assert probe["frozen_set"] is False
     assert probe["verifier_links"] is True
+    assert probe["llm_numeric_violation"] == 0
     assert probe["chain_abstains"] is True
     assert probe["event_type"] == "abstain"
     assert len(probe["event_hash"]) == 64

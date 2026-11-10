@@ -20,5 +20,6 @@ def test_duplicate_citation_is_not_detected() -> None:
     assert status["event_hash"] is not None
     assert len(status["event_hash"]) == 64
     assert status["recall"] == "0/1"
+    assert status["llm_numeric_violation"] == 0
     assert status["recall_ci95"]["method"] == "wilson"
     assert status["challenger_reason_ignored"] is True

@@ -393,6 +393,7 @@ def span_probe() -> dict[str, Any]:
     abstain = decide(extractor, challenge(text, field)) == "human_queue"
     event_hash = None
     event_type = None
+    violations = 0
     if abstain:
         with tempfile.TemporaryDirectory() as tmp:
             ledger = Ledger(Path(tmp) / "span.sqlite3", "bench")
@@ -404,6 +405,14 @@ def span_probe() -> dict[str, Any]:
                 reason="agent_disagreement",
             )
             event_type = ledger.events()[-1]["body"]["event_type"]
+            from evidence_kernel.numbers import stray_physical_numbers
+
+            for event in ledger.events():
+                result = (event["body"].get("envelope") or {}).get("result")
+                violations += len(stray_physical_numbers(result, set()))
+                reason = (event["body"].get("payload") or {}).get("reason")
+                if isinstance(reason, str):
+                    violations += len(stray_physical_numbers(reason, set()))
     return {
         "frozen_set": False,
         "verifier_links": len(links) == 1,
@@ -411,6 +420,7 @@ def span_probe() -> dict[str, Any]:
         "queue": "human_engineer" if abstain else None,
         "event_hash": event_hash,
         "event_type": event_type,
+        "llm_numeric_violation": violations,
         "label": "ESTIMATE",
         "note": "One synthetic sentence. Not in the frozen dev hash.",
     }

@@ -53,8 +53,18 @@ def quarantine_status() -> dict[str, Any]:
                 reason="agent_disagreement",
             )
             queued = ledger.events()[-1]["body"]
+            from evidence_kernel.numbers import stray_physical_numbers
+
+            violations = 0
+            for event in ledger.events():
+                result = (event["body"].get("envelope") or {}).get("result")
+                violations += len(stray_physical_numbers(result, set()))
+                reason = (event["body"].get("payload") or {}).get("reason")
+                if isinstance(reason, str):
+                    violations += len(stray_physical_numbers(reason, set()))
     else:
         queued = None
+        violations = 0
     return {
         "fault": "duplicate_citation",
         "verdict": judged.verdict,
@@ -67,6 +77,7 @@ def quarantine_status() -> dict[str, Any]:
         "event_hash": event_hash,
         "event_type": None if queued is None else queued["event_type"],
         "protocol_abstain": system == "abstain",
+        "llm_numeric_violation": violations,
         "abstention_matches_gold": system == judged.gold_label,
         "label": "ESTIMATE",
         "note": (
