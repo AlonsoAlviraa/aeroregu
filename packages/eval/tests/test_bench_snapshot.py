@@ -102,6 +102,35 @@ def test_snapshot_keeps_the_b3_page_map(tmp_path):
     assert "load-factor column abstained" in brief
 
 
+def test_dev_false_alarms_keep_the_denominator(tmp_path):
+    from evidence_eval.bench_snapshot import write_bench_snapshot
+
+    interval = {"low": "0.000", "high": "0.149", "method": "wilson", "z": "1.96"}
+    alarms = {name: "0/22" for name in ("sign", "arithmetic")}
+    write_bench_snapshot(
+        {
+            "dev": {
+                "false_alarm_by_fault": alarms,
+                "false_alarm_by_fault_ci95": {name: interval for name in alarms},
+                "abstention_by_fault": {"missing_input": "2/2", "sign": "0/0"},
+                "abstention_by_fault_ci95": {
+                    "missing_input": {"low": "0.342", "high": "1.000"},
+                    "sign": None,
+                },
+            }
+        },
+        note="ESTIMATE: test fixture.",
+        folder=tmp_path,
+    )
+    brief = (tmp_path / "make_bench_latest.md").read_text(encoding="utf-8")
+    assert "Dev false alarms by fault: 0/22 on each of 2 faults." in brief
+    assert "Wilson 95% 0.000 to 0.149." in brief
+    assert "Abstention missing_input 2/2." in brief
+    assert "Wilson 95% 0.342 to 1.000." in brief
+    assert "Other faults 0/0." in brief
+    assert "Not the expert holdout." in brief
+
+
 def test_s1_per_fault_rates_are_printed(tmp_path):
     from evidence_eval.bench_snapshot import write_bench_snapshot
 

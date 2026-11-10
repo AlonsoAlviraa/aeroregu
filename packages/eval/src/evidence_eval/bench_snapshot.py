@@ -185,15 +185,35 @@ def _dev_fault_line(dev: dict[str, Any]) -> str:
     if not dev:
         return "Dev false alarms by fault: absent."
     alarms = dev.get("false_alarm_by_fault") or {}
+    alarm_ci = dev.get("false_alarm_by_fault_ci95") or {}
     abstain = dev.get("abstention_by_fault") or {}
-    nonzero = [name for name, value in alarms.items() if not str(value).startswith("0/")]
-    if nonzero:
-        alarm_text = ", ".join(f"{name} {alarms[name]}" for name in nonzero)
+    abstain_ci = dev.get("abstention_by_fault_ci95") or {}
+    if not isinstance(alarms, dict) or not alarms:
+        alarm_text = "absent"
+        wilson = ""
     else:
-        alarm_text = "all zero"
+        values = [alarms[name] for name in sorted(alarms)]
+        intervals = [
+            alarm_ci.get(name) if isinstance(alarm_ci, dict) else None for name in sorted(alarms)
+        ]
+        same_zero = all(value == values[0] and str(value).startswith("0/") for value in values)
+        if same_zero and all(item == intervals[0] for item in intervals):
+            alarm_text = f"{values[0]} on each of {len(values)} faults"
+            wilson = f" Wilson 95% {_ci(intervals[0])}."
+        else:
+            alarm_text = ", ".join(f"{name} {alarms[name]}" for name in sorted(alarms))
+            wilson = ""
+    missing = abstain.get("missing_input") if isinstance(abstain, dict) else None
+    others = []
+    if isinstance(abstain, dict):
+        others = [value for name, value in abstain.items() if name != "missing_input"]
+    other_text = " Other faults 0/0." if others and all(value == "0/0" for value in others) else ""
+    missing_ci = ""
+    if isinstance(abstain_ci, dict) and missing is not None:
+        missing_ci = f" Wilson 95% {_ci(abstain_ci.get('missing_input'))}."
     return (
-        f"Dev false alarms by fault: {alarm_text}. "
-        f"Abstention missing_input {abstain.get('missing_input')}. "
+        f"Dev false alarms by fault: {alarm_text}.{wilson} "
+        f"Abstention missing_input {missing}.{missing_ci}{other_text} "
         "Same-author dev split. Not the expert holdout."
     )
 
