@@ -188,3 +188,14 @@ def test_real_ood_files_when_present() -> None:
     assert report["expert_holdout_written_by_this_run"] is False
     again = ood_report()
     assert count_fields(report) == count_fields(again)
+    text = render_ood_audit(report)
+    for item in report["datasets"]:
+        for value in item["counts"].values():
+            assert str(value) in text
+        for detail in item.get("disagree_detail") or []:
+            assert (
+                f"Disagree {detail['pair']} pint {detail['pint']} "
+                f"published {detail['published']}."
+            ) in text
+        if "class_counts" in item:
+            assert json.dumps(item["class_counts"], sort_keys=True) in text

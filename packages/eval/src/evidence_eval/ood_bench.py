@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import re
 from collections import Counter
 from decimal import Decimal
@@ -793,13 +794,17 @@ def _dataset_lines(item: dict[str, Any]) -> list[str]:
                     f"Reason: {item['reasons']['incompatible']}.",
                 ),
                 _line("VERIFIED", f"Bad factors {counts['bad_factor']}."),
+                _line("VERIFIED", f"Compared {counts['compared']}."),
+                _line("VERIFIED", f"Offset interval none {counts['offset_interval_none']}."),
+                _line("VERIFIED", f"Tokens withheld {counts['tokens_withheld']}."),
             ]
         )
         if "wilson_low" in counts:
             lines.append(
                 _line(
                     "VERIFIED",
-                    f"Wilson 95 percent low {counts['wilson_low']} high {counts['wilson_high']}.",
+                    f"Wilson 95 percent low {counts['wilson_low']} high {counts['wilson_high']}. "
+                    f"Method {counts['wilson_method']}.",
                 )
             )
         for detail in item["disagree_detail"]:
@@ -823,6 +828,7 @@ def _dataset_lines(item: dict[str, Any]) -> list[str]:
                 _line("VERIFIED", f"Publisher links {counts['publisher_links']}."),
                 _line("VERIFIED", f"Predicted links {counts['predicted_links']}."),
                 _line("VERIFIED", f"Comparable links {counts['comparable_links']}."),
+                _line("VERIFIED", f"Negative labels {counts['negative_labels']}."),
                 _line("VERIFIED", "Precision is null. The file has no negative labels."),
             ]
         )
@@ -876,7 +882,15 @@ def _dataset_lines(item: dict[str, Any]) -> list[str]:
                     "Requirement text was not copied.",
                 )
             )
-            lines.append(_line("VERIFIED", f"Class counts {item['class_counts']}."))
+            rendered_counts = json.dumps(item["class_counts"], sort_keys=True)
+            lines.append(_line("VERIFIED", f"Class counts {rendered_counts}."))
+            if "requirements_copied" in counts:
+                lines.append(
+                    _line(
+                        "VERIFIED",
+                        f"Requirements copied {counts['requirements_copied']}.",
+                    )
+                )
         if "abstract_matches_file" in item:
             lines.append(
                 _line(
