@@ -194,8 +194,7 @@ def test_real_ood_files_when_present() -> None:
             assert str(value) in text
         for detail in item.get("disagree_detail") or []:
             assert (
-                f"Disagree {detail['pair']} pint {detail['pint']} "
-                f"published {detail['published']}."
+                f"Disagree {detail['pair']} pint {detail['pint']} published {detail['published']}."
             ) in text
         if "class_counts" in item:
             assert json.dumps(item["class_counts"], sort_keys=True) in text

@@ -24,9 +24,7 @@ def split() -> None:
     end = html.rfind("</section>") + len("</section>")
     head, tail = html[:start], html[end:]
     for match in re.finditer(r'<section class="frame" id="([^"]+)">.*?</section>', html, re.S):
-        (ROOT / f"{match.group(1)}.html").write_text(
-            head + match.group(0) + tail, encoding="utf-8"
-        )
+        (ROOT / f"{match.group(1)}.html").write_text(head + match.group(0) + tail, encoding="utf-8")
 
 
 def shoot(frame_id: str) -> None:
@@ -57,9 +55,7 @@ def encode(name: str, frames: tuple[str, ...]) -> None:
     cmd = [ffmpeg, "-y"]
     for frame_id in frames:
         cmd.extend(["-loop", "1", "-t", "2.7", "-i", str(ROOT / f"{frame_id}.png")])
-    filt = ";".join(
-        f"[{i}:v]scale=1080:1920,setsar=1,fps=30[v{i}]" for i in range(len(frames))
-    )
+    filt = ";".join(f"[{i}:v]scale=1080:1920,setsar=1,fps=30[v{i}]" for i in range(len(frames)))
     filt += ";" + "".join(f"[v{i}]" for i in range(len(frames)))
     filt += f"concat=n={len(frames)}:v=1:a=0[v]"
     cmd.extend(
