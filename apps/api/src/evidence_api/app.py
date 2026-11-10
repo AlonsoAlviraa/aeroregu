@@ -216,9 +216,7 @@ def _zip_bytes(events: list[dict[str, Any]]) -> bytes:
 
 def _ok(method_version: str, inputs: Any, result: Any) -> dict[str, Any]:
     return make_envelope(
-        sources=[
-            project_source("aeroregu", "https://aeroregu.local/api", "ASSUMPTION")
-        ],
+        sources=[project_source("aeroregu", "https://aeroregu.local/api", "ASSUMPTION")],
         method_version=method_version,
         inputs=inputs,
         confidence="deterministic",
@@ -228,9 +226,7 @@ def _ok(method_version: str, inputs: Any, result: Any) -> dict[str, Any]:
 
 def _abstain(method_version: str, inputs: Any, reason: str) -> dict[str, Any]:
     return make_envelope(
-        sources=[
-            project_source("aeroregu", "https://aeroregu.local/api", "ASSUMPTION")
-        ],
+        sources=[project_source("aeroregu", "https://aeroregu.local/api", "ASSUMPTION")],
         method_version=method_version,
         inputs=inputs,
         confidence="abstain",

@@ -375,9 +375,7 @@ def _abstain_envelope(case: CaseSpec, reason: str) -> dict[str, Any]:
 
 def _quote_envelope(case: CaseSpec, text: str, method_version: str) -> dict[str, Any]:
     return make_envelope(
-        sources=[
-            project_source("supervisor", "https://aeroregu.local/supervisor", "ASSUMPTION")
-        ],
+        sources=[project_source("supervisor", "https://aeroregu.local/supervisor", "ASSUMPTION")],
         method_version=method_version,
         inputs={"tenant_id": case.tenant_id},
         confidence="draft",

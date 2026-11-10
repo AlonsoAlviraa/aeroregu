@@ -211,9 +211,7 @@ def _record_quoted_spans(text: str) -> list[str]:
             if decide(extractor, challenge(text, field)) == "human_queue":
                 continue
             envelope = make_envelope(
-                sources=[
-                    project_source("quote", "https://aeroregu.local/quote", "ASSUMPTION")
-                ],
+                sources=[project_source("quote", "https://aeroregu.local/quote", "ASSUMPTION")],
                 method_version="span_quote@1.0.0",
                 inputs={"name": field.name},
                 confidence="deterministic",

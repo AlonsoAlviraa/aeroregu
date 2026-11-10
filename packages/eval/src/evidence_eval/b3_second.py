@@ -198,9 +198,7 @@ def _record_fields(
 
             value = str(Decimal(quoted["value_text"]))
             envelope = make_envelope(
-                sources=[
-                    project_source("quote", "https://aeroregu.local/quote", "ASSUMPTION")
-                ],
+                sources=[project_source("quote", "https://aeroregu.local/quote", "ASSUMPTION")],
                 method_version="span_quote@1.0.0",
                 inputs={"name": span.name},
                 confidence="deterministic",

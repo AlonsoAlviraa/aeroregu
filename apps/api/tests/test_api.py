@@ -17,9 +17,7 @@ def _client(tmp_path, monkeypatch) -> TestClient:
 
 
 def _login(client: TestClient, actor: str = "author") -> None:
-    response = client.post(
-        "/auth/login", json={"actor_id": actor, "password": f"{actor}-local"}
-    )
+    response = client.post("/auth/login", json={"actor_id": actor, "password": f"{actor}-local"})
     assert response.status_code == 200
 
 
@@ -78,9 +76,7 @@ def test_storyboard_path(tmp_path, monkeypatch) -> None:
             "target_event_hash": target,
         },
         "envelope": make_envelope(
-            sources=[
-                project_source("reviewer", "https://aeroregu.local/reviewer", "ASSUMPTION")
-            ],
+            sources=[project_source("reviewer", "https://aeroregu.local/reviewer", "ASSUMPTION")],
             method_version="human_signoff@1.0.0",
             inputs={"target_event_hash": target},
             confidence="quoted",
