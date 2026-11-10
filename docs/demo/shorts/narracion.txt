@@ -1,0 +1,11 @@
+¿Quién escribe el número en una nota de cálculo? No lo escribe una inteligencia artificial. Esta herramienta asiste a un revisor humano. No determina cumplimiento.
+
+El avión de la demo se llama ese ele uno. Es sintético. La semilla es dos cero dos seis uno uno cero tres. Las masas son una suposición, no una medida de un aparato real. Aquí no hay un PDF de una norma. El hash de ese archivo está vacío y la etiqueta dice no verificado.
+
+El método tiene nombre: rigid body point mass, versión uno punto cero punto cero. Es una ilustración de cribado de este proyecto. No es un método de certificación. El código toma la masa, la gravedad y el factor de carga, y vuelve a calcular la fuerza vertical. En la primera celda salen siete mil ochocientos cuarenta y ocho newtons, escritos siete ocho cuatro ocho punto cero cero cero. El residuo vertical es cero. El hash de esas entradas queda guardado. Si cambias una entrada, cambia el hash.
+
+La rejilla tiene ciento treinta y cinco celdas. Solo usa los ejes que el método realmente calcula. Una celda está hecha: ochocientos kilos, centro de gravedad menos cero coma dos, factor uno, ninguna unidad fallada. La siguiente, con la primera unidad fuera, es un hueco. Un hueco es una consulta, no un párrafo. Esta rejilla no es la envolvente de una norma. No cubre el avión. Es una ilustración.
+
+Ahora la nota. Dice tres kilonewtons. Parece terminada. El método espera newtons. La misma cifra, otra escala. El código lo recalcula y marca unit scale. No reescribe la nota con el número bueno. Si un modelo inventa una cifra, esa cifra no se guarda. El número sale del método.
+
+Si falta un dato, el sistema se abstiene. No hay resultado. El sobre no lleva un número. El libro guarda el motivo. Al final firma una persona. La frase es reviewed this event. No dice compliant. La herramienta asiste. No determina cumplimiento. No es aceptación de una autoridad.

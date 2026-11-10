@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 def _client(tmp_path, monkeypatch) -> TestClient:
     monkeypatch.setenv("EVIDENCE_HOME", str(tmp_path))
+    monkeypatch.setenv("EVIDENCE_SESSION_SECRET", "test-session-secret-0123456789")
     monkeypatch.delenv("MODEL_BASE_URL", raising=False)
     return TestClient(create_app())
 
@@ -96,6 +97,37 @@ def test_the_demo_process_refuses_a_short_session_secret(monkeypatch) -> None:
     monkeypatch.delenv("EVIDENCE_SESSION_SECRET", raising=False)
     with pytest.raises(SystemExit):
         main()
+
+
+def test_login_without_a_session_secret_does_not_authenticate(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("EVIDENCE_HOME", str(tmp_path))
+    monkeypatch.delenv("EVIDENCE_SESSION_SECRET", raising=False)
+    monkeypatch.delenv("MODEL_BASE_URL", raising=False)
+    client = TestClient(create_app())
+    denied = client.post("/auth/login", json={"actor_id": "author", "password": "author-local"})
+    assert denied.status_code == 401
+    assert denied.json()["abstain"]["reason"] == "session_secret_missing"
+    assert "result" not in denied.json()
+    recorded = client.post("/calc/run", json=_record_body())
+    assert recorded.status_code == 401
+
+
+def test_supervisor_low_decision_gate_abstains_without_a_result(tmp_path, monkeypatch) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _login(client)
+    response = client.post(
+        "/supervisor/run",
+        json={
+            "scenario": "gate_low",
+            "use_decision_gate": True,
+            "created_at": "2026-11-10T12:00:00Z",
+        },
+    )
+    body = response.json()
+    assert response.status_code == 200
+    assert body["confidence"] == "abstain"
+    assert body["abstain"]["reason"] == "decision_gate"
+    assert "result" not in body
 
 
 def test_the_demo_process_binds_the_loopback_interface(monkeypatch) -> None:

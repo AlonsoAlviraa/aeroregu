@@ -188,6 +188,46 @@ def test_abstain_rejects_numeric_payload(tmp_path: Path) -> None:
     assert "result" not in ledger.events()[-1]["body"]["envelope"]
 
 
+def test_a_new_actor_salt_is_not_the_tenant_hash(tmp_path: Path) -> None:
+    import hashlib
+
+    ledger = Ledger(tmp_path / "a.sqlite3", "tenant-a")
+    ledger.ensure_actor("author", "human", "author-local")
+    other = Ledger(tmp_path / "b.sqlite3", "tenant-a")
+    other.ensure_actor("author", "human", "author-local")
+    predictable = hashlib.sha256(b"tenant-a:author").hexdigest()
+    with sqlite3.connect(tmp_path / "a.sqlite3") as conn:
+        salt_a = conn.execute("SELECT password_salt FROM actors").fetchone()[0]
+    with sqlite3.connect(tmp_path / "b.sqlite3") as conn:
+        salt_b = conn.execute("SELECT password_salt FROM actors").fetchone()[0]
+    assert salt_a != predictable
+    assert salt_b != predictable
+    assert salt_a != salt_b
+    assert ledger.check_password("author", "author-local")
+    assert not ledger.check_password("author", "other-password")
+
+
+def test_a_predictable_salt_is_replaced_when_the_password_matches(tmp_path: Path) -> None:
+    import hashlib
+
+    path = tmp_path / "a.sqlite3"
+    ledger = Ledger(path, "tenant-a")
+    predictable = hashlib.sha256(b"tenant-a:author").hexdigest()
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", b"author-local", predictable.encode("ascii"), 20_000
+    ).hex()
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "INSERT INTO actors (actor_id, role, password_hash, password_salt) VALUES (?, ?, ?, ?)",
+            ("author", "human", digest, predictable),
+        )
+    ledger.ensure_actor("author", "human", "author-local")
+    with sqlite3.connect(path) as conn:
+        salt = conn.execute("SELECT password_salt FROM actors").fetchone()[0]
+    assert salt != predictable
+    assert ledger.check_password("author", "author-local")
+
+
 def test_ledger_releases_the_sqlite_file(tmp_path: Path) -> None:
     import shutil
     import tempfile

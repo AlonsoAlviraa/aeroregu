@@ -12,6 +12,7 @@
         "checker",
         "refuter",
         "scribe",
+        "decision_gate",
         "moc_drafter",
         "envelope_critic",
         "change_narrator",

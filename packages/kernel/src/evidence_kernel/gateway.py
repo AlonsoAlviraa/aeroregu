@@ -10,7 +10,7 @@ from typing import Any
 import httpx
 from jsonschema import Draft202012Validator
 
-from evidence_kernel.agents import require_mvp_agent
+from evidence_kernel.agents import MVP_AGENTS, require_mvp_agent
 from evidence_kernel.paths import prompts_dir
 
 logger = logging.getLogger("evidence_kernel.gateway")
@@ -92,9 +92,7 @@ class BudgetedGateway:
         schema: dict[str, Any] | None,
     ) -> Completion:
         self.turns += 1
-        digest = (
-            prompt_hash(agent_id) if agent_id in {"reader", "checker", "refuter", "scribe"} else ""
-        )
+        digest = prompt_hash(agent_id) if agent_id in MVP_AGENTS else ""
         text = json.dumps(messages, separators=(",", ":"))
         input_tokens = estimate_tokens(text)
         content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -136,6 +134,8 @@ class OpenAICompatibleGateway:
     ) -> Completion:
         require_mvp_agent(agent_id)
         digest = prompt_hash(agent_id)
+        if agent_id == "decision_gate":
+            return Completion(None, "decision_gate_fixture_only", self.temperature, digest, 0, 0)
         text = json.dumps(messages, separators=(",", ":"))
         input_tokens = estimate_tokens(text)
         content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -229,6 +229,12 @@ def _fixture_output(agent_id: str, scenario: str, context: dict[str, Any]) -> di
     checker_label = reader_label
     if scenario == "disagree":
         checker_label = "VERIFIED" if reader_label != "VERIFIED" else "NOT_VERIFIED"
+    if agent_id == "decision_gate":
+        if scenario == "gate_low":
+            return {"decision": "continue", "gate_probability": "0.100"}
+        if scenario == "gate_abstain":
+            return {"decision": "abstain", "gate_probability": "0.950"}
+        return {"decision": "continue", "gate_probability": "0.950"}
     if scenario == "bad_span" and agent_id == "reader":
         quotation = "this quotation is not in the block"
     decimals = [str(item) for item in context.get("allowed_decimals", [])]

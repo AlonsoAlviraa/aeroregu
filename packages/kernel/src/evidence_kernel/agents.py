@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-MVP_AGENTS = ("reader", "checker", "refuter", "scribe")
+MVP_AGENTS = ("reader", "checker", "refuter", "scribe", "decision_gate")
 LATER_AGENTS = (
     "moc_drafter",
     "envelope_critic",

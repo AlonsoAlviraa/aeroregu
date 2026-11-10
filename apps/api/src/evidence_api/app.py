@@ -151,6 +151,7 @@ def create_app() -> FastAPI:
             method_id=body.get("method_id", "rigid_body_point_mass"),
             calc_inputs=body.get("calc_inputs") or calc_inputs_for(generate_cells()[0]),
             reader_label=str(body.get("reader_label") or "NOT_VERIFIED"),
+            use_decision_gate=bool(body.get("use_decision_gate")),
         )
         if body.get("omit_inputs"):
             case.calc_inputs = {}
@@ -161,6 +162,9 @@ def create_app() -> FastAPI:
 
     @app.post("/auth/login")
     def login(body: dict[str, Any]) -> JSONResponse:
+        if _secret() is None:
+            envelope = _abstain("auth@1.0.0", {}, "session_secret_missing")
+            return JSONResponse(envelope, status_code=401)
         ledger = open_ledger()
         actor_id = str(body.get("actor_id", ""))
         password = str(body.get("password", ""))
@@ -249,7 +253,10 @@ def _card_version(method_id: str) -> str:
 
 
 def _token(actor_id: str) -> str:
-    mac = hmac.new(_secret().encode(), actor_id.encode(), hashlib.sha256).hexdigest()
+    secret = _secret()
+    if secret is None:
+        raise RuntimeError("session secret is missing")
+    mac = hmac.new(secret.encode(), actor_id.encode(), hashlib.sha256).hexdigest()
     return f"{actor_id}.{mac}"
 
 
@@ -263,11 +270,14 @@ def _session_actor(request: Request, requested: Any) -> str | None:
 
 
 def _actor_from_request(request: Request) -> str | None:
+    secret = _secret()
+    if secret is None:
+        return None
     raw = request.cookies.get("el_session", "")
     if "." not in raw:
         return None
     actor_id, mac = raw.rsplit(".", 1)
-    expected = hmac.new(_secret().encode(), actor_id.encode(), hashlib.sha256).hexdigest()
+    expected = hmac.new(secret.encode(), actor_id.encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(mac, expected):
         return None
     if open_ledger().actor_role(actor_id) is None:
@@ -275,8 +285,11 @@ def _actor_from_request(request: Request) -> str | None:
     return actor_id
 
 
-def _secret() -> str:
-    return os.environ.get("EVIDENCE_SESSION_SECRET", "local-demo-session")
+def _secret() -> str | None:
+    secret = os.environ.get("EVIDENCE_SESSION_SECRET", "")
+    if len(secret) < 24 or secret == "local-demo-session":
+        return None
+    return secret
 
 
 def _now() -> str:

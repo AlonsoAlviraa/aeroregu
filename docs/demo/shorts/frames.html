@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body { margin: 0; width: 1080px; height: 1920px; background: #07080c; color: #f7f4ee; font-family: "Segoe UI", Arial, sans-serif; }
+  .frame { width: 1080px; height: 1920px; box-sizing: border-box; padding: 110px 72px 90px; display: flex; flex-direction: column; justify-content: space-between; }
+  .q { font-size: 78px; line-height: 0.98; font-weight: 800; letter-spacing: -0.03em; margin: 0; text-transform: uppercase; }
+  .claim { font-size: 64px; line-height: 1.05; font-weight: 800; color: #d6ff3f; margin: 0; }
+  .turn { font-size: 40px; line-height: 1.28; margin: 0; color: #e4dfd4; }
+  .hash { font-family: Consolas, "Courier New", monospace; font-size: 30px; line-height: 1.35; color: #d6ff3f; word-break: break-all; }
+  .foot { font-size: 28px; line-height: 1.35; color: #9a9488; }
+</style>
+</head>
+<body>
+<section class="frame" id="d1">
+  <h1 class="q">¿Quién escribe el número?</h1>
+  <p class="claim">No lo escribe la IA.</p>
+  <p class="turn">This tool assists a human reviewer. It does not determine compliance.</p>
+  <div class="foot">Avión SL-1. Origen sintético. Semilla 20261103.</div>
+</section>
+<section class="frame" id="d2">
+  <h1 class="q">¿Y el avión?</h1>
+  <p class="claim">SL-1 es sintético.</p>
+  <p class="turn">Las masas son ASSUMPTION. El hash del PDF local está vacío y va como NOT_VERIFIED.</p>
+  <div class="foot">This tool assists a human reviewer. It does not determine compliance.</div>
+</section>
+<section class="frame" id="d3">
+  <h1 class="q">¿Entonces qué hace?</h1>
+  <p class="claim">Recalcula y se calla si falla.</p>
+  <p class="turn">Una persona revisa. La herramienta no determina cumplimiento.</p>
+  <div class="foot">Datos sintéticos. SL-1.</div>
+</section>
+<section class="frame" id="m1">
+  <h1 class="q">¿Qué método corre?</h1>
+  <p class="claim">rigid_body_point_mass@1.0.0</p>
+  <p class="turn">Ilustración de cribado del proyecto. La función es run_rigid_body_point_mass.</p>
+  <div class="foot">No es un método de certificación.</div>
+</section>
+<section class="frame" id="m2">
+  <h1 class="q">¿Qué número sale?</h1>
+  <p class="claim">7848.000 N</p>
+  <p class="turn">required_vertical_force_n en la primera celda. Residuo vertical 0.000.</p>
+  <div class="foot">Decimal recalculado por el código. This tool assists a human reviewer. It does not determine compliance.</div>
+</section>
+<section class="frame" id="m3">
+  <h1 class="q">¿De qué entradas?</h1>
+  <p class="claim">Hash de las entradas</p>
+  <p class="hash">58382e0520df8fc774e878c77112b0f1b8b3914f159daedf546907dfdd62def4</p>
+  <div class="foot">Celda m800.000-cg-0.200-lf1.000-unone. SL-1 sintético.</div>
+</section>
+<section class="frame" id="g1">
+  <h1 class="q">¿Qué celda está hecha?</h1>
+  <p class="claim">Una celda calc.</p>
+  <p class="turn">m800.000-cg-0.200-lf1.000-unone ya tiene el cálculo.</p>
+  <div class="foot">Rejilla de ilustración. No es la envolvente estructural VTOL.2210.</div>
+</section>
+<section class="frame" id="g2">
+  <h1 class="q">¿Y la siguiente?</h1>
+  <p class="claim">Un hueco. Status gap.</p>
+  <p class="turn">m800.000-cg-0.200-lf1.000-u0 sigue sin evidencia. Un gap es una consulta, no un párrafo.</p>
+  <div class="foot">135 celdas. Solo los ejes que el método usa.</div>
+</section>
+<section class="frame" id="g3">
+  <h1 class="q">¿Eso cubre el avión?</h1>
+  <p class="claim">No. Es una ilustración.</p>
+  <p class="turn">La rejilla no sustituye un expediente. La persona mira el hueco.</p>
+  <div class="foot">This tool assists a human reviewer. It does not determine compliance.</div>
+</section>
+<section class="frame" id="u1">
+  <h1 class="q">¿3 kN o 3000 N?</h1>
+  <p class="claim">La nota dice 3 kN.</p>
+  <p class="turn">Parece terminada. El método espera newtons.</p>
+  <div class="foot">Nota sintética. SL-1.</div>
+</section>
+<section class="frame" id="u2">
+  <h1 class="q">¿Qué marca el código?</h1>
+  <p class="claim">unit_scale</p>
+  <p class="turn">Lo vuelve a calcular. No reescribe la nota con el número bueno.</p>
+  <div class="foot">Fallo sembrado. This tool assists a human reviewer. It does not determine compliance.</div>
+</section>
+<section class="frame" id="u3">
+  <h1 class="q">¿Y si el modelo inventa?</h1>
+  <p class="claim">Ese número no se guarda.</p>
+  <p class="turn">La cifra sale del método, no de un texto generado.</p>
+  <div class="foot">Datos sintéticos.</div>
+</section>
+<section class="frame" id="s1">
+  <h1 class="q">¿Y si falta un dato?</h1>
+  <p class="claim">Abstención. Sin resultado.</p>
+  <p class="turn">El sobre no lleva result. El libro guarda el motivo, no una cifra.</p>
+  <div class="foot">This tool assists a human reviewer. It does not determine compliance.</div>
+</section>
+<section class="frame" id="s2">
+  <h1 class="q">¿Quién cierra?</h1>
+  <p class="claim">reviewed this event</p>
+  <p class="turn">La firma guarda el actor y esa frase. No dice compliant.</p>
+  <div class="foot">SL-1 sintético.</div>
+</section>
+<section class="frame" id="s3">
+  <h1 class="q">¿Eso es el final?</h1>
+  <p class="claim">Una persona firma. La herramienta asiste.</p>
+  <p class="turn">No determina cumplimiento. No es aceptación de una autoridad.</p>
+  <div class="foot">This tool assists a human reviewer. It does not determine compliance.</div>
+</section>
+</body>
+</html>

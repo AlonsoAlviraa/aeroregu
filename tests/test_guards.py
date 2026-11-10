@@ -48,7 +48,7 @@ def test_skills_and_adrs_exist() -> None:
     skills = sorted(path.parent.name for path in (root / ".cursor" / "skills").glob("*/SKILL.md"))
     assert len(skills) == 20
     adrs = list((root / "docs" / "adr").glob("ADR-*.md"))
-    assert len(adrs) == 20
+    assert len(adrs) == 21
 
 
 def test_secret_scan_is_clean() -> None:

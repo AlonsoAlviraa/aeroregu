@@ -11,7 +11,7 @@ description: >-
 ## Steps
 
 1. Read ADR-015 and ADR-016.
-2. Add the id only if the phase gate for that id is open. The MVP registry accepts only `reader`, `checker`, `refuter`, and `scribe`.
+2. Add the id only if the phase gate for that id is open. The registry accepts `reader`, `checker`, `refuter`, `scribe`, and `decision_gate` (ADR-021). The eight later ids stay rejected.
 3. Create `packages/kernel/prompts/<agent_id>.md` as a different file from every other agent.
 4. Hash the file in tests.
 5. Declare the output schema.

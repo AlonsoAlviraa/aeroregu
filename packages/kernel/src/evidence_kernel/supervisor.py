@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any
 
 from evidence_calc.errors import AbstainError
@@ -97,11 +98,24 @@ SCRIBE_SCHEMA: dict[str, Any] = {
     "properties": {"paragraph": {"type": "string"}},
 }
 
+DECISION_GATE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["decision", "gate_probability"],
+    "properties": {
+        "decision": {"enum": ["continue", "abstain"]},
+        "gate_probability": {"type": "string", "pattern": "^(?:0\\.\\d{3}|1\\.000)$"},
+    },
+}
+
+GATE_THRESHOLD = "0.800"
+
 SCHEMAS = {
     "reader": READER_SCHEMA,
     "checker": CHECKER_SCHEMA,
     "refuter": REFUTER_SCHEMA,
     "scribe": SCRIBE_SCHEMA,
+    "decision_gate": DECISION_GATE_SCHEMA,
 }
 
 
@@ -121,6 +135,7 @@ class CaseSpec:
     calc_inputs: dict[str, Any] | None = None
     stated_outputs: dict[str, Any] | None = None
     reader_label: str = "NOT_VERIFIED"
+    use_decision_gate: bool = False
 
 
 @dataclass
@@ -151,6 +166,16 @@ def _run(ledger: Ledger, gateway: Any, case: CaseSpec) -> Outcome:
     source_text = "\n".join(str(block.get("text", "")) for block in case.blocks)
     if not source_text.strip():
         raise CaseAbstain("no_text_layer")
+    gate_output: dict[str, Any] | None = None
+    if case.use_decision_gate:
+        gate_output = _complete(
+            gateway,
+            "decision_gate",
+            {"task": "decision_gate", "source_text": source_text},
+        )
+        _reject_stray(gate_output, set())
+        if _gate_abstains(gate_output):
+            raise CaseAbstain("decision_gate")
     quotation = case.blocks[0]["text"]
     span_start = str(case.blocks[0].get("span_start", 0))
     span_end = str(case.blocks[0].get("span_end", len(quotation)))
@@ -262,12 +287,18 @@ def _run(ledger: Ledger, gateway: Any, case: CaseSpec) -> Outcome:
                 )
             )
     input_hashes = [calc_hash] if calc_hash else []
-    for agent_id, output in (
-        ("reader", reader),
-        ("checker", checker),
-        ("refuter", refuter),
-        ("scribe", scribe),
-    ):
+    turns: list[tuple[str, dict[str, Any]]] = []
+    if gate_output is not None:
+        turns.append(("decision_gate", gate_output))
+    turns.extend(
+        (
+            ("reader", reader),
+            ("checker", checker),
+            ("refuter", refuter),
+            ("scribe", scribe),
+        )
+    )
+    for agent_id, output in turns:
         turn_env = _agent_envelope(
             case, agent_id, output, case.calc_inputs or {"blocks": source_text}
         )
@@ -313,6 +344,12 @@ def _reject_stray(output: dict[str, Any], allowed: set[str]) -> None:
     stray = stray_physical_numbers(output, allowed)
     if stray:
         raise CaseAbstain("stray_number")
+
+
+def _gate_abstains(output: dict[str, Any]) -> bool:
+    if output.get("decision") != "continue":
+        return True
+    return Decimal(str(output.get("gate_probability", "0.000"))) < Decimal(GATE_THRESHOLD)
 
 
 def _labels_disagree(reader: dict[str, Any], checker: dict[str, Any]) -> bool:

@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import re
+import secrets
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -188,19 +189,37 @@ class Ledger:
         return True
 
     def ensure_actor(self, actor_id: str, role: str, password: str) -> None:
-        salt = hashlib.sha256(f"{self.tenant_id}:{actor_id}".encode()).hexdigest()
-        digest = hashlib.pbkdf2_hmac(
-            "sha256", password.encode("utf-8"), salt.encode("ascii"), 20_000
-        ).hex()
+        predictable = hashlib.sha256(f"{self.tenant_id}:{actor_id}".encode()).hexdigest()
         with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO actors (actor_id, role, password_hash, password_salt)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(actor_id) DO NOTHING
-                """,
-                (actor_id, role, digest, salt),
-            )
+            row = conn.execute(
+                "SELECT password_hash, password_salt FROM actors WHERE actor_id = ?",
+                (actor_id,),
+            ).fetchone()
+            if row is not None and row["password_salt"] != predictable:
+                return
+            if row is not None and not hmac.compare_digest(
+                _password_digest(password, row["password_salt"]), row["password_hash"]
+            ):
+                return
+            salt = secrets.token_hex(16)
+            digest = _password_digest(password, salt)
+            if row is None:
+                conn.execute(
+                    """
+                    INSERT INTO actors (actor_id, role, password_hash, password_salt)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (actor_id, role, digest, salt),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE actors
+                    SET role = ?, password_hash = ?, password_salt = ?
+                    WHERE actor_id = ?
+                    """,
+                    (role, digest, salt, actor_id),
+                )
             conn.commit()
 
     def actor_role(self, actor_id: str) -> str | None:
@@ -216,10 +235,14 @@ class Ledger:
             ).fetchone()
         if row is None:
             return False
-        digest = hashlib.pbkdf2_hmac(
-            "sha256", password.encode("utf-8"), row["password_salt"].encode("ascii"), 20_000
-        ).hex()
+        digest = _password_digest(password, row["password_salt"])
         return hmac.compare_digest(digest, row["password_hash"])
+
+
+def _password_digest(password: str, salt: str) -> str:
+    return hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt.encode("ascii"), 20_000
+    ).hex()
 
 
 def verify_chain_document(events: list[dict[str, Any]]) -> bool:

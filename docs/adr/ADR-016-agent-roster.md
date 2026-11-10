@@ -17,4 +17,4 @@ A confidence average or a third model as a tie-break was rejected.
 
 ## Consequences
 
-The later agents are named and rejected by the registry. They are not implemented.
+The later agents are named and rejected by the registry. They are not implemented. `decision_gate` is specified in ADR-021 and is off unless a case asks for it.

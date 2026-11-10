@@ -25,3 +25,5 @@ htmlcov/
 sbom.cdx.json
 .smoke-data/
 *.pyc
+docs/demo/shorts/reference/*.mp4
+docs/demo/shorts/reference/*.png

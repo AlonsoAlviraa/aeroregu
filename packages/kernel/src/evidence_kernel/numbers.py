@@ -8,6 +8,7 @@ INTEGER_TOKEN = re.compile(r"(?<![\d.])-?\d+(?![\d.])")
 HEX_HASH = re.compile(r"^[0-9a-f]{64}$")
 _INDEX_KEYS = frozenset({"span_start", "span_end"})
 _UNIT_KEYS = frozenset({"unit", "unit_text"})
+_GATE_PROBABILITY = re.compile(r"^(?:0\.\d{3}|1\.000)$")
 
 
 def collect_decimals(value: Any) -> set[str]:
@@ -73,6 +74,8 @@ def _stray(value: Any, allowed: set[str], stray: list[str], key: str | None) -> 
 
 
 def _stray_text(value: str, allowed: set[str], stray: list[str], key: str | None) -> None:
+    if key == "gate_probability" and _GATE_PROBABILITY.fullmatch(value):
+        return
     if DECIMAL_TOKEN.fullmatch(value):
         if value not in allowed:
             stray.append(value)
