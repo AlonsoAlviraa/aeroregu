@@ -55,7 +55,9 @@ def test_b2_dev_links_and_false_coverage() -> None:
     assert report["agent_chain"]["judge_ci95"]["high"] == "1.000"
     assert report["agent_chain"]["link_recall"] == "6/6"
     assert report["agent_chain"]["false_coverage_recall"] == "2/2"
-    assert report["agent_chain"]["false_alarms"] == "0/6"
+    assert report["agent_chain"]["false_alarms"] == "0/2"
+    assert report["agent_chain"]["false_alarm_ci95"]["low"] == "0.000"
+    assert report["agent_chain"]["false_alarm_ci95"]["method"] == "wilson"
     assert report["agent_chain"]["abstentions"] == 0
     assert report["agent_chain"]["llm_numeric_violation"] == 0
     assert "span probe" in report["agent_chain"]["note"]

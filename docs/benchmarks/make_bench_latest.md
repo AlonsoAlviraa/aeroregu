@@ -1,6 +1,6 @@
 # make bench snapshot
 
-ESTIMATE: counts are the 2026-11-10 make bench, exit 0, elapsed 582382 ms. The per-fault false-alarm and abstention lines were rendered from that same JSON. Not a new 100000-case run.
+ESTIMATE: the other lines are the 2026-11-10 make bench, exit 0, elapsed 582382 ms. B2 false alarms were recomputed after that run. The denominator is the two zero-hash cases. Not a new 100000-case run.
 
 NOT VERIFIED: this file is not an expert-authored held-out result.
 
@@ -8,7 +8,7 @@ B1 ready: False. Cases: 0.
 Dev false alarms by fault: all zero. Abstention missing_input 2/2. Same-author dev split. Not the expert holdout.
 B2 beats_no_agent: False. beats_single_llm: NOT_VERIFIED.
 B2 public headings only: True.
-B2 chain llm_numeric_violation: 0. Judge 8/8 Wilson 95%: 0.676 to 1.000. Link recall 6/6 Wilson 95%: 0.610 to 1.000. False-coverage recall 2/2 Wilson 95%: 0.342 to 1.000. False alarms 0/6. Abstentions 0. The span probe is not in these counts.
+B2 chain llm_numeric_violation: 0. Judge 8/8 Wilson 95%: 0.676 to 1.000. Link recall 6/6 Wilson 95%: 0.610 to 1.000. False-coverage recall 2/2 Wilson 95%: 0.342 to 1.000. False alarms 0/2. Wilson 95%: 0.000 to 0.658. Abstentions 0. The span probe is not in these counts.
 B2 span probe: verifier links True, chain abstains True. Not in the frozen dev set.
 B2 two-pack probe: chain matches verifier True. Not a win. Not in the frozen dev set.
 B3 ready: False. dev_pdf_scored: True.

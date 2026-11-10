@@ -14,7 +14,13 @@
   "b2": {
     "agent": {
       "abstentions": 0,
-      "false_alarms": "0/6",
+      "false_alarm_ci95": {
+        "high": "0.658",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "false_alarms": "0/2",
       "false_coverage_recall": "2/2",
       "false_coverage_recall_ci95": {
         "high": "1.000",
@@ -38,11 +44,17 @@
         "z": "1.96"
       },
       "llm_numeric_violation": 0,
-      "note": "Synthetic reports. Identifier shapes, not clause quotations. The span probe is not in these counts."
+      "note": "Synthetic reports. Identifier shapes, not clause quotations. False alarms use the zero-hash cases as the denominator. A refused true link is a miss, not a false alarm. The span probe is not in these counts."
     },
     "agent_chain": {
       "abstentions": 0,
-      "false_alarms": "0/6",
+      "false_alarm_ci95": {
+        "high": "0.658",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "false_alarms": "0/2",
       "false_coverage_recall": "2/2",
       "false_coverage_recall_ci95": {
         "high": "1.000",
@@ -66,7 +78,7 @@
         "z": "1.96"
       },
       "llm_numeric_violation": 0,
-      "note": "Synthetic reports. Identifier shapes, not clause quotations. The span probe is not in these counts."
+      "note": "Synthetic reports. Identifier shapes, not clause quotations. False alarms use the zero-hash cases as the denominator. A refused true link is a miss, not a false alarm. The span probe is not in these counts."
     },
     "beats_hash_blind": true,
     "beats_no_agent": false,

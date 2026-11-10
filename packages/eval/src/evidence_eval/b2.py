@@ -607,8 +607,6 @@ def _agent_chain_dev() -> dict[str, Any]:
                 expected = case["gold_links"][0][0]
                 ok = outcome["requirement_id"] == expected and outcome["false_coverage"] is False
                 link_hits += int(ok)
-                if outcome.get("false_coverage"):
-                    false_alarms += 1
             else:
                 false_total += 1
                 ok = outcome["requirement_id"] is None and outcome["false_coverage"] is True
@@ -624,12 +622,15 @@ def _agent_chain_dev() -> dict[str, Any]:
         "link_recall_ci95": wilson(link_hits, link_total),
         "false_coverage_recall": f"{false_hits}/{false_total}",
         "false_coverage_recall_ci95": wilson(false_hits, false_total),
-        "false_alarms": f"{false_alarms}/{link_total}",
+        "false_alarms": f"{false_alarms}/{false_total}",
+        "false_alarm_ci95": wilson(false_alarms, false_total),
         "abstentions": abstentions,
         "llm_numeric_violation": violations,
         "label": "ESTIMATE",
         "note": (
             "Synthetic reports. Identifier shapes, not clause quotations. "
+            "False alarms use the zero-hash cases as the denominator. "
+            "A refused true link is a miss, not a false alarm. "
             "The span probe is not in these counts."
         ),
     }

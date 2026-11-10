@@ -315,6 +315,7 @@ def _chain_numeric_line(b2: dict[str, Any]) -> str:
         f"False-coverage recall {chain.get('false_coverage_recall')} "
         f"Wilson 95%: {_ci(chain.get('false_coverage_recall_ci95'))}. "
         f"False alarms {chain.get('false_alarms')}. "
+        f"Wilson 95%: {_ci(chain.get('false_alarm_ci95'))}. "
         f"Abstentions {chain.get('abstentions')}. "
         "The span probe is not in these counts."
     )
