@@ -641,7 +641,9 @@ def b4_status() -> dict[str, Any]:
             "read on 2026-11-04, stated no copyright licence. The Paderborn paper "
             "states CC BY-NC 4.0 for the data, so that set was rejected. "
             "NASA/TM-2019-220311, citation 20200002067, was opened on 2026-11-10. "
-            "It lists channel units and is not a sample file, so it does not make B4 ready."
+            "It lists channel units and is not a sample file, so it does not make B4 ready. "
+            "Flight Data For Tail 666, DASHLINK_644, was opened on 2026-11-10. "
+            "The page says License not specified. No zip was downloaded."
         )
     status = {
         "benchmark": "B4",
