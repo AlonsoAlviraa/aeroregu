@@ -66,7 +66,7 @@ B2 and B3 are the comparisons that must show the agent system ahead of the no-ag
 
 ## Measured status on 2026-11-03
 
-`make bench` exited 0 on 2026-11-03. The run that wrote `docs/benchmarks/s1_latest.md` took about 6 minutes. These rates are ESTIMATE counts from that run, not a certification result.
+`make bench` exited 0 on 2026-11-03. `docs/benchmarks/s1_latest.md` was rewritten on 2026-11-10 by `run_s1`, not by that `make bench`. The process took about 6 minutes. The rates below are ESTIMATE counts from that 2026-11-10 file, not a certification result. False alarms were 0/4000 in distribution and 0/4000 shifted. Abstention correctness was 1.000 on each shift. This file does not replace `docs/benchmarks/make_bench_latest.md`.
 
 S1 generator `s1@1.0.0`, seed `20261103`, 100000 of 100000 invented cases. Each scored single fault was 7000/7000, and 3500/3500 on both the in-distribution and shifted halves. Difficulty recall was 29000/29000 easy, 49000/49000 medium, and 22000/22000 hard. False alarms were 0 of 8000 clean cases. `llm_numeric_violation` was 0. Abstention correctness was 1.000. `missing_input` is in that abstention count, so its detect-recall line is 0/0. The naive baseline was 0/7000 on every deterministic fault. Compound complete was 1.000. The expert held-out directory was not read.
 
