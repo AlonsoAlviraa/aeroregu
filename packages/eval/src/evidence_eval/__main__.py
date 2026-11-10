@@ -147,6 +147,9 @@ def _ledger_numbers_ok(benchmarks: dict) -> bool:
         return False
     if b3.get("llm_numeric_violation", 0) != 0:
         return False
+    drill_report = (benchmarks.get("b4") or {}).get("drill") or {}
+    if isinstance(drill_report, dict) and drill_report.get("llm_numeric_violation", 0) != 0:
+        return False
     return True
 
 

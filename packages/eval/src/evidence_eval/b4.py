@@ -173,7 +173,7 @@ DRILL_SERIES = (
 )
 
 
-def _record_drill(counts: list[int], abstain_ok: bool) -> tuple[list[str], str | None]:
+def _record_drill(counts: list[int], abstain_ok: bool) -> tuple[list[str], str | None, int]:
     import tempfile
     from pathlib import Path
 
@@ -229,7 +229,24 @@ def _record_drill(counts: list[int], abstain_ok: bool) -> tuple[list[str], str |
                 created_at="2026-11-04T17:31:00Z",
                 reason="ambiguous_input",
             )
-    return hashes, abstain_hash
+        violations = _count_violations(ledger.events())
+    return hashes, abstain_hash, violations
+
+
+def _count_violations(events: list[dict[str, object]]) -> int:
+    """The recomputed count is allowed. Any other physical number is a violation."""
+    from evidence_kernel.numbers import stray_physical_numbers
+
+    violations = 0
+    for event in events:
+        body = event.get("body")
+        envelope = body.get("envelope") if isinstance(body, dict) else None
+        result = envelope.get("result") if isinstance(envelope, dict) else None
+        allowed: set[str] = set()
+        if isinstance(result, dict) and isinstance(result.get("count"), str):
+            allowed.add(result["count"])
+        violations += len(stray_physical_numbers(result, allowed))
+    return violations
 
 
 def line_is_bare_number(line: str) -> bool:
@@ -373,7 +390,7 @@ def drill() -> dict[str, object]:
     except AbstainError:
         abstain_ok = True
     total = len(series)
-    hashes, abstain_hash = _record_drill(counts, abstain_ok)
+    hashes, abstain_hash, violations = _record_drill(counts, abstain_ok)
     return {
         "source": "founder-owned synthetic",
         "version": DRILL_VERSION,
@@ -390,6 +407,7 @@ def drill() -> dict[str, object]:
         "detector_ci95": wilson(detector_hits, total),
         "event_hashes": hashes,
         "abstain_hash": abstain_hash,
+        "llm_numeric_violation": violations,
         "label": "ESTIMATE",
         "note": "Not a public dataset. B4 is not ready.",
     }

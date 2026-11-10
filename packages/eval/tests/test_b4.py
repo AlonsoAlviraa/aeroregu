@@ -455,7 +455,17 @@ def test_the_drill_reports_intervals_and_is_not_b4() -> None:
     assert report["abstention_correctness"] == "1/1"
     assert report["abstention_ci95"]["method"] == "wilson"
     assert report["beats_single_llm"] == "NOT_VERIFIED"
+    assert report["llm_numeric_violation"] == 0
     assert report["note"] == "Not a public dataset. B4 is not ready."
+
+
+def test_an_extra_drill_number_is_a_violation() -> None:
+    from evidence_eval.b4 import _count_violations
+
+    clean = {"body": {"envelope": {"result": {"count": "2"}}}}
+    dirty = {"body": {"envelope": {"result": {"count": "2", "note": "800"}}}}
+    assert _count_violations([clean]) == 0
+    assert _count_violations([dirty]) == 1
 
 
 def test_unlimited_is_not_an_exceedance_limit(tmp_path) -> None:
