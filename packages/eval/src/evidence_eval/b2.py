@@ -612,7 +612,9 @@ def b4_status() -> dict[str, Any]:
             "not scored, because that header states no exceedance limit. "
             "The Stanford helicopter page and the Ottawa bearing version 5 page, "
             "read on 2026-11-04, stated no copyright licence. The Paderborn paper "
-            "states CC BY-NC 4.0 for the data, so that set was rejected."
+            "states CC BY-NC 4.0 for the data, so that set was rejected. "
+            "NASA/TM-2019-220311, citation 20200002067, was opened on 2026-11-10. "
+            "It lists channel units and is not a sample file, so it does not make B4 ready."
         )
     status = {
         "benchmark": "B4",

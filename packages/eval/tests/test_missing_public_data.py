@@ -102,6 +102,8 @@ def _assert_absent(root: Path, ledger_dir: Path) -> None:
     assert as365["samples_counted"] is False
     assert "samples" not in as365
     assert b4["drill"]["public_file"] is False
+    assert "20200002067" in b4["note"]
+    assert "does not make B4 ready" in b4["note"]
 
 
 def _crash_public_open(monkeypatch, root: Path) -> None:
