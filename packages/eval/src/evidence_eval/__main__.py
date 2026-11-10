@@ -147,9 +147,14 @@ def _ledger_numbers_ok(benchmarks: dict) -> bool:
         return False
     if b3.get("llm_numeric_violation", 0) != 0:
         return False
-    drill_report = (benchmarks.get("b4") or {}).get("drill") or {}
+    b4 = benchmarks.get("b4") or {}
+    drill_report = b4.get("drill") or {}
     if isinstance(drill_report, dict) and drill_report.get("llm_numeric_violation", 0) != 0:
         return False
+    for key in ("as365", "public_archive"):
+        series = b4.get(key) or {}
+        if isinstance(series, dict) and series.get("llm_numeric_violation", 0) != 0:
+            return False
     return True
 
 

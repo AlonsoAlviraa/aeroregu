@@ -72,6 +72,7 @@ def test_as365_header_is_not_scored() -> None:
     assert report["label"] == "PARTIAL"
     assert report["abstain_reason"] == "limit_not_in_file"
     assert len(report["abstain_hash"]) == 64
+    assert report["llm_numeric_violation"] == 0
 
 
 def test_live_bearing_archive_shape() -> None:
@@ -91,6 +92,7 @@ def test_live_bearing_archive_shape() -> None:
     assert archive["grid_cells_with_ten_files"] == 15
     assert archive["speeds"] == ["1000", "1500", "2000"]
     assert archive["speeds_match_claim"] is True
+    assert archive["llm_numeric_violation"] == 0
 
 
 def test_a_bare_number_is_not_a_unit(tmp_path) -> None:
@@ -457,6 +459,15 @@ def test_the_drill_reports_intervals_and_is_not_b4() -> None:
     assert report["beats_single_llm"] == "NOT_VERIFIED"
     assert report["llm_numeric_violation"] == 0
     assert report["note"] == "Not a public dataset. B4 is not ready."
+
+
+def test_a_number_in_an_abstain_reason_is_a_violation() -> None:
+    from evidence_eval.b4 import _abstain_violations
+
+    clean = {"body": {"payload": {"reason": "limit_not_in_file"}, "envelope": {}}}
+    dirty = {"body": {"payload": {"reason": "limit 60"}, "envelope": {}}}
+    assert _abstain_violations([clean]) == 0
+    assert _abstain_violations([dirty]) == 1
 
 
 def test_an_extra_drill_number_is_a_violation() -> None:

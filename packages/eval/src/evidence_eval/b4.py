@@ -313,6 +313,7 @@ def inspect_acceleration_zip(path: Path) -> dict[str, object]:
     else:
         reason = "unit_not_in_file"
         unit = False
+    archive_abstain = _record_archive_abstain(reason)
     return {
         "acceleration_files": len(acceleration),
         "bare_first_lines": bare,
@@ -334,12 +335,32 @@ def inspect_acceleration_zip(path: Path) -> dict[str, object]:
         "scored": False,
         "sensor_range_applied": False,
         "abstain_reason": reason,
-        "abstain_hash": _record_archive_abstain(reason),
+        "abstain_hash": archive_abstain[0],
+        "llm_numeric_violation": archive_abstain[1],
         "label": "NOT_VERIFIED",
     }
 
 
-def _record_archive_abstain(reason: str) -> str:
+def _abstain_violations(events: list[dict[str, object]]) -> int:
+    """A physical number in an abstain reason or result is a violation."""
+    from evidence_kernel.numbers import stray_physical_numbers
+
+    violations = 0
+    for event in events:
+        body = event.get("body")
+        if not isinstance(body, dict):
+            continue
+        envelope = body.get("envelope") if isinstance(body.get("envelope"), dict) else {}
+        result = envelope.get("result") if isinstance(envelope, dict) else None
+        violations += len(stray_physical_numbers(result, set()))
+        payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
+        reason = payload.get("reason") if isinstance(payload, dict) else None
+        if isinstance(reason, str):
+            violations += len(stray_physical_numbers(reason, set()))
+    return violations
+
+
+def _record_archive_abstain(reason: str) -> tuple[str, int]:
     import tempfile
 
     from evidence_kernel.disagreement import enqueue
@@ -347,13 +368,14 @@ def _record_archive_abstain(reason: str) -> str:
 
     with tempfile.TemporaryDirectory() as tmp:
         ledger = Ledger(Path(tmp) / "b4-archive.sqlite3", "bench")
-        return enqueue(
+        digest = enqueue(
             ledger,
             tenant_id="bench",
             actor_id="orchestrator",
             created_at="2026-11-04T17:56:00Z",
             reason=reason,
         )
+        return digest, _abstain_violations(ledger.events())
 
 
 def drill_sha256() -> str:
@@ -519,6 +541,7 @@ def inspect_as365_header() -> dict[str, object]:
                 created_at="2026-11-04T19:41:00Z",
                 reason="record_length_disagrees",
             )
+        series_violations = _abstain_violations(ledger.events())
     return {
         "file_present": True,
         "hash_match": True,
@@ -543,6 +566,7 @@ def inspect_as365_header() -> dict[str, object]:
         "external_limit_applied": False,
         "abstain_reason": limit_reason,
         "abstain_hash": abstain_hash,
+        "llm_numeric_violation": series_violations,
         "length_abstain_reason": None if duration_matches else "record_length_disagrees",
         "length_abstain_hash": length_hash,
         "label": "PARTIAL",

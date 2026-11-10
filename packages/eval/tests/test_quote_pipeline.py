@@ -257,3 +257,9 @@ def test_the_bench_rejects_a_chain_decimal() -> None:
         "b4": {"drill": {"llm_numeric_violation": 1}},
     }
     assert _ledger_numbers_ok(drill_hit) is False
+    series_hit = {
+        "b2": {"agent_chain": {"llm_numeric_violation": 0}},
+        "b3_second": {},
+        "b4": {"as365": {"llm_numeric_violation": 1}},
+    }
+    assert _ledger_numbers_ok(series_hit) is False
