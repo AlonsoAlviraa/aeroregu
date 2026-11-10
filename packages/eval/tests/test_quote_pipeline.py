@@ -46,6 +46,14 @@ def test_a_word_is_not_parsed_as_a_number(tmp_path) -> None:
     assert len(outcome["event_hash"]) == 64
 
 
+def test_an_equivalent_decimal_is_not_a_quote_false_alarm() -> None:
+    from evidence_eval.quote_pipeline import _values_match
+
+    assert _values_match("9.8", "9.80") is True
+    assert _values_match("9.8", "9.81") is False
+    assert _values_match("three", "3") is False
+
+
 def test_a_decimal_equivalent_span_matches() -> None:
     from evidence_eval.quote_pipeline import challenge
 

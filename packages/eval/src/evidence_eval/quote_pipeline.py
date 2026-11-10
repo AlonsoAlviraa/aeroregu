@@ -218,7 +218,7 @@ def score_nasa_quotes(ledger: Ledger) -> dict[str, Any]:
         if outcome["value"] is None:
             continue
         recorded.append({"name": field["name"], "value": outcome["value"], "unit": unit})
-        if outcome["value"] == field["value_text"]:
+        if _values_match(outcome["value"], field["value_text"]):
             matched += 1
         else:
             false_alarms += 1
@@ -262,6 +262,12 @@ def score_nasa_quotes(ledger: Ledger) -> dict[str, Any]:
             "ready means the quote gate ran. It does not mean B3 is ready."
         ),
     }
+
+
+def _values_match(got: str, gold: str) -> bool:
+    if got == gold:
+        return True
+    return _same_number(got, gold)
 
 
 def quotes_ok(report: dict[str, Any]) -> bool:
