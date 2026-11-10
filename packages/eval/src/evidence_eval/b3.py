@@ -382,7 +382,9 @@ def judged_field(name: str, quote: dict[str, Any] | None, gold: str) -> bool:
         verdict=extractor.fields[0].value_text,
         gold_label=gold,
     )
-    return judged.verdict == judged.gold_label
+    from evidence_eval.quote_pipeline import _values_match
+
+    return _values_match(judged.verdict, judged.gold_label)
 
 
 def _quote(text: str, field: dict[str, str]) -> dict[str, Any] | None:

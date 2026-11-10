@@ -93,6 +93,22 @@ def test_b3_scores_the_local_nasa_tm_when_present() -> None:
     assert report["expert_holdout"] is False
 
 
+def test_an_equivalent_decimal_matches_the_field() -> None:
+    quote = {
+        "name": "gravity",
+        "value_text": "9.80",
+        "unit_text": "m/s2",
+        "span_start": 0,
+        "span_end": 4,
+    }
+    assert judged_field("gravity", quote, "9.8") is True
+    quote["value_text"] = "9.81"
+    assert judged_field("gravity", quote, "9.8") is False
+    quote["value_text"] = "three"
+    quote["span_end"] = 5
+    assert judged_field("blade_count", quote, "3") is False
+
+
 def test_b3_judge_rejects_reasoning() -> None:
     quote = {
         "name": "blade_count",
