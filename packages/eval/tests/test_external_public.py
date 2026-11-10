@@ -48,6 +48,14 @@ def test_unitsafe_rows_do_not_score_answers_or_koq() -> None:
     assert report["scibench_rows"] == 1
 
 
+def test_a_reversed_dronology_pair_is_not_a_hit() -> None:
+    from evidence_eval.external_public import is_gold_link
+
+    gold = {("ev-1", "VTOL.2210")}
+    assert is_gold_link("VTOL.2210", "ev-1", gold) is False
+    assert is_gold_link("ev-1", "VTOL.2210", gold) is True
+
+
 def test_dronology_linker_on_a_foreign_id_is_a_miss() -> None:
     from evidence_eval.external_public import score_dronology
 
@@ -70,6 +78,8 @@ def test_dronology_linker_on_a_foreign_id_is_a_miss() -> None:
     assert report["gold_positive_links"] == 1
     assert report["predicted_links"] == 0
     assert report["linker_recall"] == "0/1"
+    assert report["false_alarms"] == "0/0"
+    assert report["false_alarm_ci95"] is None
     assert "hover" not in json.dumps(report)
 
 

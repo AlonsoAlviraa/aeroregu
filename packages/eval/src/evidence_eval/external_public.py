@@ -177,6 +177,13 @@ def score_unitsafe_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def is_gold_link(
+    requirement_id: str, evidence_id: str, gold: set[tuple[str | None, str | None]]
+) -> bool:
+    """The published order is source then target. The swapped order is not a hit."""
+    return (requirement_id, evidence_id) in gold
+
+
 def score_dronology(folder: Path) -> dict[str, Any]:
     """Run the existing heading linker on Dronology. Do not copy artifact text."""
     with (folder / "traces.csv").open(encoding="utf-8", newline="") as handle:
@@ -190,8 +197,7 @@ def score_dronology(folder: Path) -> dict[str, Any]:
         links, _flags = predict(str(artifact.get("content") or ""), [])
         for link in links:
             predicted += 1
-            pair = (link["requirement_id"], link["evidence_id"])
-            if pair in gold_pairs or (pair[1], pair[0]) in gold_pairs:
+            if is_gold_link(link["requirement_id"], link["evidence_id"], gold_pairs):
                 hits += 1
     labels = Counter(row.get("label") for row in traces)
     gold = len(gold_pairs)
@@ -206,13 +212,15 @@ def score_dronology(folder: Path) -> dict[str, Any]:
         "predicted_links": predicted,
         "gold_hits": hits,
         "linker_recall": f"{hits}/{gold}",
+        "false_alarms": f"{predicted - hits}/{predicted}",
+        "false_alarm_ci95": wilson(predicted - hits, predicted),
         "precision": None,
         "precision_reason": "The published trace file has no negative labels.",
         "label": "ESTIMATE",
         "note": (
             "predict() only links eight public headings, and only next to an ev- id. "
-            "Dronology identifiers are not those headings. This is that linker on "
-            "someone else's gold, not a new trace-recovery model."
+            "Dronology identifiers are not those headings. A reversed pair is not a hit. "
+            "This is that linker on someone else's gold, not a new trace-recovery model."
         ),
     }
 
