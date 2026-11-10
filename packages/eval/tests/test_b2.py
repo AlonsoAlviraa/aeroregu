@@ -11,6 +11,19 @@ def test_dev_cases_use_only_seen_headings() -> None:
             assert claim["requirement_id"] in PUBLIC_HEADINGS
 
 
+def test_a_later_pack_is_not_linked_to_the_earlier_heading() -> None:
+    links, flags = predict(
+        "Pack ev-1 addresses VTOL.2210. Pack ev-2 addresses VTOL.2215.",
+        [
+            {"id": "ev-1", "hash": "ab" * 32},
+            {"id": "ev-2", "hash": "cd" * 32},
+        ],
+    )
+    pairs = {(link["requirement_id"], link["evidence_id"]) for link in links}
+    assert pairs == {("VTOL.2210", "ev-1"), ("VTOL.2215", "ev-2")}
+    assert flags == set()
+
+
 def test_an_unseen_identifier_is_not_linked() -> None:
     links, flags = predict(
         "Pack ev-1 addresses VTOL.9999 with a stored hash.",

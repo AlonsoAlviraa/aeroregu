@@ -463,6 +463,20 @@ def heading_gate_ok() -> bool:
     return links == [] and flags == set()
 
 
+def _nearest_evidence_id(report: str, heading_start: int) -> str | None:
+    """The evidence id closest to the heading, within 80 characters."""
+    nearest: str | None = None
+    nearest_distance: int | None = None
+    for evidence_match in EV_RE.finditer(report):
+        distance = abs(evidence_match.start() - heading_start)
+        if distance > 80:
+            continue
+        if nearest_distance is None or distance < nearest_distance:
+            nearest = evidence_match.group()
+            nearest_distance = distance
+    return nearest
+
+
 def predict(
     report: str,
     evidence: list[dict[str, str]],
@@ -472,12 +486,9 @@ def predict(
     links: list[dict[str, Any]] = []
     flags: set[tuple[str, str]] = set()
     for match in ID_RE.finditer(report):
-        window_start = max(0, match.start() - 80)
-        window = report[window_start : match.end() + 80]
-        evidence_ids = EV_RE.findall(window)
-        if not evidence_ids:
+        evidence_id = _nearest_evidence_id(report, match.start())
+        if evidence_id is None:
             continue
-        evidence_id = evidence_ids[-1]
         if match.group() not in PUBLIC_HEADINGS:
             continue
         record = by_id.get(evidence_id)
