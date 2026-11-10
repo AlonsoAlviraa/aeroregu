@@ -39,7 +39,7 @@ def collect_manifest() -> dict[str, Any]:
     as365_hash = _sha256(root / AS365_UFF)
     register = root / "docs" / "data_register.md"
     register_text = register.read_text(encoding="utf-8") if register.is_file() else ""
-    lock_hash = _sha256(root / "uv.lock")
+    lock_hash = _sha256(root / "uv.lock", text=True)
     packages: dict[str, str] = {}
     for name in PACKAGES:
         try:
@@ -98,10 +98,13 @@ def write_manifest() -> Path:
     return path
 
 
-def _sha256(path: Path) -> str | None:
+def _sha256(path: Path, *, text: bool = False) -> str | None:
     if not path.is_file():
         return None
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    data = path.read_bytes()
+    if text:
+        data = data.replace(b"\r\n", b"\n")
+    return hashlib.sha256(data).hexdigest()
 
 
 def _frozen(root: Path) -> dict[str, bool]:

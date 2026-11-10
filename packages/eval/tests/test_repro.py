@@ -28,6 +28,17 @@ def test_manifest_date_is_the_day_the_process_runs() -> None:
     }
 
 
+def test_a_crlf_lockfile_matches_the_lf_hash(tmp_path) -> None:
+    import hashlib
+
+    from evidence_eval.repro import _sha256
+
+    body = b'name = "example"\n'
+    path = tmp_path / "uv.lock"
+    path.write_bytes(body.replace(b"\n", b"\r\n"))
+    assert _sha256(path, text=True) == hashlib.sha256(body).hexdigest()
+
+
 def test_checked_in_manifest_matches_the_lock() -> None:
     import json
 
