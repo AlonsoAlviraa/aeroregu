@@ -81,6 +81,8 @@ def score_second() -> dict[str, Any]:
     shallow = "\n".join(pages[:2])
     hits = _hits(full, judged_field, _quote)
     shallow_hits = _hits(shallow, judged_field, _quote)
+    alarms, emitted = _false_alarms(full, judged_field, _quote)
+    shallow_alarms, shallow_emitted = _false_alarms(shallow, judged_field, _quote)
     hashes, unit_abstains, numeric_violations, recorded = _record_fields(full)
     total = len(GOLD_FIELDS)
     decimal_hits, words = _split_hits(full, judged_field, _quote)
@@ -103,6 +105,12 @@ def score_second() -> dict[str, Any]:
         "no_agent_ci95": wilson(0, total),
         "beats_no_agent": hits > 0,
         "beats_single_llm": "NOT_VERIFIED",
+        "false_alarms": f"{alarms}/{emitted}",
+        "false_alarm_ci95": wilson(alarms, emitted),
+        "page_limited_false_alarms": f"{shallow_alarms}/{shallow_emitted}",
+        "page_limited_false_alarm_ci95": wilson(shallow_alarms, shallow_emitted),
+        "abstentions_correct": (f"{_abstention_hits(words, recorded, column)}/2"),
+        "abstention_ci95": wilson(_abstention_hits(words, recorded, column), 2),
         "field_pages": _pages(pages, judged_field, _quote),
         "event_hashes": hashes,
         "llm_numeric_violation": numeric_violations,
@@ -117,7 +125,9 @@ def score_second() -> dict[str, Any]:
         "note": (
             "Gold and checker were written in the same session. "
             "This is not a held-out set. Beating the no-read baseline is trivial. "
-            "A word label is counted in the field score and is not written as a number."
+            "A word label is counted in the field score and is not written as a number. "
+            "A false alarm is an emitted field whose value is not the gold value. "
+            "The abstention count is that word label and the flight-table column."
         ),
     }
 
@@ -229,6 +239,29 @@ def _record_fields(
             allowed = {value} if isinstance(value, str) else set()
             violations += len(stray_physical_numbers(result, allowed))
     return hashes, abstains, violations, recorded
+
+
+def _false_alarms(text: str, judged_field, quote) -> tuple[int, int]:
+    alarms = 0
+    emitted = 0
+    for field in GOLD_FIELDS:
+        quoted = quote(text, field)
+        if quoted is None:
+            continue
+        emitted += 1
+        accepted = judged_field(field["name"], quoted, field["value_text"]) and _measured_ok(
+            quoted["value_text"], field["unit_text"]
+        )
+        if not accepted:
+            alarms += 1
+    return alarms, emitted
+
+
+def _abstention_hits(words: list[str], recorded: list[dict[str, str]], column: bool) -> int:
+    recorded_names = {item.get("name") for item in recorded}
+    word_not_stored = "blade_count_word" in words and "blade_count_word" not in recorded_names
+    table_not_stored = bool(column)
+    return int(word_not_stored) + int(table_not_stored)
 
 
 def _hits(text: str, judged_field, quote) -> int:

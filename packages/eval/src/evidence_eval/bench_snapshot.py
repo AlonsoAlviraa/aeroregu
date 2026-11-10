@@ -181,6 +181,20 @@ def _second_line(report: dict[str, Any]) -> str:
         f"Unit abstains: {len(report.get('unit_abstain_hashes') or [])}. "
         "No table magnitude stored. "
         "Same-session gold. Not a held-out set."
+        f"{_second_alarm_bit(report)}"
+    )
+
+
+def _second_alarm_bit(report: dict[str, Any]) -> str:
+    if "false_alarms" not in report:
+        return ""
+    return (
+        f" False alarms: {report.get('false_alarms')}. "
+        f"Wilson 95%: {_ci(report.get('false_alarm_ci95'))}. "
+        f"Page-limited false alarms: {report.get('page_limited_false_alarms')}. "
+        f"Abstentions correct: {report.get('abstentions_correct')}. "
+        f"Wilson 95%: {_ci(report.get('abstention_ci95'))}. "
+        "Beating the no-read baseline is trivial."
     )
 
 

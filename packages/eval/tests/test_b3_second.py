@@ -12,6 +12,12 @@ def test_second_memo_is_dev_gold_not_a_held_out_set() -> None:
     assert report["page_limited_fields_correct"] == "0/5"
     assert report["no_agent_fields_correct"] == "0/5"
     assert report["beats_single_llm"] == "NOT_VERIFIED"
+    assert report["false_alarms"] == "0/5"
+    assert report["false_alarm_ci95"]["method"] == "wilson"
+    assert report["page_limited_false_alarms"] == "0/0"
+    assert report["page_limited_false_alarm_ci95"] is None
+    assert report["abstentions_correct"] == "2/2"
+    assert report["abstention_ci95"]["method"] == "wilson"
     assert report["field_pages"] == {
         "blade_count_word": 5,
         "rotor_radius_m": 4,
