@@ -327,6 +327,21 @@ def _abstain_line(archive: dict[str, Any]) -> str:
     )
 
 
+def _drill_line(drill_report: object) -> str:
+    if not isinstance(drill_report, dict) or "false_alarm_ci95" not in drill_report:
+        return "B4 drill: absent."
+    return (
+        "B4 drill: "
+        f"detector {drill_report.get('detector_correct')}, "
+        f"naive {drill_report.get('naive_correct')}, "
+        f"false alarms {drill_report.get('false_alarms')} "
+        f"Wilson 95% {_ci(drill_report.get('false_alarm_ci95'))}. "
+        f"Abstention {drill_report.get('abstention_correctness')} "
+        f"Wilson 95% {_ci(drill_report.get('abstention_ci95'))}. "
+        "beats_single_llm NOT_VERIFIED. Not a public dataset. B4 is not ready."
+    )
+
+
 def _b4_lines(b4: dict[str, Any]) -> list[str]:
     archive = b4.get("public_archive")
     inspected = archive if isinstance(archive, dict) else {}
@@ -344,6 +359,7 @@ def _b4_lines(b4: dict[str, Any]) -> list[str]:
             "B4 bearing zip: The file is not the registered one. Not scored. NOT_VERIFIED."
         )
     lines.append(_as365_line(b4))
+    lines.append(_drill_line(b4.get("drill")))
     return lines
 
 

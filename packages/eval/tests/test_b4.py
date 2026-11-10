@@ -441,6 +441,21 @@ def test_m_s2_and_m_s_caret_2_are_the_same_unit(tmp_path) -> None:
     assert score_series_file(series) == 2
 
 
+def test_the_drill_reports_intervals_and_is_not_b4() -> None:
+    from evidence_eval.b4 import drill
+
+    report = drill()
+    assert report["public_file"] is False
+    assert report["detector_correct"] == "2/2"
+    assert report["naive_correct"] == "1/2"
+    assert report["false_alarms"] == "0/1"
+    assert report["false_alarm_ci95"]["method"] == "wilson"
+    assert report["abstention_correctness"] == "1/1"
+    assert report["abstention_ci95"]["method"] == "wilson"
+    assert report["beats_single_llm"] == "NOT_VERIFIED"
+    assert report["note"] == "Not a public dataset. B4 is not ready."
+
+
 def test_unlimited_is_not_an_exceedance_limit(tmp_path) -> None:
     from evidence_eval.b4 import _uff_structure
 
