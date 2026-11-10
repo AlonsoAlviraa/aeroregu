@@ -321,7 +321,9 @@ def test_in_file_count_is_not_the_public_b4_result(tmp_path) -> None:
     brief = _brief({"b4": status}, note="ESTIMATE: focused.")
     assert "B4 ready: False." in brief
     assert "B4 in-file probe public result: False." in brief
-    assert "2/2" not in brief
+    assert "public result: 2" not in brief
+    assert "detector 2/2" in brief
+    assert "Not a public dataset. B4 is not ready." in brief
 
 
 def test_an_unpinned_series_file_is_not_the_registered_one(tmp_path, monkeypatch) -> None:
