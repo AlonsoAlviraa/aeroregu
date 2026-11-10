@@ -24,7 +24,7 @@ Please use public physical reasoning you are willing to put in a repo that may l
 
 Put the cases in a folder outside this repository and set `B1_EXPERT_DIR` to that folder. One JSON object per file. Add `AUTHOR.md` there with your name or role, the date, and the sentence "I did not write the checker in detect.py or b2.py." Do not commit the cases into this repository, and do not paste them into a chat with the agent that edits the checker. The in-repo directory `bench/b1/expert_holdout/` stays without case files. The steps are `docs/benchmarks/blind_holdout_protocol.md`.
 
-`provenance` requires `origin` (`synthetic`, `public`, or `owned`), `author`, `generator_version`, `seed`, and `statement`. `seed` is a JSON integer, not a string. The case may also have `agent_turns`. `provenance` may also have `label` (`VERIFIED`, `PARTIAL`, `NOT_VERIFIED`, `ASSUMPTION`, or `ESTIMATE`). Any other key on the case or on `provenance` is rejected as `schema`. `author` must be you, not `aeroregu`. `statement` must include the words "no employer" or "not employer".
+`provenance` requires `origin` (`synthetic`, `public`, or `owned`), `author`, `generator_version`, `seed`, and `statement`. `seed` is a JSON integer, not a string. The case may also have `agent_turns`. `provenance` may also have `label` (`VERIFIED`, `PARTIAL`, `NOT_VERIFIED`, `ASSUMPTION`, or `ESTIMATE`). Any other key on the case or on `provenance` is rejected as `schema`. `author` must be you. `validate-b1` rejects an empty author or any author whose name contains `aeroregu`, case-insensitive. `statement` must include the words "no employer" or "not employer".
 
 Check the files without scoring them:
 

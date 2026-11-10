@@ -32,6 +32,29 @@ CODE CHECK on 2026-11-09, not a new 100000-case run: a checkout without the giti
 - The AS365-K2 UFF `data/as365/DataFiles_Type58UFF_AS365K2_AccelData.uff`, if present, must match SHA-256 `b8f1a54300f12b05bb7f4f4802cd2d3f89b9aae6cf9fda81f4c287a263fb3c41` and that hash must appear in `docs/data_register.md`. The header states acceleration in m/s^2. It is not scored, because the header states no exceedance limit. The file is not in git.
 - Frozen dev hashes for the B2 cases, both B3 gold sets, and the B4 drill must match the code. The manifest records that check. A mismatch means the freeze moved.
 
+## Optional local files (not in git)
+
+A GitHub-only checkout runs `make bench` without these paths. S1, the smoke dev split, and B2 still score. B3 dev PDF scoring, the quote path, the second NASA memorandum, and the B4 file probes run only when the bytes are on disk. Do not commit them. Each source is listed in `docs/data_register.md`.
+
+| Relative path | SHA-256 | Scoring role |
+| --- | --- | --- |
+| `data/ntrs/NASA-TM-101040.pdf` | `5ee682caf7d0ce2f95f327fcb3f9ea2ba5ff7ab25d79f8f4aba08a9a6f79fbed` | B3 dev and quotes when the hash matches |
+| `data/ntrs/NASA-19890004039.pdf` | `9f924ea50e0068013825354ec43d6b41ff28c2e24dac67bb6de577ef83d8e779` | Second memorandum when the hash matches |
+| `data/b4/data_SSF.zip` | `816ccb70e9866692276bc3ab2095c885bdb39fe69b146e4163072d177d5aab0f` | Bearing probe; abstains, not B4 ready |
+| `data/as365/DataFiles_Type58UFF_AS365K2_AccelData.uff` | `b8f1a54300f12b05bb7f4f4802cd2d3f89b9aae6cf9fda81f4c287a263fb3c41` | Header probe; abstains, not B4 ready |
+
+NTRS citations: [19890010753](https://ntrs.nasa.gov/citations/19890010753) and [19890004039](https://ntrs.nasa.gov/citations/19890004039). Download is your responsibility. Licence rows stay PARTIAL until you read each page.
+
+To check a hash after download:
+
+```text
+sha256sum data/ntrs/NASA-TM-101040.pdf
+```
+
+On Windows, `certutil -hashfile data\ntrs\NASA-TM-101040.pdf SHA256` prints the digest. A mismatch makes B3 report `pdf_present` with a hash warning and does not count as dev scoring.
+
+The checked-in `docs/benchmarks/make_bench_latest.md` is from a 2026-11-10 local run with the NASA files present. A run without them still exits 0 when S1 and the gates pass. `programme_complete` stays false either way.
+
 ## What this command does not reproduce
 
 - B1 expert held-out cases. That directory is empty. NOT VERIFIED as a benchmark result.
