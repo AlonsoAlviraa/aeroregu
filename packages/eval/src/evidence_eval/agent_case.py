@@ -21,7 +21,7 @@ from evidence_kernel.envelope import make_envelope, project_source
 from evidence_kernel.ledger import Ledger
 from evidence_kernel.orchestrator import record
 
-from evidence_eval.b2 import ID_RE, PUBLIC_HEADINGS, predict
+from evidence_eval.b2 import ID_RE, PUBLIC_HEADINGS, _nearest_evidence_id, predict
 from evidence_eval.quote_pipeline import challenge
 
 _EVIDENCE = re.compile(r"\bev-\d+\b")
@@ -62,6 +62,10 @@ def run_identifier_case(
     challenger = challenge(text, field)
     if decide(extractor, challenger) == "human_queue":
         digest = _queue(ledger, tenant_id, actor_id, created_at, "agent_disagreement")
+        return _queued(digest)
+    named = _nearest_evidence_id(text, match.start())
+    if named is None or named != evidence_id:
+        digest = _queue(ledger, tenant_id, actor_id, created_at, "evidence_not_in_text")
         return _queued(digest)
     link = MapperLink(
         requirement_id=match.group(),
