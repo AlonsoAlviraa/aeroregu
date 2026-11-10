@@ -76,7 +76,7 @@ def directory_hash(folder: Path) -> str:
     for path in sorted(folder.glob("*.json")):
         digest.update(path.name.encode("utf-8"))
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
         digest.update(b"\0")
     return digest.hexdigest()
 

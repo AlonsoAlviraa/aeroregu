@@ -28,7 +28,8 @@
     "Package versions are the versions importlib saw in this environment.",
     "The expert held-out sets are not part of this manifest.",
     "docling NOT_INSTALLED means the reader abstains.",
-    "s1_seed_controls_sampling is false. The seed labels the fixed schedule."
+    "s1_seed_controls_sampling is false. The seed labels the fixed schedule.",
+    "uv_lock_sha256 was read from uv.lock on 2026-11-10. The other fields stay from 2026-11-09."
   ],
   "packages": {
     "evidence-calc": "0.1.0",
@@ -45,5 +46,5 @@
   "s1_seed": 20261103,
   "s1_seed_controls_sampling": false,
   "s1_version": "s1@1.0.0",
-  "uv_lock_sha256": "63c3f3ab4642c806fb2e27eab3614b66f9ad3fffee40a6ee35b79d988f5d59fb"
+  "uv_lock_sha256": "a2fe13eaa8abf8ecef15f6d4b5c4ca7c50482d3b17c7793c27fe61e00a21c084"
 }
