@@ -733,7 +733,12 @@ def b4_status() -> dict[str, Any]:
             "NASA/TM-2019-220311, citation 20200002067, was opened on 2026-11-10. "
             "It lists channel units and is not a sample file, so it does not make B4 ready. "
             "Flight Data For Tail 666, DASHLINK_644, was opened on 2026-11-10. "
-            "The page says License not specified. No zip was downloaded."
+            "The page says License not specified. No zip was downloaded. "
+            "Flight Data For Tail 675, DASHLINK_653, was opened the same day. "
+            "That page also says License not specified, and no zip was downloaded. "
+            "The HVAB homepage and its performance-data page were opened the same day. "
+            "The fetched text states no copyright licence and no exceedance limit. "
+            "No workbook was downloaded. None of these pages makes B4 ready."
         )
     status = {
         "benchmark": "B4",
