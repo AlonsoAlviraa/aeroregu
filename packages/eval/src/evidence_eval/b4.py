@@ -528,17 +528,35 @@ def inspect_as365_header() -> dict[str, object]:
             "Header unit was read. Declared value counts were checked. "
             "No sample was stored. "
             f"{_limit_sentence(limit_in_header)} "
-            "The sUAS clipping figure 60 m/s2 is not in this header and is not applied. "
+            f"{_clip_sentence(clip_in_header)} "
             "The 90-second header length does not match the article's 60-second record. "
             "The fetched article text does not state 90 seconds. Not scored."
         ),
     }
 
 
+def _clip_sentence(clip_in_header: bool) -> str:
+    if clip_in_header:
+        return "The header states 60 with an acceleration unit. That figure is not applied."
+    return "The sUAS clipping figure 60 m/s2 is not in this header and is not applied."
+
+
 def _limit_sentence(limit_in_header: bool) -> str:
     if limit_in_header:
         return "A header line has the word limit and a number. That number was not applied."
     return "No exceedance limit is in the header."
+
+
+def _header_has_suas_clip(lines: list[str]) -> bool:
+    """60 next to an acceleration unit. A bare 60, or 60 seconds, is not that figure."""
+    for line in lines:
+        tokens = [part.strip(":,;").casefold() for part in line.split()]
+        if "60" not in tokens and "60.0" not in tokens:
+            continue
+        compact = line.casefold().replace(" ", "")
+        if "m/s^2" in compact or "m/s2" in compact:
+            return True
+    return False
 
 
 def _header_has_limit(lines: list[str]) -> bool:
@@ -630,7 +648,7 @@ def _uff_structure(path: Path) -> dict[str, object]:
         "value_counts": counts,
         "structure_matches": declared == counts and len(declared) == records and records > 0,
         "header_limit": _header_has_limit(headers),
-        "header_token_60": any(part == "60" for line in headers for part in line.split()),
+        "header_token_60": _header_has_suas_clip(headers),
         "ordinate_units": ordinate_units,
     }
 

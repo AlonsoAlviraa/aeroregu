@@ -468,3 +468,14 @@ def test_unlimited_is_not_an_exceedance_limit(tmp_path) -> None:
     stated = tmp_path / "stated.uff"
     stated.write_text("Limit 2.0 m/s^2\n", encoding="utf-8")
     assert _uff_structure(stated)["header_limit"] is True
+
+
+def test_a_bare_60_is_not_the_suas_clip(tmp_path) -> None:
+    from evidence_eval.b4 import _uff_structure
+
+    bare = tmp_path / "seconds.uff"
+    bare.write_text("duration 60 s\n", encoding="utf-8")
+    assert _uff_structure(bare)["header_token_60"] is False
+    clip = tmp_path / "clip.uff"
+    clip.write_text("saturation 60 m/s^2\n", encoding="utf-8")
+    assert _uff_structure(clip)["header_token_60"] is True
