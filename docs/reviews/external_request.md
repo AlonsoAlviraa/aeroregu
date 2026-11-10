@@ -29,7 +29,11 @@ From that run:
 
 ## Code checks after that run
 
-Later items are code checks after the 2436016 ms `make bench`. They are not a new 100000-case run:
+Later items are code checks after the 2436016 ms `make bench`. They are not a replacement of `docs/benchmarks/make_bench_latest.md`.
+
+`docs/benchmarks/s1_latest.md` was written on 2026-11-10 by `run_s1`, about 6 minutes, 100000 of 100000 cases. False alarms were 0/4000 in distribution and 0/4000 shifted. Abstention correctness was 1.000 on each shift. `llm_numeric_violation` was 0. That file is ESTIMATE. It is not `make bench`, not an expert held-out result, and it does not complete the programme.
+
+Other later items are code checks, not that 100000-case file:
 
 - An unrecomputed integer abstains.
 - A present fault with recall 0 fails the bench. That gate does not replace the recorded recall 0/1 from the run that exited 0.
@@ -47,6 +51,7 @@ Later items are code checks after the 2436016 ms `make bench`. They are not a ne
 - That the temporary same-unit count of 2 is the public B4 result
 - That opening HUMS2025 makes B4 ready
 - That the later code checks are a new 100000-case `make bench`
+- That `docs/benchmarks/s1_latest.md` replaces `docs/benchmarks/make_bench_latest.md`
 - That folder names `Ball`, `CA`, `IN`, and `OU` are the published codes `BF`, `CF`, `IRF`, and `ORF`
 - That this request has been sent, or that any review is signed
 
