@@ -172,6 +172,19 @@ def _gate_report(deterministic: dict, trace: dict | None = None) -> dict:
     }
 
 
+def test_a_per_fault_false_alarm_fails_the_dev_gate() -> None:
+    from evidence_eval.__main__ import _baseline_failed, _checker_failed
+
+    checker = _gate_report({"arithmetic": 1.0})
+    checker["false_alarm_by_fault"] = {"sign": "0/22"}
+    assert _checker_failed(checker) is False
+    checker["false_alarm_by_fault"]["sign"] = "1/22"
+    assert _checker_failed(checker) is True
+    baseline = _gate_report({"arithmetic": 0.0})
+    baseline["false_alarm_by_fault"] = {"sign": "1/22"}
+    assert _baseline_failed(baseline) is True
+
+
 def test_present_fault_recall_zero_fails_and_empty_recall_does_not() -> None:
     from evidence_eval.__main__ import _checker_failed
 

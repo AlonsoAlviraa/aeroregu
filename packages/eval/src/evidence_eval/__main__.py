@@ -106,7 +106,17 @@ def _checker_failed(report: dict) -> bool:
         failed = True
     if report["false_alarms"]:
         failed = True
+    if _per_fault_false_alarm(report):
+        failed = True
     return failed
+
+
+def _per_fault_false_alarm(report: dict) -> bool:
+    for value in report.get("false_alarm_by_fault", {}).values():
+        hits, _, total = str(value).partition("/")
+        if total == "" or hits != "0":
+            return True
+    return False
 
 
 def _abstain_mismatch(report: dict) -> bool:
@@ -130,7 +140,7 @@ def _baseline_failed(report: dict) -> bool:
         failed = True
     if _abstain_mismatch(report):
         failed = True
-    if report["false_alarms"]:
+    if report["false_alarms"] or _per_fault_false_alarm(report):
         failed = True
     return failed
 
