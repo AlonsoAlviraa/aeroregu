@@ -163,6 +163,42 @@
   "planned_cases": 100000,
   "seed": 20261103,
   "seed_controls_sampling": false,
+  "shift_abstention_ci95": {
+    "in_distribution": {
+      "high": "1.000",
+      "low": "0.999",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "shifted": {
+      "high": "1.000",
+      "low": "0.999",
+      "method": "wilson",
+      "z": "1.96"
+    }
+  },
+  "shift_abstention_correctness": {
+    "in_distribution": "1.000",
+    "shifted": "1.000"
+  },
+  "shift_false_alarm_ci95": {
+    "in_distribution": {
+      "high": "0.001",
+      "low": "0.000",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "shifted": {
+      "high": "0.001",
+      "low": "0.000",
+      "method": "wilson",
+      "z": "1.96"
+    }
+  },
+  "shift_false_alarms": {
+    "in_distribution": "0/4000",
+    "shifted": "0/4000"
+  },
   "shift_recall": {
     "in_distribution": {
       "arithmetic": "3500/3500",

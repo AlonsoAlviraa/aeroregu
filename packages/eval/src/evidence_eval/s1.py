@@ -321,10 +321,12 @@ def write_report(report: dict[str, Any]) -> Path:
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / "s1_latest.json"
     path.write_text(dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    from datetime import date
+
     lines = [
         "# S1 latest run",
         "",
-        f"Date: {report['date']}.",
+        f"Process date: {date.today().isoformat()}. Scorer date field: {report['date']}.",
         f"Generator: {report['generator_version']}. Seed label: {report['seed']}.",
         "The seed does not drive a random sampler. The case list is a fixed schedule.",
         "",
