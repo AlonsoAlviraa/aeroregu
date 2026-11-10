@@ -58,7 +58,7 @@ def _reason(path: Path, faults: set[str]) -> str | None:
     if not isinstance(provenance, dict):
         return "provenance"
     author = str(provenance.get("author", "")).strip()
-    if author == "" or author.casefold() == _CHECKER_AUTHOR:
+    if author == "" or _CHECKER_AUTHOR in author.casefold():
         return "author"
     statement = str(provenance.get("statement", "")).casefold()
     if "no employer" not in statement and "not employer" not in statement:

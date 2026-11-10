@@ -45,6 +45,16 @@ def test_a_capitalised_checker_author_is_rejected(tmp_path) -> None:
     assert report["rejected"] == 1
 
 
+def test_a_checker_author_inside_a_longer_name_is_rejected(tmp_path) -> None:
+    (tmp_path / "AUTHOR.md").write_text(REQUIRED_SENTENCE + "\n", encoding="utf-8")
+    (tmp_path / "one.json").write_text(json.dumps(_case("aeroregu helper")), encoding="utf-8")
+    report = validate_b1(tmp_path)
+    assert report["valid"] == 0
+    assert report["rejected"] == 1
+    assert report["reject_reasons"]["author"] == 1
+    assert report["ready"] is False
+
+
 def test_one_hundred_fifty_cases_and_twelve_faults_are_not_scored(tmp_path) -> None:
     (tmp_path / "AUTHOR.md").write_text(REQUIRED_SENTENCE + "\n", encoding="utf-8")
     faults = (
