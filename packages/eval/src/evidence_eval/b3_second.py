@@ -249,8 +249,10 @@ def _false_alarms(text: str, judged_field, quote) -> tuple[int, int]:
         if quoted is None:
             continue
         emitted += 1
-        accepted = judged_field(field["name"], quoted, field["value_text"]) and _measured_ok(
-            quoted["value_text"], field["unit_text"]
+        accepted = (
+            judged_field(field["name"], quoted, field["value_text"])
+            and _measured_ok(quoted["value_text"], field["unit_text"])
+            and _challenger_accepts(text, quoted)
         )
         if not accepted:
             alarms += 1
@@ -272,6 +274,8 @@ def _hits(text: str, judged_field, quote) -> int:
             continue
         if quoted is None or not _measured_ok(quoted["value_text"], field["unit_text"]):
             continue
+        if not _challenger_accepts(text, quoted):
+            continue
         count += 1
     return count
 
@@ -284,6 +288,8 @@ def _split_hits(text: str, judged_field, quote) -> tuple[int, list[str]]:
         if not judged_field(field["name"], quoted, field["value_text"]):
             continue
         if quoted is None or not _measured_ok(quoted["value_text"], field["unit_text"]):
+            continue
+        if not _challenger_accepts(text, quoted):
             continue
         if _is_decimal(field["value_text"]):
             decimal_hits += 1
@@ -300,6 +306,17 @@ def _is_decimal(value: str) -> bool:
     except Exception:
         return False
     return True
+
+
+def _challenger_accepts(text: str, quoted: dict[str, Any]) -> bool:
+    from evidence_kernel.contracts import ExtractorOutput, SpanQuote
+    from evidence_kernel.disagreement import decide
+
+    from evidence_eval.quote_pipeline import challenge
+
+    span = SpanQuote.model_validate(quoted)
+    extractor = ExtractorOutput(fields=[span], clause_ids=[], assumptions=[])
+    return decide(extractor, challenge(text, span)) == "continue"
 
 
 def _measured_ok(value: str, unit_text: str) -> bool:
