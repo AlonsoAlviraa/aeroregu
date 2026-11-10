@@ -221,7 +221,20 @@ def _chain_numeric_line(b2: dict[str, Any]) -> str:
     chain = b2.get("agent_chain") or {}
     if "llm_numeric_violation" not in chain:
         return "B2 chain llm_numeric_violation: absent."
-    return f"B2 chain llm_numeric_violation: {chain.get('llm_numeric_violation')}."
+    line = f"B2 chain llm_numeric_violation: {chain.get('llm_numeric_violation')}."
+    if "judge_ci95" not in chain:
+        return line
+    return (
+        f"{line} Judge {chain.get('judge_correct')} "
+        f"Wilson 95%: {_ci(chain.get('judge_ci95'))}. "
+        f"Link recall {chain.get('link_recall')} "
+        f"Wilson 95%: {_ci(chain.get('link_recall_ci95'))}. "
+        f"False-coverage recall {chain.get('false_coverage_recall')} "
+        f"Wilson 95%: {_ci(chain.get('false_coverage_recall_ci95'))}. "
+        f"False alarms {chain.get('false_alarms')}. "
+        f"Abstentions {chain.get('abstentions')}. "
+        "The span probe is not in these counts."
+    )
 
 
 def _programme_line(gate: dict[str, Any]) -> str:

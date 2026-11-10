@@ -38,7 +38,14 @@ def test_b2_dev_links_and_false_coverage() -> None:
     assert report["verifier"]["judge_correct"] == "8/8"
     assert report["hash_blind"]["judge_correct"] == "6/8"
     assert report["agent_chain"]["judge_correct"] == "8/8"
+    assert report["agent_chain"]["judge_ci95"]["low"] == "0.676"
+    assert report["agent_chain"]["judge_ci95"]["high"] == "1.000"
+    assert report["agent_chain"]["link_recall"] == "6/6"
+    assert report["agent_chain"]["false_coverage_recall"] == "2/2"
+    assert report["agent_chain"]["false_alarms"] == "0/6"
+    assert report["agent_chain"]["abstentions"] == 0
     assert report["agent_chain"]["llm_numeric_violation"] == 0
+    assert "span probe" in report["agent_chain"]["note"]
     notes = " ".join(report["notes"])
     assert "CS 27.301 Loads" in notes
     assert "VTOL.2225" in notes

@@ -275,6 +275,7 @@ def score_b2() -> dict[str, Any]:
             "The hash-blind linker ignores the hash. The verifier drops a zero hash.",
             "The spec no-agent baseline is that verifier. It is not an LLM.",
             "The specialist chain ties the verifier on these cases, so it does not beat it.",
+            "Chain intervals cover the 8 dev cases only. The span probe is excluded.",
             "A live single-LLM baseline was not run.",
             "Headings CS 27.301 Loads and CS 29.301 Loads were seen on 2026-11-09.",
             "SC-VTOL-02 headings seen the same day: VTOL.2200, VTOL.2210, VTOL.2215,",
@@ -494,6 +495,12 @@ def _agent_chain_dev() -> dict[str, Any]:
     from evidence_eval.agent_case import run_identifier_case
 
     hits = 0
+    link_hits = 0
+    link_total = 0
+    false_hits = 0
+    false_total = 0
+    false_alarms = 0
+    abstentions = 0
     cases = dev_cases()
     with tempfile.TemporaryDirectory() as tmp:
         ledger = Ledger(Path(tmp) / "b2.sqlite3", "bench")
@@ -508,18 +515,38 @@ def _agent_chain_dev() -> dict[str, Any]:
                 actor_id="orchestrator",
                 created_at=f"2026-11-03T21:10:{index:02d}Z",
             )
+            if outcome.get("queue"):
+                abstentions += 1
             if case["gold_links"]:
+                link_total += 1
                 expected = case["gold_links"][0][0]
                 ok = outcome["requirement_id"] == expected and outcome["false_coverage"] is False
+                link_hits += int(ok)
+                if outcome.get("false_coverage"):
+                    false_alarms += 1
             else:
+                false_total += 1
                 ok = outcome["requirement_id"] is None and outcome["false_coverage"] is True
+                false_hits += int(ok)
+                if outcome.get("requirement_id"):
+                    false_alarms += 1
             hits += int(ok)
         violations = _result_number_violations(ledger.events())
     return {
         "judge_correct": f"{hits}/{len(cases)}",
+        "judge_ci95": wilson(hits, len(cases)),
+        "link_recall": f"{link_hits}/{link_total}",
+        "link_recall_ci95": wilson(link_hits, link_total),
+        "false_coverage_recall": f"{false_hits}/{false_total}",
+        "false_coverage_recall_ci95": wilson(false_hits, false_total),
+        "false_alarms": f"{false_alarms}/{link_total}",
+        "abstentions": abstentions,
         "llm_numeric_violation": violations,
         "label": "ESTIMATE",
-        "note": "Synthetic reports. Identifier shapes, not clause quotations.",
+        "note": (
+            "Synthetic reports. Identifier shapes, not clause quotations. "
+            "The span probe is not in these counts."
+        ),
     }
 
 
