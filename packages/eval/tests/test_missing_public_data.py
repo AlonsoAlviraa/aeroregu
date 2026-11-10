@@ -106,6 +106,7 @@ def _assert_absent(root: Path, ledger_dir: Path) -> None:
     assert "DASHLINK_644" in b4["note"]
     assert "DASHLINK_653" in b4["note"]
     assert "HVAB" in b4["note"]
+    assert "Performance_ReadMe" in b4["note"]
     assert "License not specified" in b4["note"]
     assert "does not make B4 ready" in b4["note"]
 

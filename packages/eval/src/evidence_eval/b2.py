@@ -737,6 +737,8 @@ def b4_status() -> dict[str, Any]:
             "Flight Data For Tail 675, DASHLINK_653, was opened the same day. "
             "That page also says License not specified, and no zip was downloaded. "
             "The HVAB homepage and its performance-data page were opened the same day. "
+            "Performance_ReadMe_v2.1.pdf was opened the same day. "
+            "It describes averaged performance and a confidence interval. "
             "The fetched text states no copyright licence and no exceedance limit. "
             "No workbook was downloaded. None of these pages makes B4 ready."
         )
