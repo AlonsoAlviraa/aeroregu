@@ -1,6 +1,22 @@
 from evidence_eval.b3_second import gold_sha256, score_second
 
 
+def test_a_challenger_attack_stores_no_number(monkeypatch) -> None:
+    from evidence_eval.b3_second import _record_fields
+    from evidence_kernel.contracts import ChallengerOutput
+
+    def attack(source: str, span: object) -> ChallengerOutput:
+        del source, span
+        return ChallengerOutput(attack="hit", reason="span", evidence_span="5.25")
+
+    monkeypatch.setattr("evidence_eval.quote_pipeline.challenge", attack)
+    hashes, abstains, violations, recorded = _record_fields("rotor radius = 5.25 m")
+    assert hashes == []
+    assert recorded == []
+    assert len(abstains) == 1
+    assert violations == 0
+
+
 def test_a_challenger_hit_is_not_a_second_memo_field(monkeypatch) -> None:
     from evidence_eval.b3 import _quote, judged_field
     from evidence_eval.b3_second import _hits

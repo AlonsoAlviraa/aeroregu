@@ -203,6 +203,15 @@ def _record_fields(
             span = SpanQuote.model_validate(quoted)
             extractor = ExtractorOutput(fields=[span], clause_ids=[], assumptions=[])
             if decide(extractor, challenge(text, span)) == "human_queue":
+                abstains.append(
+                    enqueue(
+                        ledger,
+                        tenant_id="bench",
+                        actor_id="orchestrator",
+                        created_at=f"2026-11-04T18:22:{index:02d}Z",
+                        reason="agent_disagreement",
+                    )
+                )
                 continue
             from decimal import Decimal
 
