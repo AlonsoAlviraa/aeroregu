@@ -18,6 +18,8 @@ The workflow file `.github/workflows/ci.yml` runs that same command on `ubuntu-l
 
 VERIFIED on 2026-11-10 from GitHub Actions run 42865671580, commit `3d760a1`, `make-bench` 2 minutes 17 seconds: S1 scored 100000 cases. False alarms were 0/4000 in distribution and 0/4000 shifted, Wilson 95% 0.000 to 0.001 on each. Abstention correctness was 1.000 on both splits, Wilson 95% 0.999 to 1.000. The scorer's own date field still says 2026-11-03. This log does not replace `docs/benchmarks/make_bench_latest.md`, and `programme_complete` stayed false.
 
+VERIFIED on 2026-11-10 from GitHub Actions run 42895462269, commit `6cfd436`, completed 20:29 UTC: `make-bench`, `test-ubuntu-latest`, `test-windows-latest`, and `supply-chain` all succeeded. `make-bench` took 2 minutes 20 seconds. That checkout still has no gitignored NASA PDFs, bearing zip, or AS365 UFF, so B3 and B4 are not scored there. The vault link test skips when `AIRBUS/regulacion` is absent. This green run does not complete the programme. `programme_complete` stays false.
+
 CODE CHECK on 2026-11-09, not a new 100000-case run: a checkout without the gitignored NASA PDFs, the bearing zip, and the AS365 UFF does not crash the bench path, B3 and B4 are not scored, and S1 does not need those files. The Actions run above is the 2026-11-10 verification of that job.
 
 ## What is pinned
