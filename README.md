@@ -8,7 +8,7 @@ The load methods are project-defined screening illustrations. They are not certi
 
 ## Status, 9 November 2026
 
-`make bench` on 2026-11-09 exited 0, one process, elapsed 2436016 ms. The lines in `docs/benchmarks/make_bench_latest.md` come from that run. The counts below are ESTIMATE from that self-check. This is not the 12-month goal. The programme is not complete.
+`docs/benchmarks/make_bench_latest.md` was written by `make bench` on 2026-11-10, exit 0, one process, elapsed 414319 ms. The local NASA files were present, so B3 was scored. An earlier run on 2026-11-09 took 2436016 ms. The counts below are ESTIMATE from the 2026-11-10 file. This is not the 12-month goal. The programme is not complete.
 
 - S1: 100000 synthetic cases. Scored single faults 7000/7000. The seed label `20261103` does not sample the cases. The generator and the checker are the same package.
 - B1: 0 expert cases. Not scored. Another engineer has to write that set. The agent does not.

@@ -44,7 +44,7 @@ From the repo root, with uv:
 - `uv run pytest`
 - `uv run pytest packages/calc packages/kernel -q`
 - `uv run python -m evidence_eval score --split dev`
-- `make bench` writes `docs/benchmarks/make_bench_latest.md`. The 9 November 2026 run exited 0. The programme is not complete. See the README status section.
+- `make bench` writes `docs/benchmarks/make_bench_latest.md`. The 10 November 2026 run exited 0 in 414319 ms. The programme is not complete. See the README status section.
 - `uv run python -m evidence_api` then open `http://127.0.0.1:8000`
 
 CI runs ruff, pytest, the schema contract tests, gitleaks, `pip-audit`, and a CycloneDX SBOM upload. CI uses the fixture model gateway and must make zero network calls to a model.

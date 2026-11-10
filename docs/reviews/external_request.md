@@ -10,12 +10,12 @@ Date opened: 2026-11-04. Not legal advice.
 
 A subset, not the whole programme.
 
-`make bench` on 2026-11-09 exited 0 in one process, elapsed 2436016 ms. The lines in `docs/benchmarks/make_bench_latest.md` come from that run. The counts in that file stay as written. This request does not replace them.
+`docs/benchmarks/make_bench_latest.md` was written by `make bench` on 2026-11-10, exit 0, one process, elapsed 414319 ms. The local NASA files were present, so B3 was scored. An earlier run on 2026-11-09 took 2436016 ms. That earlier elapsed time is not the current file.
 
 Read:
 
 - `docs/reports/2026-11-03-interim.md`, current status section dated 9 November 2026
-- `docs/benchmarks/make_bench_latest.md`, written by that `make bench`
+- `docs/benchmarks/make_bench_latest.md`, written by the 2026-11-10 `make bench`
 - `docs/benchmark_spec.md`
 - `docs/data_register.md`, including the Zenodo bearing zip row, the AS365-K2 row, and the HUMS2025 row
 
