@@ -160,6 +160,16 @@ def test_a_digit_inside_a_longer_number_is_not_a_hit(tmp_path) -> None:
     assert scored["judge_correct"] == "0/1"
 
 
+def test_an_identifier_number_is_not_a_holdout_hit() -> None:
+    from evidence_eval.b3 import _field_hit
+
+    document = "See CS-27.301 and VTOL.2210."
+    assert _field_hit({"value_text": "27", "unit_text": "1"}, document) is False
+    assert _field_hit({"value_text": "301", "unit_text": "1"}, document) is False
+    assert _field_hit({"value_text": "2210", "unit_text": "1"}, document) is False
+    assert _field_hit({"value_text": "27", "unit_text": "1"}, "the count is 27") is True
+
+
 def test_an_equivalent_decimal_integer_is_a_hit(tmp_path) -> None:
     import hashlib
 

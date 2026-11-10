@@ -592,7 +592,7 @@ def _declared_unit_follows(value: str, unit: str, document: str) -> bool:
         target = Decimal(value)
     except Exception:
         return False
-    for match in re.finditer(r"(?<![\d.])\d+(?:\.\d+)?(?![\d.])", document):
+    for match in _measurement_matches(document):
         try:
             if Decimal(match.group()) != target:
                 continue
@@ -606,20 +606,31 @@ def _declared_unit_follows(value: str, unit: str, document: str) -> bool:
 
 
 def _value_token(value: str, document: str) -> bool:
-    import re
     from decimal import Decimal
 
     try:
         target = Decimal(value)
     except Exception:
         return False
-    for match in re.finditer(r"(?<![\d.])\d+(?:\.\d+)?(?![\d.])", document):
+    for match in _measurement_matches(document):
         try:
             if Decimal(match.group()) == target:
                 return True
         except Exception:
             continue
     return False
+
+
+def _measurement_matches(document: str):
+    """Numbers that are not the tail of an identifier such as CS-27.301."""
+    import re
+
+    for match in re.finditer(r"(?<![\d.])\d+(?:\.\d+)?(?![\d.])", document):
+        if match.start() > 0:
+            previous = document[match.start() - 1]
+            if previous.isalpha() or previous in "-.":
+                continue
+        yield match
 
 
 def _document_reason(case: dict[str, Any], base: Path) -> str | None:
