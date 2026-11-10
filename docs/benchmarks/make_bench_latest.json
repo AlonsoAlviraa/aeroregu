@@ -164,6 +164,7 @@
       "The spec no-agent baseline is that verifier. It is not an LLM.",
       "The specialist chain ties the verifier on these cases, so it does not beat it.",
       "Chain intervals cover the 8 dev cases only. The span probe is excluded.",
+      "The two-pack probe is excluded too. A tie there is not a win.",
       "A live single-LLM baseline was not run.",
       "Headings CS 27.301 Loads and CS 29.301 Loads were seen on 2026-11-09.",
       "SC-VTOL-02 headings seen the same day: VTOL.2200, VTOL.2210, VTOL.2215,",
@@ -185,6 +186,16 @@
       "verifier_links": true
     },
     "split": "dev",
+    "two_pack_probe": {
+      "beats_verifier": false,
+      "chain_links": 2,
+      "chain_matches_verifier": true,
+      "frozen_set": false,
+      "label": "ESTIMATE",
+      "llm_numeric_violation": 0,
+      "note": "Two synthetic sentences. Not in the frozen dev hash. A tie is not a win.",
+      "verifier_links": 2
+    },
     "verifier": {
       "false_coverage_recall": "1.000",
       "false_coverage_recall_ci95": {
@@ -344,11 +355,13 @@
   },
   "b3_quotes": {
     "abstain_ok": true,
+    "benchmark_ready": false,
     "expert_holdout": false,
     "false_alarms": 0,
     "label": "ESTIMATE",
     "llm_numeric_violation": 0,
     "matched": "8/8",
+    "note": "Same-session gold. Not a held-out set. ready means the quote gate ran. It does not mean B3 is ready.",
     "ready": true,
     "recall_ci95": {
       "high": "1.000",
@@ -637,6 +650,125 @@
     "ready": false,
     "unregistered_files": []
   },
+  "dev": {
+    "abstention_by_fault": {
+      "arithmetic": "0/0",
+      "bad_span": "0/0",
+      "broken_hash": "0/0",
+      "false_coverage": "0/0",
+      "missing_input": "2/2",
+      "outside_validity": "0/0",
+      "sign": "0/0",
+      "stale_revision": "0/0",
+      "unit_scale": "0/0",
+      "wrong_input": "0/0"
+    },
+    "abstention_by_fault_ci95": {
+      "arithmetic": null,
+      "bad_span": null,
+      "broken_hash": null,
+      "false_coverage": null,
+      "missing_input": {
+        "high": "1.000",
+        "low": "0.342",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "outside_validity": null,
+      "sign": null,
+      "stale_revision": null,
+      "unit_scale": null,
+      "wrong_input": null
+    },
+    "cases": 24,
+    "false_alarm_by_fault": {
+      "arithmetic": "0/22",
+      "bad_span": "0/22",
+      "broken_hash": "0/22",
+      "false_coverage": "0/22",
+      "missing_input": "0/22",
+      "outside_validity": "0/22",
+      "sign": "0/22",
+      "stale_revision": "0/22",
+      "unit_scale": "0/22",
+      "wrong_input": "0/22"
+    },
+    "false_alarm_by_fault_ci95": {
+      "arithmetic": {
+        "high": "0.149",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "bad_span": {
+        "high": "0.149",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "broken_hash": {
+        "high": "0.149",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "false_coverage": {
+        "high": "0.149",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "missing_input": {
+        "high": "0.149",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "outside_validity": {
+        "high": "0.149",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "sign": {
+        "high": "0.149",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "stale_revision": {
+        "high": "0.149",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "unit_scale": {
+        "high": "0.149",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "wrong_input": {
+        "high": "0.149",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      }
+    },
+    "fault_counts": {
+      "arithmetic": "2/2",
+      "bad_span": "2/2",
+      "broken_hash": "2/2",
+      "false_coverage": "2/2",
+      "outside_validity": "2/2",
+      "sign": "2/2",
+      "stale_revision": "2/2",
+      "unit_scale": "2/2",
+      "wrong_input": "2/2"
+    },
+    "label": "ESTIMATE",
+    "note": "Same-author split. Not the expert holdout."
+  },
   "programme": {
     "allowed": true,
     "b1_scored": false,
@@ -679,6 +811,53 @@
     "verdict": "clean"
   },
   "s1": {
+    "abstention_by_fault": {
+      "arithmetic": "0/0",
+      "bad_citation": "0/0",
+      "broken_hash": "0/0",
+      "contradictory_requirements": "0/0",
+      "false_coverage": "0/0",
+      "missing_input": "7000/7000",
+      "outside_validity": "0/0",
+      "sign": "0/0",
+      "stale_revision": "0/0",
+      "unit_mismatch": "0/0",
+      "unit_scale": "0/0",
+      "wrong_input": "0/0"
+    },
+    "abstention_by_fault_ci95": {
+      "arithmetic": null,
+      "bad_citation": null,
+      "broken_hash": null,
+      "contradictory_requirements": null,
+      "false_coverage": null,
+      "missing_input": {
+        "high": "1.000",
+        "low": "0.999",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "outside_validity": null,
+      "sign": null,
+      "stale_revision": null,
+      "unit_mismatch": null,
+      "unit_scale": null,
+      "wrong_input": null
+    },
+    "abstention_by_fault_rate": {
+      "arithmetic": null,
+      "bad_citation": null,
+      "broken_hash": null,
+      "contradictory_requirements": null,
+      "false_coverage": null,
+      "missing_input": "1.000",
+      "outside_validity": null,
+      "sign": null,
+      "stale_revision": null,
+      "unit_mismatch": null,
+      "unit_scale": null,
+      "wrong_input": null
+    },
     "abstention_correctness": "1.000",
     "abstention_correctness_ci95": {
       "high": "1.000",
@@ -805,6 +984,108 @@
       }
     },
     "expert_holdout_used": false,
+    "false_alarm_by_fault": {
+      "arithmetic": "0/85000",
+      "bad_citation": "0/93000",
+      "broken_hash": "0/85000",
+      "contradictory_requirements": "0/93000",
+      "false_coverage": "0/93000",
+      "missing_input": "0/93000",
+      "outside_validity": "0/93000",
+      "sign": "0/93000",
+      "stale_revision": "0/93000",
+      "unit_mismatch": "0/93000",
+      "unit_scale": "0/93000",
+      "wrong_input": "0/93000"
+    },
+    "false_alarm_by_fault_ci95": {
+      "arithmetic": {
+        "high": "0.000",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "bad_citation": {
+        "high": "0.000",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "broken_hash": {
+        "high": "0.000",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "contradictory_requirements": {
+        "high": "0.000",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "false_coverage": {
+        "high": "0.000",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "missing_input": {
+        "high": "0.000",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "outside_validity": {
+        "high": "0.000",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "sign": {
+        "high": "0.000",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "stale_revision": {
+        "high": "0.000",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "unit_mismatch": {
+        "high": "0.000",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "unit_scale": {
+        "high": "0.000",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      },
+      "wrong_input": {
+        "high": "0.000",
+        "low": "0.000",
+        "method": "wilson",
+        "z": "1.96"
+      }
+    },
+    "false_alarm_by_fault_rate": {
+      "arithmetic": "0.000",
+      "bad_citation": "0.000",
+      "broken_hash": "0.000",
+      "contradictory_requirements": "0.000",
+      "false_coverage": "0.000",
+      "missing_input": "0.000",
+      "outside_validity": "0.000",
+      "sign": "0.000",
+      "stale_revision": "0.000",
+      "unit_mismatch": "0.000",
+      "unit_scale": "0.000",
+      "wrong_input": "0.000"
+    },
     "false_alarm_rate": "0.000",
     "false_alarm_rate_ci95": {
       "high": "0.000",

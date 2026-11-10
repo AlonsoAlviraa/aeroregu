@@ -5,10 +5,12 @@ ESTIMATE: written by make bench in one process.
 NOT VERIFIED: this file is not an expert-authored held-out result.
 
 B1 ready: False. Cases: 0.
+Dev false alarms by fault: all zero. Abstention missing_input 2/2. Same-author dev split. Not the expert holdout.
 B2 beats_no_agent: False. beats_single_llm: NOT_VERIFIED.
 B2 public headings only: True.
 B2 chain llm_numeric_violation: 0. Judge 8/8 Wilson 95%: 0.676 to 1.000. Link recall 6/6 Wilson 95%: 0.610 to 1.000. False-coverage recall 2/2 Wilson 95%: 0.342 to 1.000. False alarms 0/6. Abstentions 0. The span probe is not in these counts.
 B2 span probe: verifier links True, chain abstains True. Not in the frozen dev set.
+B2 two-pack probe: chain matches verifier True. Not a win. Not in the frozen dev set.
 B3 ready: False. dev_pdf_scored: True.
 B3 fields: 8/8. Wilson 95%: 0.676 to 1.000.
 B3 quote ledger: blade_count 3; gravity 9.8; strain_gage_count 31; flight_condition_count 23; level_flight_ratio_low 0.14; level_flight_ratio_high 0.37; turning_flight_ratio_low 0.26; turning_flight_ratio_high 0.35. llm_numeric_violation: 0.

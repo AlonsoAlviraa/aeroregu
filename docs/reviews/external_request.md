@@ -10,7 +10,7 @@ Date opened: 2026-11-04. Not legal advice.
 
 A subset, not the whole programme.
 
-`docs/benchmarks/make_bench_latest.md` was written by `make bench` on 2026-11-10, exit 0, one process, elapsed 414319 ms. The local NASA files were present, so B3 was scored. An earlier run on 2026-11-09 took 2436016 ms. That earlier elapsed time is not the current file.
+`docs/benchmarks/make_bench_latest.md` was written by `make bench` on 2026-11-10, exit 0, one process, elapsed 582382 ms. The local NASA files were present, so B3 was scored. An earlier local run the same day took 414319 ms. The 2026-11-09 run took 2436016 ms. Those earlier elapsed times are not the current file.
 
 Read:
 
