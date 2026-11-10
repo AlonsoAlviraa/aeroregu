@@ -57,7 +57,7 @@ _PINT_BASE = {
 def conversion_interval(left: str, right: str) -> Any:
     """Size of one left unit measured in right units.
 
-    The magnitude is a Decimal. A float magnitude is not stringified.
+    The magnitude is a Decimal. Any other magnitude is refused.
     Pint refuses the subtraction for offset units such as degree Celsius,
     and this function then returns None. The string incompatible means
     the dimensions differ.
