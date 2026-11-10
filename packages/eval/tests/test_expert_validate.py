@@ -45,6 +45,66 @@ def test_a_capitalised_checker_author_is_rejected(tmp_path) -> None:
     assert report["rejected"] == 1
 
 
+def test_one_hundred_fifty_cases_and_twelve_faults_are_not_scored(tmp_path) -> None:
+    (tmp_path / "AUTHOR.md").write_text(REQUIRED_SENTENCE + "\n", encoding="utf-8")
+    faults = (
+        "unit_scale",
+        "sign",
+        "arithmetic",
+        "wrong_input",
+        "stale_revision",
+        "outside_validity",
+        "false_coverage",
+        "broken_hash",
+        "bad_citation",
+        "contradictory_requirements",
+        "unit_mismatch",
+        "missing_input",
+    )
+    for index in range(150):
+        case = _case("domain-expert")
+        fault = faults[index % len(faults)]
+        case["case_id"] = f"expert-{index}"
+        case["faults"] = [fault]
+        case["expected"] = "abstain" if fault == "missing_input" else f"detect:{fault}"
+        (tmp_path / f"{index}.json").write_text(json.dumps(case), encoding="utf-8")
+    report = validate_b1(tmp_path)
+    assert report["valid"] == 150
+    assert report["rejected"] == 0
+    assert report["fault_types"] == 12
+    assert report["ready"] is True
+    assert report["scored"] is False
+
+
+def test_eleven_fault_types_are_not_ready(tmp_path) -> None:
+    (tmp_path / "AUTHOR.md").write_text(REQUIRED_SENTENCE + "\n", encoding="utf-8")
+    faults = (
+        "unit_scale",
+        "sign",
+        "arithmetic",
+        "wrong_input",
+        "stale_revision",
+        "outside_validity",
+        "false_coverage",
+        "broken_hash",
+        "bad_citation",
+        "contradictory_requirements",
+        "unit_mismatch",
+    )
+    for index in range(150):
+        case = _case("domain-expert")
+        fault = faults[index % len(faults)]
+        case["case_id"] = f"expert-{index}"
+        case["faults"] = [fault]
+        case["expected"] = f"detect:{fault}"
+        (tmp_path / f"{index}.json").write_text(json.dumps(case), encoding="utf-8")
+    report = validate_b1(tmp_path)
+    assert report["valid"] == 150
+    assert report["fault_types"] == 11
+    assert report["ready"] is False
+    assert report["scored"] is False
+
+
 def test_one_hundred_fifty_empty_files_are_not_ready(tmp_path) -> None:
     (tmp_path / "AUTHOR.md").write_text(REQUIRED_SENTENCE + "\n", encoding="utf-8")
     for index in range(150):

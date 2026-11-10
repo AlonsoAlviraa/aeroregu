@@ -31,5 +31,6 @@ def holdout_gate(folder: Path) -> dict[str, object]:
         "cases": cases,
         "author_statement": statement,
         "admissible": cases > 0 and statement,
-        "ready_for_b1": cases >= 150 and statement,
+        "file_count_at_least_150": cases >= 150 and statement,
+        "ready_for_b1": False,
     }

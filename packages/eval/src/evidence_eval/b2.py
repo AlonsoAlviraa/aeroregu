@@ -574,7 +574,11 @@ def b1_status() -> dict[str, Any]:
         "ready": False,
         "scored": False,
         "label": "NOT_VERIFIED",
-        "note": "make bench does not open expert case files. The file count is names only.",
+        "note": (
+            "make bench does not open expert case files. The file count is names only. "
+            "Readiness needs 150 valid cases, 12 fault types, and another author. "
+            "This status does not score them."
+        ),
     }
 
 
