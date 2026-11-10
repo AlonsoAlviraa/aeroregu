@@ -10,7 +10,8 @@ def test_a_challenger_attack_on_a_quoted_span_is_abstained(monkeypatch) -> None:
         return ChallengerOutput(attack="hit", reason="span", evidence_span="beam")
 
     monkeypatch.setattr("evidence_eval.quote_pipeline.challenge", attack)
-    recorded, abstains = _record_quoted_spans("assumed to be a beam")
+    recorded, abstains, violations = _record_quoted_spans("assumed to be a beam")
+    assert violations == 0
     assert recorded == []
     assert len(abstains) == 1
 
@@ -41,6 +42,7 @@ def test_b3_scores_the_local_nasa_tm_when_present() -> None:
     assert report["dev_pdf_scored"] is True
     assert report["expert_holdout"] is False
     assert report["expert_holdout_llm_numeric_violation"] == 0
+    assert report["llm_numeric_violation"] == 0
     assert report["fields_correct"].endswith("/8")
     assert report["fields_correct"].startswith("8/")
     assert report["field_accuracy_ci95"]["method"] == "wilson"
@@ -107,6 +109,15 @@ def test_an_equivalent_decimal_matches_the_field() -> None:
     quote["value_text"] = "three"
     quote["span_end"] = 5
     assert judged_field("blade_count", quote, "3") is False
+
+
+def test_a_physical_integer_in_a_span_result_is_a_violation() -> None:
+    from evidence_eval.b3 import _result_violations
+
+    dirty = {"body": {"envelope": {"result": {"note": "800"}}}}
+    clean = {"body": {"envelope": {"result": {"name": "span-0"}}}}
+    assert _result_violations([dirty]) == 1
+    assert _result_violations([clean]) == 0
 
 
 def test_b3_judge_rejects_reasoning() -> None:

@@ -120,8 +120,8 @@ def score_b3() -> dict[str, Any]:
     assumption = _assumption_span(full)
     load_cases = _load_case_ids(full)
     load_factor = _load_factor_column_abstains(full)
-    load_factor_hash = _record_load_factor_abstain(load_factor)
-    quoted, quoted_abstains = _record_quoted_spans(full)
+    load_factor_hash, load_violations = _record_load_factor_abstain(load_factor)
+    quoted, quoted_abstains, quote_violations = _record_quoted_spans(full)
     from evidence_eval.score import wilson
 
     return {
@@ -157,6 +157,7 @@ def score_b3() -> dict[str, Any]:
         "load_factor_abstain_hash": load_factor_hash,
         "quoted_span_hashes": quoted,
         "quoted_span_abstains": quoted_abstains,
+        "llm_numeric_violation": load_violations + quote_violations,
         "expert_holdout": holdout["scored"],
         "expert_holdout_llm_numeric_violation": holdout.get("llm_numeric_violation", 0),
         "false_alarms": f"{false_alarms}/{emitted}",
@@ -188,7 +189,17 @@ def score_b3() -> dict[str, Any]:
     }
 
 
-def _record_quoted_spans(text: str) -> tuple[list[str], list[str]]:
+def _result_violations(events: list[dict[str, Any]]) -> int:
+    from evidence_kernel.numbers import stray_physical_numbers
+
+    count = 0
+    for event in events:
+        envelope = event["body"].get("envelope") or {}
+        count += len(stray_physical_numbers(envelope.get("result"), set()))
+    return count
+
+
+def _record_quoted_spans(text: str) -> tuple[list[str], list[str], int]:
     import tempfile
     from pathlib import Path
 
@@ -253,7 +264,8 @@ def _record_quoted_spans(text: str) -> tuple[list[str], list[str]]:
                 sentences=[ScribeSentence(text="The span is recorded.", ledger_event_hash=digest)]
             )
             hashes.append(digest)
-    return hashes, abstains
+        violations = _result_violations(ledger.events())
+    return hashes, abstains, violations
 
 
 def _assumption_span(text: str) -> bool:
@@ -276,23 +288,24 @@ def _load_case_ids(text: str) -> dict[str, Any]:
     return {"found": found == _LOAD_CASE_IDS, "ids": list(found)}
 
 
-def _record_load_factor_abstain(column: bool) -> str | None:
+def _record_load_factor_abstain(column: bool) -> tuple[str | None, int]:
     import tempfile
 
     from evidence_kernel.disagreement import enqueue
     from evidence_kernel.ledger import Ledger
 
     if not column:
-        return None
+        return None, 0
     with tempfile.TemporaryDirectory() as tmp:
         ledger = Ledger(Path(tmp) / "b3-load.sqlite3", "bench")
-        return enqueue(
+        digest = enqueue(
             ledger,
             tenant_id="bench",
             actor_id="orchestrator",
             created_at="2026-11-04T19:05:00Z",
             reason="unreadable_table",
         )
+        return digest, _result_violations(ledger.events())
 
 
 def _load_factor_column_abstains(text: str) -> bool:

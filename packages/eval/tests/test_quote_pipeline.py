@@ -245,3 +245,9 @@ def test_the_bench_rejects_a_chain_decimal() -> None:
     }
     assert _ledger_numbers_ok(holdout) is False
     assert _ledger_numbers_ok(idle) is True
+    memo = {
+        "b2": {"agent_chain": {"llm_numeric_violation": 0}},
+        "b3_second": {},
+        "b3": {"llm_numeric_violation": 1},
+    }
+    assert _ledger_numbers_ok(memo) is False

@@ -145,6 +145,8 @@ def _ledger_numbers_ok(benchmarks: dict) -> bool:
     b3 = benchmarks.get("b3") or {}
     if b3.get("expert_holdout") and b3.get("expert_holdout_llm_numeric_violation", 0) != 0:
         return False
+    if b3.get("llm_numeric_violation", 0) != 0:
+        return False
     return True
 
 
@@ -167,6 +169,7 @@ def main(argv: list[str] | None = None) -> int:
     hash_file = sub.add_parser("hash-file")
     hash_file.add_argument("path")
     sub.add_parser("external-public")
+    sub.add_parser("ood-bench")
     args = parser.parse_args(argv)
     if args.command == "validate-b1":
         from evidence_eval.expert_validate import validate_b1
@@ -271,6 +274,15 @@ def main(argv: list[str] | None = None) -> int:
             render_external_markdown(report),
             encoding="utf-8",
         )
+        print(json.dumps(report, indent=2))
+        return 0 if report.get("acquired") else 2
+    if args.command == "ood-bench":
+        from evidence_eval.ood_bench import audit_path, ood_report, render_ood_audit
+
+        report = ood_report()
+        path = audit_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(render_ood_audit(report), encoding="utf-8")
         print(json.dumps(report, indent=2))
         return 0 if report.get("acquired") else 2
     if args.command == "bench":
