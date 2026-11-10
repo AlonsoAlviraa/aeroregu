@@ -15,6 +15,7 @@ from evidence_eval.s1 import S1_SEED, public_summary, run_s1
 from evidence_eval.score import load_split, score_cases
 from evidence_kernel.envelope import make_envelope, project_source
 from evidence_kernel.ledger import Ledger
+from evidence_kernel.orchestrator import record
 
 OUT = Path(__file__).resolve().parent / "out"
 OUT.mkdir(parents=True, exist_ok=True)
@@ -70,7 +71,12 @@ def s1_twice() -> dict:
         )
     left = {key: runs[0][key] for key in runs[0] if key not in {"run", "elapsed_s"}}
     right = {key: runs[1][key] for key in runs[1] if key not in {"run", "elapsed_s"}}
-    return {"seed_constant": S1_SEED, "seed_changes_output": False, "identical": left == right, "runs": runs}
+    return {
+        "seed_constant": S1_SEED,
+        "seed_changes_output": False,
+        "identical": left == right,
+        "runs": runs,
+    }
 
 
 def tamper() -> dict:
@@ -85,10 +91,8 @@ def tamper() -> dict:
         confidence="deterministic",
         result={"marker": "one"},
     )
-    # The orchestrator guard scans every product file for this call. Build it
-    # without writing the two tokens next to each other.
-    append = getattr(ledger, "append")
-    digest = append(
+    digest = record(
+        ledger,
         {
             "event_type": "calc",
             "tenant_id": "audit",
@@ -96,7 +100,7 @@ def tamper() -> dict:
             "created_at": "2026-11-09T00:00:00Z",
             "payload": {"marker": "one"},
             "envelope": envelope,
-        }
+        },
     )
     intact = ledger.verify()
     conn = sqlite3.connect(path)
@@ -105,7 +109,11 @@ def tamper() -> dict:
     conn.commit()
     conn.close()
     detected = ledger.verify() is False
-    return {"appended_hash_prefix": digest[:12], "intact_before": intact, "tamper_detected": detected}
+    return {
+        "appended_hash_prefix": digest[:12],
+        "intact_before": intact,
+        "tamper_detected": detected,
+    }
 
 
 def main() -> None:

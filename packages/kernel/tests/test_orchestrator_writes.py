@@ -38,6 +38,16 @@ def test_an_annotated_ledger_parameter_is_a_write() -> None:
     assert ledger_append_lines(source) == [2]
 
 
+def test_getattr_append_is_a_write() -> None:
+    source = "def write(ledger):\n    getattr(ledger, 'append')({})\n"
+    assert ledger_append_lines(source) == [2]
+
+
+def test_methodcaller_append_is_a_write() -> None:
+    source = "def write(ledger):\n    methodcaller('append')(ledger)\n"
+    assert ledger_append_lines(source) == [2]
+
+
 def ledger_append_lines(source: str) -> list[int]:
     try:
         tree = ast.parse(source)
@@ -133,11 +143,59 @@ def _is_ledger(expr: ast.expr | None) -> bool:
 def _append_lines(fn: ast.AST, names: set[str]) -> list[int]:
     hits: list[int] = []
     for node in ast.walk(fn):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+        if not isinstance(node, ast.Call):
             continue
-        if node.func.attr != "append":
-            continue
-        receiver = node.func.value
-        if isinstance(receiver, ast.Name) and receiver.id in names:
+        if _direct_append(node, names) or _getattr_append(node, names):
             hits.append(node.lineno)
-    return hits
+        elif _methodcaller_append(node, names):
+            hits.append(node.lineno)
+    return sorted(set(hits))
+
+
+def _direct_append(node: ast.Call, names: set[str]) -> bool:
+    if not isinstance(node.func, ast.Attribute) or node.func.attr != "append":
+        return False
+    receiver = node.func.value
+    return isinstance(receiver, ast.Name) and receiver.id in names
+
+
+def _getattr_append(node: ast.Call, names: set[str]) -> bool:
+    target = node.func if _is_getattr_append(node, names) else None
+    if target is not None:
+        return True
+    return _is_getattr_append(node.func, names)
+
+
+def _is_getattr_append(node: ast.AST, names: set[str]) -> bool:
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+        return False
+    if node.func.id != "getattr" or len(node.args) < 2:
+        return False
+    receiver, attr = node.args[0], node.args[1]
+    return (
+        isinstance(receiver, ast.Name)
+        and receiver.id in names
+        and isinstance(attr, ast.Constant)
+        and attr.value == "append"
+    )
+
+
+def _methodcaller_append(node: ast.Call, names: set[str]) -> bool:
+    made = node.func if isinstance(node.func, ast.Call) else None
+    if made is None or not node.args:
+        return False
+    if not _is_methodcaller_append(made):
+        return False
+    target = node.args[0]
+    return isinstance(target, ast.Name) and target.id in names
+
+
+def _is_methodcaller_append(node: ast.Call) -> bool:
+    func = node.func
+    named = isinstance(func, ast.Name) and func.id == "methodcaller"
+    attributed = isinstance(func, ast.Attribute) and func.attr == "methodcaller"
+    if not named and not attributed:
+        return False
+    if not node.args or not isinstance(node.args[0], ast.Constant):
+        return False
+    return node.args[0].value == "append"

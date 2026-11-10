@@ -424,3 +424,14 @@ def test_an_unpinned_series_file_is_not_the_registered_one(tmp_path, monkeypatch
     assert "UNREGISTERED-ZIP-99.5" not in rendered
     assert "UNREGISTERED-UFF-77.25" not in rendered
     assert "80 g" not in rendered
+
+
+def test_m_s2_and_m_s_caret_2_are_the_same_unit(tmp_path) -> None:
+    from evidence_eval.b4 import score_series_file
+
+    series = tmp_path / "accel.txt"
+    series.write_text(
+        "unit: m/s2\nlimit_unit: m/s^2\nlimit: 2.0\n1.0\n3.0\n2.5\n",
+        encoding="utf-8",
+    )
+    assert score_series_file(series) == 2
