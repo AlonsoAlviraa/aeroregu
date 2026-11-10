@@ -293,6 +293,10 @@ def checker_single_faults_pass(report: dict[str, Any]) -> bool:
         hits, total = value.split("/")
         if total == "0" or hits != total:
             return False
+    for value in report.get("false_alarm_by_fault", {}).values():
+        hits, _, total = str(value).partition("/")
+        if total == "" or hits != "0":
+            return False
     return True
 
 

@@ -1,4 +1,11 @@
-from evidence_eval.s1 import SINGLE_FAULTS, public_summary, run_s1, score_exemplars, shift_gap_note
+from evidence_eval.s1 import (
+    SINGLE_FAULTS,
+    checker_single_faults_pass,
+    public_summary,
+    run_s1,
+    score_exemplars,
+    shift_gap_note,
+)
 
 
 def test_small_run_reports_both_shifts_with_intervals() -> None:
@@ -50,6 +57,13 @@ def test_exemplars_split_false_alarms_and_abstention_by_fault() -> None:
     assert summary["abstention_by_fault_ci95"]["missing_input"]["low"] == "0.207"
     assert summary["abstention_by_fault"]["sign"] == "0/0"
     assert summary["abstention_by_fault_ci95"]["sign"] is None
+
+
+def test_a_per_fault_false_alarm_fails_the_s1_gate() -> None:
+    report = score_exemplars()
+    assert checker_single_faults_pass(report) is True
+    report["false_alarm_by_fault"]["sign"] = "1/13"
+    assert checker_single_faults_pass(report) is False
 
 
 def test_equal_shift_recall_is_reported_as_no_drop() -> None:
