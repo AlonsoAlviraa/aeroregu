@@ -16,6 +16,8 @@ GNU make 4.4.1 was installed on this Windows machine from ezwinports on 2026-11-
 
 The workflow file `.github/workflows/ci.yml` runs that same command on `ubuntu-latest` after `uv sync --frozen`. VERIFIED on 2026-11-10: GitHub Actions run 42862445978, commit `ca4921d`, completed with `make-bench`, `test-ubuntu-latest`, `test-windows-latest`, and `supply-chain` successful. `make-bench` took 2 minutes 16 seconds. The NASA PDFs, the bearing zip, and the AS365 UFF are not in git, so that clean checkout reports those files as not scored and still runs S1. That run does not replace the checked-in snapshot from the local 2436016 ms `make bench`, and it does not complete the programme.
 
+VERIFIED on 2026-11-10 from GitHub Actions run 42865671580, commit `3d760a1`, `make-bench` 2 minutes 17 seconds: S1 scored 100000 cases. False alarms were 0/4000 in distribution and 0/4000 shifted, Wilson 95% 0.000 to 0.001 on each. Abstention correctness was 1.000 on both splits, Wilson 95% 0.999 to 1.000. The scorer's own date field still says 2026-11-03. This log does not replace `docs/benchmarks/make_bench_latest.md`, and `programme_complete` stayed false.
+
 CODE CHECK on 2026-11-09, not a new 100000-case run: a checkout without the gitignored NASA PDFs, the bearing zip, and the AS365 UFF does not crash the bench path, B3 and B4 are not scored, and S1 does not need those files. The Actions run above is the 2026-11-10 verification of that job.
 
 ## What is pinned
