@@ -6,7 +6,7 @@
   "bearing_zip_in_register": true,
   "bearing_zip_sha256": "816ccb70e9866692276bc3ab2095c885bdb39fe69b146e4163072d177d5aab0f",
   "command": "make bench",
-  "date": "2026-11-09",
+  "date": "2026-11-10",
   "docling": "2.146.0",
   "frozen": {
     "b2_dev": true,
@@ -28,8 +28,7 @@
     "Package versions are the versions importlib saw in this environment.",
     "The expert held-out sets are not part of this manifest.",
     "docling NOT_INSTALLED means the reader abstains.",
-    "s1_seed_controls_sampling is false. The seed labels the fixed schedule.",
-    "uv_lock_sha256 was read from uv.lock on 2026-11-10. The other fields stay from 2026-11-09."
+    "s1_seed_controls_sampling is false. The seed labels the fixed schedule."
   ],
   "packages": {
     "evidence-calc": "0.1.0",
