@@ -11,8 +11,14 @@ dependencies = [
     "evidence-ingest",
     "evidence-kernel",
     "fastapi>=0.115.6",
+    "rich>=13.9.0",
+    "typer>=0.15.0",
     "uvicorn>=0.34.0",
 ]
+
+[project.scripts]
+aeroregu = "evidence_api.cli:main"
+aeroregu-mcp = "evidence_api.mcp_server:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -20,6 +20,8 @@ from evidence_kernel.schema import validate_instance
 GENESIS = "0" * 64
 ISO_TIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 SIGN_OFF_STATEMENT = "reviewed this event"
+PBKDF2_ITERATIONS = 600_000
+LEGACY_PBKDF2_ITERATIONS = 20_000
 
 
 class LedgerError(ValueError):
@@ -140,6 +142,14 @@ class Ledger:
                 role TEXT NOT NULL,
                 password_hash TEXT NOT NULL,
                 password_salt TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS revoked_tokens (
+                token_hash TEXT PRIMARY KEY,
+                revoked_at TEXT NOT NULL
             )
             """
         )
@@ -390,8 +400,8 @@ class Ledger:
             ).fetchone()
             if row is not None and row["password_salt"] != predictable:
                 return
-            if row is not None and not hmac.compare_digest(
-                _password_digest(password, row["password_salt"]), row["password_hash"]
+            if row is not None and not _verify_password_digest(
+                password, row["password_salt"], row["password_hash"]
             ):
                 return
             salt = secrets.token_hex(16)
@@ -427,14 +437,63 @@ class Ledger:
             ).fetchone()
         if row is None:
             return False
-        digest = _password_digest(password, row["password_salt"])
-        return hmac.compare_digest(digest, row["password_hash"])
+        stored_hash = str(row["password_hash"])
+        salt = str(row["password_salt"])
+        if not _verify_password_digest(password, salt, stored_hash):
+            return False
+        # Upgrade legacy 20k digests transparently on successful verification.
+        if not stored_hash.startswith(f"pbkdf2_sha256${PBKDF2_ITERATIONS}$"):
+            new_salt = secrets.token_hex(16)
+            new_hash = _password_digest(password, new_salt)
+            with self._connect(immediate=True) as conn:
+                conn.execute(
+                    "UPDATE actors SET password_hash = ?, password_salt = ? WHERE actor_id = ?",
+                    (new_hash, new_salt, actor_id),
+                )
+        return True
+
+    def revoke_token(self, token_hash: str, revoked_at: str) -> None:
+        with self._connect(immediate=True) as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO revoked_tokens (token_hash, revoked_at) VALUES (?, ?)",
+                (token_hash, revoked_at),
+            )
+
+    def is_token_revoked(self, token_hash: str) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM revoked_tokens WHERE token_hash = ?",
+                (token_hash,),
+            ).fetchone()
+        return row is not None
 
 
-def _password_digest(password: str, salt: str) -> str:
-    return hashlib.pbkdf2_hmac(
-        "sha256", password.encode("utf-8"), salt.encode("ascii"), 20_000
+def _password_digest(password: str, salt: str, iterations: int = PBKDF2_ITERATIONS) -> str:
+    derived = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt.encode("ascii"), iterations
     ).hex()
+    return f"pbkdf2_sha256${iterations}${derived}"
+
+
+def _verify_password_digest(password: str, salt: str, stored_hash: str) -> bool:
+    if stored_hash.startswith("pbkdf2_sha256$"):
+        parts = stored_hash.split("$", 2)
+        if len(parts) != 3:
+            return False
+        try:
+            iterations = int(parts[1])
+        except ValueError:
+            return False
+        if iterations < 1:
+            return False
+        derived = hashlib.pbkdf2_hmac(
+            "sha256", password.encode("utf-8"), salt.encode("ascii"), iterations
+        ).hex()
+        return hmac.compare_digest(derived, parts[2])
+    legacy = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt.encode("ascii"), LEGACY_PBKDF2_ITERATIONS
+    ).hex()
+    return hmac.compare_digest(legacy, stored_hash)
 
 
 def verify_chain_document(events: list[dict[str, Any]]) -> bool:

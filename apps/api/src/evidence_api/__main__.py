@@ -11,7 +11,16 @@ def main() -> None:
         raise SystemExit(
             "Set EVIDENCE_SESSION_SECRET to a random string of at least 24 characters."
         )
-    uvicorn.run("evidence_api.app:app", host="127.0.0.1", port=8000)
+    host = os.environ.get("EVIDENCE_HOST", "127.0.0.1")
+    port = int(os.environ.get("EVIDENCE_PORT", "8000"))
+    workers = max(1, int(os.environ.get("EVIDENCE_WORKERS", "1")))
+    uvicorn.run(
+        "evidence_api.app:app",
+        host=host,
+        port=port,
+        workers=workers,
+        proxy_headers=True,
+    )
 
 
 if __name__ == "__main__":

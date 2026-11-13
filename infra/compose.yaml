@@ -4,7 +4,27 @@ services:
       context: ..
       dockerfile: infra/Dockerfile
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - evidence_data:/app/data
     environment:
-      EVIDENCE_GATEWAY: fixture
-    command: ["uv", "run", "python", "-m", "evidence_api"]
+      EVIDENCE_HOME: /app/data
+      EVIDENCE_GATEWAY: ${EVIDENCE_GATEWAY:-auto}
+      EVIDENCE_PRODUCTION: ${EVIDENCE_PRODUCTION:-0}
+      EVIDENCE_SESSION_SECRET: ${EVIDENCE_SESSION_SECRET:?Set EVIDENCE_SESSION_SECRET to a random string of at least 24 characters}
+      EVIDENCE_COOKIE_SECURE: ${EVIDENCE_COOKIE_SECURE:-1}
+      MODEL_BASE_URL: ${MODEL_BASE_URL:-}
+      MODEL_NAME: ${MODEL_NAME:-}
+      EDGE_MODEL_URL: ${EDGE_MODEL_URL:-}
+      EDGE_MODEL_NAME: ${EDGE_MODEL_NAME:-}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  evidence_data:

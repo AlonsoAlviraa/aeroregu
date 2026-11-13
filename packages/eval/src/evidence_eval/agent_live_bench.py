@@ -25,6 +25,7 @@ from evidence_kernel.gateway import (
 )
 from evidence_kernel.ledger import Ledger
 from evidence_kernel.numbers import collect_decimals, stray_physical_numbers
+from evidence_kernel.spans import resolve_block_location
 from evidence_kernel.supervisor import CaseSpec, run_case
 
 
@@ -226,6 +227,182 @@ def evaluate_gateway(
     }
 
 
+def _bbox_block(text: str, page_no: int, bbox: list[str], source_hash: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "text": text,
+            "span_start": 0,
+            "span_end": len(text),
+            "page_no": page_no,
+            "bbox": bbox,
+            "source_hash": source_hash,
+        }
+    ]
+
+
+def _default_bbox_cases() -> tuple[dict[str, Any], ...]:
+    return (
+        {
+            "case_id": "b2-cs27-01",
+            "blocks": _bbox_block(
+                "CS-27.301 Flight, ground, and water loads must be distributed conservatively.",
+                1,
+                ["72.00", "680.00", "520.00", "704.00"],
+                "a" * 64,
+            ),
+            "method_id": "rigid_body_point_mass",
+            "calc_inputs": DEFAULT_RIGID_INPUTS,
+        },
+        {
+            "case_id": "b2-cs29-02",
+            "blocks": _bbox_block(
+                "CS-29.301(a) Strength requirements apply to limit and ultimate design loads.",
+                2,
+                ["72.00", "540.00", "510.00", "562.00"],
+                "b" * 64,
+            ),
+            "method_id": "bolt_screen",
+            "calc_inputs": DEFAULT_BOLT_INPUTS,
+        },
+        {
+            "case_id": "b2-vtol-03",
+            "blocks": _bbox_block(
+                "VTOL.2210 Structural design envelope for peak maneuver load factor.",
+                3,
+                ["64.00", "412.00", "495.00", "434.00"],
+                "c" * 64,
+            ),
+            "method_id": "rigid_body_point_mass",
+            "calc_inputs": DEFAULT_RIGID_INPUTS,
+        },
+        {
+            "case_id": "b2-far27-04",
+            "blocks": _bbox_block(
+                "FAR 27.301 Structural load distribution across multi-bolt attachment joint.",
+                4,
+                ["68.00", "310.00", "502.00", "332.00"],
+                "d" * 64,
+            ),
+            "method_id": "bolt_screen",
+            "calc_inputs": DEFAULT_BOLT_INPUTS,
+        },
+    )
+
+
+class _SimulatedUnconstrainedLLM:
+    """Represents a standard single-pass LLM without span/page/bbox or calc isolation."""
+
+    def generate(self, case: dict[str, Any]) -> dict[str, Any]:
+        # Single-LLM baseline: paraphrases span, omits page_no/bbox, invents numbers.
+        text = str(case["blocks"][0]["text"])
+        return {
+            "quotation": text[:24] + " (summarized)",
+            "page_no": None,
+            "bbox": None,
+            "narrative": "Estimated load margin is 412.750 kN based on heuristic review.",
+        }
+
+
+def compare_baseline_vs_evidence_layer(
+    gateway_factory: Any | None = None,
+    *,
+    is_live: bool = False,
+) -> dict[str, Any]:
+    """Compare single-pass LLM vs Evidence Layer on bbox precision and hallucinations."""
+    cases = _default_bbox_cases()
+    baseline_llm = _SimulatedUnconstrainedLLM()
+    gw_factory = gateway_factory or (
+        lambda: BudgetedGateway(
+            OutlinesGuidedGateway(FixtureGateway("happy"), max_schema_retries=1),
+            max_turns=5,
+        )
+    )
+
+    baseline_exact_citations = 0
+    baseline_hallucinations = 0
+    evidence_exact_citations = 0
+    evidence_hallucinations = 0
+    per_case: list[dict[str, Any]] = []
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        for idx, item in enumerate(cases):
+            allowed = collect_decimals(item["calc_inputs"])
+            b_out = baseline_llm.generate(item)
+            b_loc = resolve_block_location(item["blocks"], str(b_out["quotation"]), 0, 24)
+            b_has_bbox = bool(b_loc is not None and b_out.get("page_no") and b_out.get("bbox"))
+            b_stray = len(stray_physical_numbers(str(b_out["narrative"]), allowed))
+            baseline_exact_citations += int(b_has_bbox)
+            baseline_hallucinations += b_stray
+
+            ledger = Ledger(tmp_path / f"b2_cmp_{idx}.sqlite3", "eval-b2")
+            out = run_case(
+                ledger,
+                gw_factory(),
+                CaseSpec(
+                    tenant_id="eval-b2",
+                    actor_id="eval-runner",
+                    created_at="2026-11-13T12:00:00Z",
+                    blocks=item["blocks"],
+                    method_id=item["method_id"],
+                    calc_inputs=item["calc_inputs"],
+                    record_requirements=True,
+                ),
+            )
+            res = out.envelope.get("result") or {}
+            allowed_ev = allowed | collect_decimals(res)
+            ev_stray = len(stray_physical_numbers(out.paragraph, allowed_ev))
+            citations = out.citations or []
+            ev_has_bbox = bool(
+                out.envelope.get("confidence") == "deterministic"
+                and citations
+                and all(
+                    c.get("page_no") == item["blocks"][0]["page_no"]
+                    and c.get("bbox") == item["blocks"][0]["bbox"]
+                    and resolve_block_location(
+                        item["blocks"], c["quotation"], c["span_start"], c["span_end"]
+                    )
+                    is not None
+                    for c in citations
+                )
+            )
+            evidence_exact_citations += int(ev_has_bbox)
+            evidence_hallucinations += ev_stray
+            per_case.append(
+                {
+                    "case_id": item["case_id"],
+                    "baseline_exact_page_bbox": b_has_bbox,
+                    "baseline_hallucinations": b_stray,
+                    "evidence_exact_page_bbox": ev_has_bbox,
+                    "evidence_hallucinations": ev_stray,
+                    "citations": citations,
+                }
+            )
+
+    n = len(cases)
+    base_cit_rate = baseline_exact_citations / n if n else 0.0
+    ev_cit_rate = evidence_exact_citations / n if n else 0.0
+    hall_reduction_pct = (
+        round(
+            ((baseline_hallucinations - evidence_hallucinations) / baseline_hallucinations) * 100.0,
+            2,
+        )
+        if baseline_hallucinations > 0
+        else 0.0
+    )
+    return {
+        "mode": "live" if is_live else "simulated_baseline_vs_evidence_layer",
+        "cases": n,
+        "baseline_exact_citation_rate": round(base_cit_rate, 4),
+        "evidence_exact_citation_rate": round(ev_cit_rate, 4),
+        "citation_precision_gain_pp": round((ev_cit_rate - base_cit_rate) * 100.0, 2),
+        "baseline_numeric_hallucinations": baseline_hallucinations,
+        "evidence_numeric_hallucinations": evidence_hallucinations,
+        "numeric_hallucination_reduction_pct": hall_reduction_pct,
+        "per_case": per_case,
+    }
+
+
 def _cli() -> None:
     parser = argparse.ArgumentParser(description="Evaluate live Edge/API agents on Evidence Layer.")
     parser.add_argument(
@@ -236,6 +413,11 @@ def _cli() -> None:
     parser.add_argument("--api-url", default="")
     parser.add_argument("--api-model", default="local")
     parser.add_argument("--timeout-s", type=float, default=30.0)
+    parser.add_argument(
+        "--compare-baseline",
+        action="store_true",
+        help="Run B2 baseline vs Evidence Layer page+bbox and hallucination delta comparison.",
+    )
     args = parser.parse_args()
 
     def make_gw():
@@ -271,7 +453,10 @@ def _cli() -> None:
             )
         return BudgetedGateway(inner, max_turns=5)
 
-    report = evaluate_gateway(make_gw, label=f"{args.mode}:{args.edge_model}")
+    if args.compare_baseline:
+        report = compare_baseline_vs_evidence_layer(make_gw, is_live=(args.mode != "fixture"))
+    else:
+        report = evaluate_gateway(make_gw, label=f"{args.mode}:{args.edge_model}")
     print(json.dumps(report, indent=2))
 
 

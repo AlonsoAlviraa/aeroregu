@@ -90,7 +90,13 @@ def resolve_span_in_block(
     return None
 
 
-def quotation_in_blocks(blocks: list[dict], quotation: str, span_start: str, span_end: str) -> bool:
+def resolve_block_location(
+    blocks: list[dict],
+    quotation: str,
+    span_start: str | int,
+    span_end: str | int,
+) -> dict[str, object] | None:
+    """Resolve real slice offsets plus provenance (page_no, bbox) for a matched block."""
     for block in blocks:
         text = str(block.get("text", ""))
         raw_offset = block.get("offset", 0)
@@ -98,9 +104,29 @@ def quotation_in_blocks(blocks: list[dict], quotation: str, span_start: str, spa
             block_offset = int(raw_offset)
         except (TypeError, ValueError):
             block_offset = 0
-        if resolve_span_in_block(text, quotation, span_start, span_end, block_offset=block_offset):
-            return True
-    return False
+        resolved = resolve_span_in_block(
+            text, quotation, span_start, span_end, block_offset=block_offset
+        )
+        if resolved is not None:
+            raw_bbox = block.get("bbox")
+            bbox_strings = (
+                [f"{float(v):.2f}" for v in raw_bbox]
+                if isinstance(raw_bbox, (list, tuple)) and len(raw_bbox) == 4
+                else None
+            )
+            return {
+                "span_start": str(resolved[0]),
+                "span_end": str(resolved[1]),
+                "page_no": block.get("page_no"),
+                "bbox": bbox_strings,
+                "block_kind": block.get("block_kind", "text"),
+                "source_hash": block.get("source_hash", ""),
+            }
+    return None
+
+
+def quotation_in_blocks(blocks: list[dict], quotation: str, span_start: str, span_end: str) -> bool:
+    return resolve_block_location(blocks, quotation, span_start, span_end) is not None
 
 
 def substring_slice(text: str, quotation: str, *, min_chars: int = 8) -> bool:

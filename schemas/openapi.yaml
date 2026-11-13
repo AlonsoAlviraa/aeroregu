@@ -573,18 +573,111 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Envelope"
+  /:
+    get:
+      operationId: workbenchIndex
+      responses:
+        "200":
+          description: Interactive Calculation & Verification Studio HTML workbench.
+          content:
+            text/html:
+              schema:
+                type: string
   /export/zip:
     post:
       operationId: exportZip
       responses:
         "200":
           description: Zip of the hash chain plus a verifier command.
+  /attestation/public-key:
+    get:
+      operationId: attestationPublicKey
+      responses:
+        "200":
+          description: DSSE Ed25519 public key in PEM format.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /metrics/pilot:
+    get:
+      operationId: pilotMetrics
+      parameters:
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Signed engineering review velocity metrics and ledger counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /mcp:
+    post:
+      operationId: mcpRpc
+      parameters:
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [jsonrpc, method]
+              properties:
+                jsonrpc:
+                  type: string
+                id:
+                  nullable: true
+                method:
+                  type: string
+                params:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          description: Model Context Protocol (MCP) JSON-RPC 2.0 response.
   /auth/login:
     post:
       operationId: login
       responses:
         "200":
-          description: Local demo session cookie.
+          description: Local or production session cookie (HttpOnly, SameSite=Lax, Secure under TLS/prod).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /auth/logout:
+    post:
+      operationId: logout
+      parameters:
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Revoke current session token and clear el_session cookie.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /auth/me:
+    get:
+      operationId: authMe
+      parameters:
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Authenticated actor identity, tenant, and role.
           content:
             application/json:
               schema:

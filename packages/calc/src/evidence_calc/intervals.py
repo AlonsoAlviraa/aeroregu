@@ -110,9 +110,7 @@ def evaluate_hover_power_intervals(
         ),
         "ideal_power_kw": _drift_entry(ideal_power, str(staged_outputs["ideal_power_kw"])),
         "shaft_power_kw": _drift_entry(shaft_power, str(staged_outputs["shaft_power_kw"])),
-        "power_margin_ratio": _drift_entry(
-            power_margin, str(staged_outputs["power_margin_ratio"])
-        ),
+        "power_margin_ratio": _drift_entry(power_margin, str(staged_outputs["power_margin_ratio"])),
     }
 
 

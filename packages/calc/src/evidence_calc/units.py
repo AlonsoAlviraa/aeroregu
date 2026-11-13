@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from tokenize import TokenError
 from typing import Any
 
 from pint import UnitRegistry
@@ -86,6 +87,7 @@ def conversion_interval(left: str, right: str) -> Any:
         UndefinedUnitError,
         DimensionalityError,
         OffsetUnitCalculusError,
+        TokenError,
         ValueError,
         TypeError,
         ZeroDivisionError,

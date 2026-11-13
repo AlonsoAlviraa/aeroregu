@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import asdict, dataclass
 from decimal import Decimal
 from fractions import Fraction
@@ -12,6 +13,24 @@ import z3
 from cvc5 import Kind
 
 from evidence_kernel.canonical import inputs_hash
+
+_SMT_CACHE_LOCK = threading.RLock()
+_SMT_PROOF_CACHE: dict[str, SMTProofResult] = {}
+_MAX_SMT_CACHE_SIZE = 256
+
+
+def _cached_smt_lookup(cache_key: str) -> SMTProofResult | None:
+    with _SMT_CACHE_LOCK:
+        return _SMT_PROOF_CACHE.get(cache_key)
+
+
+def _cached_smt_store(cache_key: str, result: SMTProofResult) -> SMTProofResult:
+    with _SMT_CACHE_LOCK:
+        if len(_SMT_PROOF_CACHE) >= _MAX_SMT_CACHE_SIZE:
+            oldest_key = next(iter(_SMT_PROOF_CACHE))
+            _SMT_PROOF_CACHE.pop(oldest_key, None)
+        _SMT_PROOF_CACHE[cache_key] = result
+        return result
 
 
 @dataclass(frozen=True)
@@ -119,10 +138,7 @@ class SMTSolverProofEngine:
             cross_meta["cvc5"] = cvc5_status_str
 
         # Fail closed on direct solver disagreement between unsat and sat
-        if (
-            cvc5_status_str is not None
-            and {z3_status_str, cvc5_status_str} == {"unsat", "sat"}
-        ):
+        if cvc5_status_str is not None and {z3_status_str, cvc5_status_str} == {"unsat", "sat"}:
             cross_meta["agreed"] = False
             h = compute_proof_hash(property_name, "UNKNOWN", assumptions, assertion, None)
             return SMTProofResult(
@@ -238,6 +254,20 @@ class SMTSolverProofEngine:
         if tau_dec <= 0 or sigma_dec <= 0 or sf_dec <= 0:
             raise ValueError("allowables and safety_factor must be positive")
 
+        cache_key = inputs_hash(
+            {
+                "method": "structural_margin",
+                "bounds": bounds,
+                "allowables": allowables,
+                "safety_factor": safety_factor,
+                "timeout_ms": self.timeout_ms,
+                "cross_check": self.cross_check,
+            }
+        )
+        cached = _cached_smt_lookup(cache_key)
+        if cached is not None:
+            return cached
+
         solver = z3.Solver()
         solver.set("timeout", self.timeout_ms)
         area = z3.Real("area_mm2")
@@ -300,9 +330,7 @@ class SMTSolverProofEngine:
             t1 = cs.mkTerm(Kind.MULT, c_shear, c_sf, c_sig)
             t2 = cs.mkTerm(Kind.MULT, c_tensile, c_sf, c_tau)
             t3 = cs.mkTerm(Kind.MULT, c_area, c_tau, c_sig)
-            c_lhs = cs.mkTerm(
-                Kind.ADD, cs.mkTerm(Kind.MULT, t1, t1), cs.mkTerm(Kind.MULT, t2, t2)
-            )
+            c_lhs = cs.mkTerm(Kind.ADD, cs.mkTerm(Kind.MULT, t1, t1), cs.mkTerm(Kind.MULT, t2, t2))
             c_rhs = cs.mkTerm(Kind.MULT, t3, t3)
             cs.assertFormula(cs.mkTerm(Kind.GT, c_lhs, c_rhs))
             c_res = cs.checkSat()
@@ -320,17 +348,20 @@ class SMTSolverProofEngine:
             "safety_factor": safety_factor,
         }
         assertion = "forall loads in bounds: ((tau*SF)^2/tau_all^2)+((sig*SF)^2/sig_all^2) <= 1"
-        return self._reconcile_verdicts(
-            property_name="structural_margin",
-            assumptions=assumptions,
-            assertion=assertion,
-            z3_status_str=z3_status_str,
-            z3_cex=z3_cex,
-            z3_reason=str(solver.reason_unknown()) if z3_status_str == "unknown" else "",
-            cvc5_status_str=cvc5_status_str,
-            cvc5_cex=cvc5_cex,
-            proved_reason="No counterexample exists in continuous domain",
-            cex_reason="Structural margin violated at counterexample point",
+        return _cached_smt_store(
+            cache_key,
+            self._reconcile_verdicts(
+                property_name="structural_margin",
+                assumptions=assumptions,
+                assertion=assertion,
+                z3_status_str=z3_status_str,
+                z3_cex=z3_cex,
+                z3_reason=str(solver.reason_unknown()) if z3_status_str == "unknown" else "",
+                cvc5_status_str=cvc5_status_str,
+                cvc5_cex=cvc5_cex,
+                proved_reason="No counterexample exists in continuous domain",
+                cex_reason="Structural margin violated at counterexample point",
+            ),
         )
 
     def prove_station_equilibrium(
@@ -357,6 +388,22 @@ class SMTSolverProofEngine:
             raise ValueError("interval bounds must satisfy min <= max")
         if Decimal(max_station_force_n) <= 0 or active_stations_min <= 0:
             raise ValueError("max_station_force_n and active_stations_min must be positive")
+
+        cache_key = inputs_hash(
+            {
+                "method": "station_equilibrium",
+                "bounds": bounds,
+                "stations": stations,
+                "max_station_force_n": max_station_force_n,
+                "gravity_m_s2": gravity_m_s2,
+                "active_stations_min": active_stations_min,
+                "timeout_ms": self.timeout_ms,
+                "cross_check": self.cross_check,
+            }
+        )
+        cached = _cached_smt_lookup(cache_key)
+        if cached is not None:
+            return cached
 
         solver = z3.Solver()
         solver.set("timeout", self.timeout_ms)
@@ -440,17 +487,20 @@ class SMTSolverProofEngine:
             "active_stations_min": active_stations_min,
         }
         assertion = "forall (mass, nz, cg) in bounds: req_force <= capacity and cg in station span"
-        return self._reconcile_verdicts(
-            property_name="station_equilibrium",
-            assumptions=assumptions,
-            assertion=assertion,
-            z3_status_str=z3_status_str,
-            z3_cex=z3_cex,
-            z3_reason=str(solver.reason_unknown()) if z3_status_str == "unknown" else "",
-            cvc5_status_str=cvc5_status_str,
-            cvc5_cex=cvc5_cex,
-            proved_reason="Equilibrium authority proved across entire envelope",
-            cex_reason="Control envelope violated at counterexample point",
+        return _cached_smt_store(
+            cache_key,
+            self._reconcile_verdicts(
+                property_name="station_equilibrium",
+                assumptions=assumptions,
+                assertion=assertion,
+                z3_status_str=z3_status_str,
+                z3_cex=z3_cex,
+                z3_reason=str(solver.reason_unknown()) if z3_status_str == "unknown" else "",
+                cvc5_status_str=cvc5_status_str,
+                cvc5_cex=cvc5_cex,
+                proved_reason="Equilibrium authority proved across entire envelope",
+                cex_reason="Control envelope violated at counterexample point",
+            ),
         )
 
     def prove_hover_power_envelope(
@@ -476,6 +526,22 @@ class SMTSolverProofEngine:
             or Decimal(max_power_available_kw) <= 0
         ):
             raise ValueError("disk_area, air_density, figure_of_merit, and power must be positive")
+
+        cache_key = inputs_hash(
+            {
+                "method": "hover_power",
+                "thrust_bounds_n": thrust_bounds_n,
+                "disk_area_m2": disk_area_m2,
+                "air_density_kg_m3": air_density_kg_m3,
+                "figure_of_merit": figure_of_merit,
+                "max_power_available_kw": max_power_available_kw,
+                "timeout_ms": self.timeout_ms,
+                "cross_check": self.cross_check,
+            }
+        )
+        cached = _cached_smt_lookup(cache_key)
+        if cached is not None:
+            return cached
 
         solver = z3.Solver()
         solver.set("timeout", self.timeout_ms)
@@ -536,15 +602,18 @@ class SMTSolverProofEngine:
             "max_power_available_kw": max_power_available_kw,
         }
         assertion = "forall thrust in bounds: T^3 <= 2 * rho * A * (1000 * FM * P_avail)^2"
-        return self._reconcile_verdicts(
-            property_name="hover_power_envelope",
-            assumptions=assumptions,
-            assertion=assertion,
-            z3_status_str=z3_status_str,
-            z3_cex=z3_cex,
-            z3_reason=str(solver.reason_unknown()) if z3_status_str == "unknown" else "",
-            cvc5_status_str=cvc5_status_str,
-            cvc5_cex=cvc5_cex,
-            proved_reason="Shaft power stays within available budget across thrust interval",
-            cex_reason="Power budget exceeded at counterexample thrust",
+        return _cached_smt_store(
+            cache_key,
+            self._reconcile_verdicts(
+                property_name="hover_power_envelope",
+                assumptions=assumptions,
+                assertion=assertion,
+                z3_status_str=z3_status_str,
+                z3_cex=z3_cex,
+                z3_reason=str(solver.reason_unknown()) if z3_status_str == "unknown" else "",
+                cvc5_status_str=cvc5_status_str,
+                cvc5_cex=cvc5_cex,
+                proved_reason="Shaft power stays within available budget across thrust interval",
+                cex_reason="Power budget exceeded at counterexample thrust",
+            ),
         )

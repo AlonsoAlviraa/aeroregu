@@ -13,6 +13,7 @@ _INDEX_KEYS = frozenset({"span_start", "span_end"})
 _UNIT_KEYS = frozenset({"unit", "unit_text"})
 _GATE_PROBABILITY = re.compile(r"^(?:0\.\d{3}|1\.000)$")
 _ISO_OR_DATE_PREFIX = re.compile(r"\d{4}-\d{2}-\d{2}")
+_CLAUSE_REF_RE = re.compile(r"\b(?:FAR|CS|AMC)\s+\d{2,3}\.\d{1,4}(?:\([a-z0-9]+\))*")
 
 
 def collect_decimals(value: Any) -> set[str]:
@@ -127,7 +128,7 @@ def _stray_text(value: str, allowed: set[str], stray: list[str], key: str | None
                 stray.append(value)
         return
 
-    consumed: list[tuple[int, int]] = []
+    consumed: list[tuple[int, int]] = [m.span() for m in _CLAUSE_REF_RE.finditer(value)]
     _collect_matches(value, SCIENTIFIC_TOKEN, allowed, stray, consumed)
     _collect_matches(value, DECIMAL_TOKEN, allowed, stray, consumed)
     _collect_matches(value, FRACTION_TOKEN, allowed, stray, consumed)

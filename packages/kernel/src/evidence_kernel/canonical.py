@@ -1,13 +1,12 @@
 """RFC 8785 (JCS) canonical JSON for the types this repo stores.
 
-Floats are rejected. Strings are Unicode NFC-normalized before RFC 8785 serialization.
+Floats are rejected. Keys and strings preserve exact codepoints per RFC 8785.
 Physical quantities must already be strings before they reach this function.
 """
 
 from __future__ import annotations
 
 import hashlib
-import unicodedata
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -15,7 +14,7 @@ import rfc8785
 
 
 def _prepare_jcs(value: Any) -> Any:
-    """Validate allowed types (no floats) and apply Unicode NFC normalization."""
+    """Validate allowed types (no floats) before RFC 8785 canonicalization."""
     if value is None or isinstance(value, bool):
         return value
     if isinstance(value, int):
@@ -23,12 +22,9 @@ def _prepare_jcs(value: Any) -> Any:
     if isinstance(value, float):
         raise TypeError("float is not allowed in canonical JSON")
     if isinstance(value, str):
-        return unicodedata.normalize("NFC", value)
+        return value
     if isinstance(value, Mapping):
-        return {
-            unicodedata.normalize("NFC", str(key)): _prepare_jcs(item)
-            for key, item in value.items()
-        }
+        return {str(key): _prepare_jcs(item) for key, item in value.items()}
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return [_prepare_jcs(item) for item in value]
     raise TypeError(f"unsupported canonical value: {type(value).__name__}")

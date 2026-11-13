@@ -17,7 +17,7 @@ from evidence_kernel.edge import compact_blocks_for_edge, get_edge_preset
 from evidence_kernel.envelope import make_envelope, project_source
 from evidence_kernel.formal import SMTProofResult, SMTSolverProofEngine
 from evidence_kernel.gateway import prompt_hash
-from evidence_kernel.guardrails import validate_blocks_safety
+from evidence_kernel.guardrails import check_structure_safety, validate_blocks_safety
 from evidence_kernel.ledger import Ledger
 from evidence_kernel.numbers import (
     collect_decimals,
@@ -25,7 +25,7 @@ from evidence_kernel.numbers import (
     stray_physical_numbers,
 )
 from evidence_kernel.orchestrator import record
-from evidence_kernel.spans import quotation_in_blocks, substring_slice
+from evidence_kernel.spans import quotation_in_blocks, resolve_block_location, substring_slice
 
 READER_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -159,6 +159,7 @@ class Outcome:
     fault_kind: str | None = None
     formal_proof: dict[str, Any] | None = None
     agent_telemetry: list[dict[str, Any]] = field(default_factory=list)
+    citations: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _prepare_blocks(case: CaseSpec) -> tuple[list[dict[str, Any]], str]:
@@ -383,16 +384,37 @@ def _finalize_and_record(
             "envelope": turn_env,
         }
         hashes.append(record(ledger, _event_body(case, "agent_turn", turn, turn_env)))
-    if case.record_requirements:
-        for req_item in reader.get("requirements", []):
-            req_payload = {
-                "id": str(req_item.get("id", "ITEM-1")),
-                "title": req_item.get("quotation"),
-                "title_label": str(req_item.get("label", "NOT_VERIFIED")),
-                "source_file_hash": str(case.blocks[0].get("source_hash", "")),
-                "quotation": str(req_item.get("quotation", "")),
-                "span_start": str(req_item.get("span_start", "0")),
-                "span_end": str(req_item.get("span_end", "0")),
+    citations: list[dict[str, Any]] = []
+    for req_item in reader.get("requirements", []):
+        quotation = str(req_item.get("quotation", ""))
+        span_start_str = str(req_item.get("span_start", "0"))
+        span_end_str = str(req_item.get("span_end", "0"))
+        loc = resolve_block_location(case.blocks, quotation, span_start_str, span_end_str) or {}
+        citation_entry = {
+            "id": str(req_item.get("id", "ITEM-1")),
+            "label": str(req_item.get("label", "NOT_VERIFIED")),
+            "quotation": quotation,
+            "span_start": str(loc.get("span_start", span_start_str)),
+            "span_end": str(loc.get("span_end", span_end_str)),
+            "page_no": loc.get("page_no"),
+            "bbox": loc.get("bbox"),
+            "block_kind": loc.get("block_kind", "text"),
+        }
+        citations.append(citation_entry)
+        if case.record_requirements:
+            req_payload: dict[str, Any] = {
+                "id": citation_entry["id"],
+                "title": quotation,
+                "title_label": citation_entry["label"],
+                "source_file_hash": str(
+                    loc.get("source_hash")
+                    or (case.blocks[0].get("source_hash", "") if case.blocks else "")
+                ),
+                "quotation": quotation,
+                "span_start": citation_entry["span_start"],
+                "span_end": citation_entry["span_end"],
+                "page_no": citation_entry["page_no"],
+                "bbox": citation_entry["bbox"],
             }
             req_env = make_envelope(
                 sources=[project_source("supervisor", "https://aeroregu.local/req", "ASSUMPTION")],
@@ -443,6 +465,7 @@ def _finalize_and_record(
         fault_kind=fault_kind,
         formal_proof=formal_proof_dict,
         agent_telemetry=telemetry,
+        citations=citations,
     )
 
 
@@ -599,6 +622,9 @@ async def _acomplete(
         telemetry.append(entry)
     if completion.abstained or completion.output is None:
         raise CaseAbstain(completion.abstain_reason or "model_abstain")
+    out_safety = check_structure_safety(completion.output, mode="output")
+    if out_safety is not None:
+        raise CaseAbstain(out_safety)
     return completion.output
 
 
@@ -784,6 +810,7 @@ async def astream_case(
                 "fault_kind": outcome.fault_kind,
                 "formal_proof": outcome.formal_proof,
                 "agent_telemetry": outcome.agent_telemetry,
+                "citations": outcome.citations,
             },
         }
     except CaseAbstain as exc:
@@ -864,6 +891,9 @@ def _complete(
         telemetry.append(_telemetry_entry(agent_id, completion))
     if completion.abstained or completion.output is None:
         raise CaseAbstain(completion.abstain_reason or "model_abstain")
+    out_safety = check_structure_safety(completion.output, mode="output")
+    if out_safety is not None:
+        raise CaseAbstain(out_safety)
     return completion.output
 
 
@@ -877,6 +907,11 @@ def invoke_single_agent(
     """Execute one verification agent with guardrails, schema constraints, and numeric checks."""
     if agent_id not in SCHEMAS:
         raise CaseAbstain("unknown_agent")
+    blocks_payload = context.get("blocks")
+    if isinstance(blocks_payload, list) and blocks_payload:
+        safety_reason = validate_blocks_safety(blocks_payload)
+        if safety_reason is not None:
+            raise CaseAbstain(safety_reason)
     text = str(context.get("source_text") or context.get("quotation") or "")
     if text:
         safety_reason = validate_blocks_safety([{"text": text}])

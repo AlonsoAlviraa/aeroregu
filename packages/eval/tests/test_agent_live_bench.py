@@ -4,7 +4,11 @@ import json
 from typing import Any
 
 import httpx
-from evidence_eval.agent_live_bench import LIVE_EVAL_CASES, evaluate_gateway
+from evidence_eval.agent_live_bench import (
+    LIVE_EVAL_CASES,
+    compare_baseline_vs_evidence_layer,
+    evaluate_gateway,
+)
 from evidence_kernel.constrained import OutlinesGuidedGateway
 from evidence_kernel.gateway import (
     BudgetedGateway,
@@ -168,3 +172,14 @@ def test_live_bench_measures_slm_recovery_via_fsm_and_whitespace_spans(monkeypat
     assert improved_report["citation_accuracy"] == 1.0
     assert improved_report["stray_number_leaks"] == 0
     assert improved_report["ledger_verified_rate"] == 1.0
+
+
+def test_b2_baseline_vs_evidence_layer_bbox_and_hallucinations() -> None:
+    report = compare_baseline_vs_evidence_layer(is_live=False)
+    assert report["cases"] == 4
+    assert report["baseline_exact_citation_rate"] == 0.0
+    assert report["evidence_exact_citation_rate"] == 1.0
+    assert report["citation_precision_gain_pp"] == 100.0
+    assert report["baseline_numeric_hallucinations"] > 0
+    assert report["evidence_numeric_hallucinations"] == 0
+    assert report["numeric_hallucination_reduction_pct"] == 100.0
