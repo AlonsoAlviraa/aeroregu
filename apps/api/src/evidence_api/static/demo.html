@@ -662,6 +662,293 @@ try {
     font-weight: 600;
     color: var(--accent);
   }
+
+  /* Guided verification workflow bar */
+  .workflow-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 0.5rem;
+  }
+
+  .wf-step {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.55rem 0.75rem;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-align: start;
+    cursor: pointer;
+    transition: border-color 0.15s, background-color 0.15s;
+  }
+
+  .wf-step:hover { border-color: var(--accent); }
+  .wf-step[aria-current="step"] {
+    border-color: var(--accent);
+    background: var(--surface-alt);
+  }
+  .wf-step[data-done="true"] .wf-state {
+    color: var(--ok);
+    border-color: var(--ok);
+  }
+  .wf-state {
+    font-size: 0.72rem;
+    padding: 0.12rem 0.45rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  /* Native range slider scrubbers (WebKit & Firefox rules kept strictly separate) */
+  .slider-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: 0.65rem;
+    padding: 0.65rem 0.8rem;
+    border-radius: 9px;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+  }
+
+  .slider-item {
+    display: grid;
+    gap: 0.2rem;
+  }
+
+  .slider-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+
+  .slider-val {
+    font-family: ui-monospace, Consolas, monospace;
+    color: var(--accent);
+  }
+
+  input[type="range"].eng-slider {
+    --slider-track-size: 0.44rem;
+    --slider-thumb-size: 1.15rem;
+    --slider-track-radius: 999px;
+    --slider-thumb-radius: 50%;
+    --slider-track-color: var(--border);
+    --slider-fill-color: var(--accent);
+    --slider-thumb-color: var(--slider-fill-color);
+    --slider-direction: to right;
+    --attr-min: 0;
+    --attr-max: 99;
+    --control-value: 50;
+    --slider-progress: calc(progress(var(--control-value), var(--attr-min), var(--attr-max)) * 99%);
+    appearance: none;
+    inline-size: 99%;
+    block-size: 2rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  @supports not (opacity: progress(1, 0, 99)) {
+    input[type="range"].eng-slider {
+      --slider-progress: calc(
+        (var(--control-value) - var(--attr-min)) /
+        max(0.0001, (var(--attr-max) - var(--attr-min))) * 99%
+      );
+    }
+  }
+
+  input[type="range"].eng-slider::-webkit-slider-runnable-track {
+    block-size: var(--slider-track-size);
+    border: 0;
+    border-radius: var(--slider-track-radius);
+    background: linear-gradient(
+      var(--slider-direction),
+      var(--slider-fill-color) var(--slider-progress),
+      var(--slider-track-color) var(--slider-progress)
+    );
+  }
+
+  input[type="range"].eng-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    inline-size: var(--slider-thumb-size);
+    block-size: var(--slider-thumb-size);
+    margin-block-start: calc((var(--slider-track-size) - var(--slider-thumb-size)) / 2);
+    border: 2px solid var(--surface);
+    border-radius: var(--slider-thumb-radius);
+    background: var(--slider-thumb-color);
+  }
+
+  input[type="range"].eng-slider::-moz-range-track {
+    block-size: var(--slider-track-size);
+    border: 0;
+    border-radius: var(--slider-track-radius);
+    background: var(--slider-track-color);
+  }
+
+  input[type="range"].eng-slider::-moz-range-progress {
+    block-size: var(--slider-track-size);
+    border-radius: var(--slider-track-radius);
+    background: var(--slider-fill-color);
+  }
+
+  input[type="range"].eng-slider::-moz-range-thumb {
+    inline-size: var(--slider-thumb-size);
+    block-size: var(--slider-thumb-size);
+    border: 2px solid var(--surface);
+    border-radius: var(--slider-thumb-radius);
+    background: var(--slider-thumb-color);
+  }
+
+  input[type="range"].eng-slider:focus-visible {
+    outline: 2px solid var(--slider-fill-color);
+    outline-offset: 4px;
+  }
+
+  /* Unit readout chips & CATIA bridge box */
+  .unit-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.76rem;
+  }
+
+  .unit-chip {
+    padding: 0.22rem 0.55rem;
+    border-radius: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--ink);
+  }
+
+  .catia-box, .diff-card, .eng-summary-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.75rem 0.85rem;
+    background: var(--surface-alt);
+    display: grid;
+    gap: 0.55rem;
+  }
+
+  .eng-summary-card[data-tone="ok"] { border-inline-start: 4px solid var(--ok); }
+  .eng-summary-card[data-tone="warn"] { border-inline-start: 4px solid var(--warn); }
+  .eng-summary-card[data-tone="err"] { border-inline-start: 4px solid var(--err); }
+
+  #catia-params-preview {
+    margin: 0;
+    padding: 0.55rem 0.7rem;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.78rem;
+    white-space: pre-wrap;
+    overflow-x: auto;
+  }
+
+  /* Copy button & confirmation live bubble (kept visible to screen readers with opacity) */
+  .copy {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .copy-button {
+    min-inline-size: 24px;
+    min-block-size: 24px;
+  }
+
+  .copy .tip {
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--ok);
+    opacity: 0;
+    transition: opacity 0.15s;
+    pointer-events: none;
+  }
+
+  .copy-button[data-copied] + .tip { opacity: 1; }
+  .copy-button[data-failed] + .tip { opacity: 1; color: var(--err); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .copy .tip { transition: none; }
+  }
+
+  /* Sortable coverage table column controls */
+  th:has(> button) { padding: 0; }
+  th > button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.35rem;
+    inline-size: 99%;
+    min-block-size: 24px;
+    padding: 0.48rem 0.65rem;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: 700;
+    text-align: start;
+    cursor: pointer;
+  }
+  th[aria-sort="ascending"] > button::after { content: " ↑"; color: var(--accent); }
+  th[aria-sort="descending"] > button::after { content: " ↓"; color: var(--accent); }
+  th > button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  /* Persistent manual toast notifications */
+  .toast-stack {
+    position: fixed;
+    inset-block-end: 1rem;
+    inset-inline-end: 1rem;
+    z-index: 40;
+    display: grid;
+    gap: 0.5rem;
+    max-inline-size: 22rem;
+    pointer-events: none;
+  }
+
+  .toast-item[popover="manual"] {
+    position: static;
+    margin: 0;
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.65rem;
+    padding: 0.65rem 0.85rem;
+    border-radius: 10px;
+    border: 1px solid var(--accent);
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 0.84rem;
+    box-shadow: 0 10px 26px rgb(0 0 0 / 0.22);
+    opacity: 1;
+    transition: opacity 0.2s, transform 0.2s;
+    transition-behavior: allow-discrete;
+  }
+
+  .toast-item[data-tone="ok"] { border-color: var(--ok); }
+  .toast-item[data-tone="warn"] { border-color: var(--warn); }
+  .toast-item[data-tone="err"] { border-color: var(--err); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .toast-item[popover="manual"] { transition: none; }
+  }
 </style>
 </head>
 <body>
@@ -719,6 +1006,25 @@ try {
 
   <div class="studio-grid">
     <main class="workbench-main">
+      <nav class="workflow-bar" id="workflow-bar" aria-label="Flujo guiado de verificacion">
+        <button type="button" class="wf-step" data-step-tab="tab-calc" aria-current="step">
+          <span>1. Calculo &amp; CATIA</span>
+          <span class="wf-state" id="wf-state-calc">Activo</span>
+        </button>
+        <button type="button" class="wf-step" data-step-tab="tab-coverage">
+          <span>2. Envolvente SL-1</span>
+          <span class="wf-state" id="wf-state-cov">Pendiente</span>
+        </button>
+        <button type="button" class="wf-step" data-step-tab="tab-docs">
+          <span>3. Docs &amp; Agentes</span>
+          <span class="wf-state" id="wf-state-docs">Pendiente</span>
+        </button>
+        <button type="button" class="wf-step" data-step-tab="tab-audit">
+          <span>4. SMT &amp; Dossier ZIP</span>
+          <span class="wf-state" id="wf-state-audit">Pendiente</span>
+        </button>
+      </nav>
+
       <div class="tablist" id="workbench-tablist" focusgroup="tablist nomemory" aria-label="Secciones de calculo">
         <button type="button" role="tab" id="tab-calc" aria-selected="true" focusgroupstart>1. Calculo CAD</button>
         <button type="button" role="tab" id="tab-coverage">2. Envolvente Vuelo</button>
@@ -732,7 +1038,7 @@ try {
         <div role="tabpanel" aria-labelledby="tab-calc" tabindex="0">
           <section class="panel-card">
             <div class="panel-head">
-              <h2>Banco de Calculo Determinista y Diagrama de Esfuerzos</h2>
+              <h2>Banco de Calculo Determinista y Puente CATIA V5</h2>
               <div class="row">
                 <button type="button" class="subtle" id="calc-help-btn" popovertarget="calc-help-popover">Ayuda unidades</button>
                 <button type="button" class="subtle" id="preset-nominal">Preset Nominal</button>
@@ -742,7 +1048,7 @@ try {
 
             <div id="calc-help-popover" popover>
               <strong>Precision certificable sin floats IEEE-754</strong>
-              <p class="meta-note">Introduce valores decimales (ej. <code>800.000</code>). El motor calcula con aritmetica Decimal exacta y cotas garantizadas <code>python-flint</code>.</p>
+              <p class="meta-note">Introduce valores decimales (ej. <code>800.000</code>). El motor calcula con aritmetica Decimal exacta y cotas garantizadas <code>python-flint</code>. Usa los deslizadores para explorar envolventes y exporta tu Design Table directo a CATIA.</p>
             </div>
 
             <div class="sub-grid">
@@ -755,13 +1061,23 @@ try {
                 </select>
               </div>
               <div class="field">
-                <label for="calc-normalize-units">Unidades Fisicas</label>
+                <label for="display-unit-sys">Sistema Visualizacion CAD / CATIA</label>
+                <select id="display-unit-sys">
+                  <option value="si">SI Aeronautico (N, m2, kW, Pa)</option>
+                  <option value="catia">CATIA Estructural (kN, mm2, MPa, mm)</option>
+                  <option value="imperial">Imperial Flight Test (lbf, ft2, hp, psi)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="calc-normalize-units">Unidades Fisicas API</label>
                 <label class="row" style="font-weight:500;">
                   <input id="calc-normalize-units" type="checkbox">
                   Convertir prefijos SI automaticamente (Pint + Decimal)
                 </label>
               </div>
             </div>
+
+            <div id="calc-sliders" class="slider-grid" aria-label="Ajuste parametrico rapido"></div>
 
             <form id="dynamic-calc-form" class="sub-grid" novalidate></form>
 
@@ -776,9 +1092,21 @@ try {
             <div class="cad-box">
               <div class="row" style="justify-content:space-between;">
                 <strong id="cad-title">Diagrama Ingenieria en Vivo</strong>
-                <span id="cad-badge" class="status-pill">Esperando calculo</span>
+                <div class="row">
+                  <button type="button" class="subtle" id="download-svg-btn">Descargar .SVG</button>
+                  <span id="cad-badge" class="status-pill">Esperando calculo</span>
+                </div>
               </div>
-              <svg id="cad-svg" class="cad-svg" viewBox="0 0 360 150" role="img" aria-label="Diagrama visual de calculo"></svg>
+              <svg id="cad-svg" class="cad-svg" viewBox="0 0 560 220" role="img" aria-label="Diagrama visual de calculo"></svg>
+              <div id="unit-readout-bar" class="unit-bar" aria-label="Equivalencias dimensionales en vivo"></div>
+            </div>
+
+            <div id="compare-diff-box" class="diff-card" hidden>
+              <div class="row" style="justify-content:space-between;">
+                <strong>Comparativa Declarado CATIA vs Decimal Exacto</strong>
+                <span id="compare-fault-badge" class="status-pill">clean</span>
+              </div>
+              <div id="compare-diff-summary" class="meta-note"></div>
             </div>
 
             <div tabindex="0" role="region" aria-labelledby="calc-table-cap" class="table-wrapper" id="calc-table-box" hidden>
@@ -794,6 +1122,36 @@ try {
                 </thead>
                 <tbody id="calc-table-body"></tbody>
               </table>
+            </div>
+
+            <div class="catia-box" aria-label="Puente de Parametros CATIA">
+              <div class="row" style="justify-content:space-between;">
+                <strong>Puente CATIA Knowledgeware &amp; Design Table</strong>
+                <div class="row">
+                  <span class="copy">
+                    <button type="button" id="copy-catia-btn" class="subtle copy-button" command="--copy" commandfor="catia-params-preview" aria-label="Copiar parametros CATIA">Copiar Parametros CATIA</button>
+                    <span class="tip" role="status"></span>
+                  </span>
+                  <button type="button" id="download-catia-csv" class="subtle">Exportar Design Table (.csv)</button>
+                </div>
+              </div>
+              <pre id="catia-params-preview">Ejecuta un calculo para generar las relaciones verificadas listas para CATIA V5 / 3DEXPERIENCE.</pre>
+              <details>
+                <summary>Importar Design Table desde CATIA (.csv / .tsv)</summary>
+                <div class="sub-grid" style="margin-top:0.55rem;">
+                  <div class="field">
+                    <label for="catia-csv-picker">Archivo CSV/TSV exportado de CATIA</label>
+                    <input id="catia-csv-picker" type="file" accept=".csv,.tsv,.txt">
+                  </div>
+                  <div class="field">
+                    <label for="catia-csv-paste">O pega filas (cabecera + fila valores)</label>
+                    <textarea id="catia-csv-paste" placeholder="thrust_n,disk_area_m2,figure_of_merit&#10;9800.0,10.0,0.70"></textarea>
+                  </div>
+                </div>
+                <div class="row" style="margin-top:0.45rem;">
+                  <button type="button" id="apply-catia-csv" class="primary">Cargar Fila CSV al Calculador</button>
+                </div>
+              </details>
             </div>
 
             <details>
@@ -828,16 +1186,17 @@ try {
               <button id="mass-shift" type="button">Simular +5% Masa</button>
             </div>
 
+            <div id="cov-sort-status" class="visually-hidden" role="status"></div>
             <div tabindex="0" role="region" aria-labelledby="cov-table-cap" class="table-wrapper" id="cov-table-box" hidden>
-              <table>
-                <caption id="cov-table-cap">Celdas de Envolvente de Vuelo</caption>
+              <table id="cov-table">
+                <caption id="cov-table-cap">Celdas de Envolvente de Vuelo (pulsa columnas para ordenar)</caption>
                 <thead>
                   <tr>
-                    <th>Cell ID</th>
-                    <th>Estado</th>
-                    <th>Masa [kg]</th>
-                    <th>Factor Carga</th>
-                    <th>CG [m]</th>
+                    <th scope="col" data-type="text"><button type="button" commandfor="cov-table" command="--sort">Cell ID</button></th>
+                    <th scope="col" data-type="text"><button type="button" commandfor="cov-table" command="--sort">Estado</button></th>
+                    <th scope="col" data-type="number"><button type="button" commandfor="cov-table" command="--sort">Masa [kg]</button></th>
+                    <th scope="col" data-type="number"><button type="button" commandfor="cov-table" command="--sort">Factor Carga</button></th>
+                    <th scope="col" data-type="number"><button type="button" commandfor="cov-table" command="--sort">CG [m]</button></th>
                   </tr>
                 </thead>
                 <tbody id="cov-table-body"></tbody>
@@ -1020,14 +1379,22 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
         <strong>Inspector de Evidencia</strong>
         <span id="out-badge" class="status-pill">Ready</span>
       </div>
+      <div id="summary-card" class="eng-summary-card" data-tone="ok">
+        <strong id="summary-title">Listo para calcular</strong>
+        <div id="summary-body" class="meta-note">Selecciona un preset o mueve los deslizadores para explorar la envolvente, y pulsa Calcular Exacto para certificar con Decimal + Flint.</div>
+      </div>
       <div class="row">
-        <button id="copy-out-btn" class="subtle" type="button">Copiar salida</button>
+        <span class="copy">
+          <button id="copy-out-btn" class="subtle copy-button" type="button" command="--copy" commandfor="out" aria-label="Copiar salida JSON">Copiar salida</button>
+          <span class="tip" role="status"></span>
+        </span>
         <button id="clear-out-btn" class="subtle" type="button">Limpiar</button>
       </div>
-      <pre id="out">Ready.</pre>
+      <pre id="out" tabindex="0">Ready.</pre>
     </aside>
   </div>
 </div>
+<div id="toast-region" class="toast-stack" role="region" aria-label="Notificaciones"></div>
 
 <!-- SETTINGS MODAL DIALOG -->
 <dialog id="settings-dialog" aria-labelledby="settings-title" closedby="any">
@@ -1212,9 +1579,106 @@ window.addEventListener("storage", (e) => {
   if (e.key === "aeroregu-color-scheme") applyTheme(e.newValue || "light dark");
 });
 
-// Conditional progressive enhancement for Invoker Commands & <dialog closedby>
-if (!("commandForElement" in HTMLButtonElement.prototype)) {
+// Conditional progressive enhancement for Popover, Invoker Commands & <dialog closedby>
+const hasPopover = Object.hasOwn(HTMLElement.prototype, "popover");
+const hasCommandEvent = "CommandEvent" in window;
+
+const copyTimers = new WeakMap();
+let lastCopyAnnounce = "";
+
+function legacyCopyText(text) {
+  const field = Object.assign(document.createElement("textarea"), { value: text });
+  field.setAttribute("readonly", "");
+  field.style.cssText = "position:fixed;inset-block-start:0;opacity:0";
+  document.body.append(field);
+  field.select();
+  try { return document.execCommand("copy"); } finally { field.remove(); }
+}
+
+function reportCopyState(button, ok) {
+  const tip = button.nextElementSibling;
+  if (!tip) return;
+  clearTimeout(copyTimers.get(button));
+  button.removeAttribute("data-copied");
+  button.removeAttribute("data-failed");
+  let msg = ok ? "Copiado" : "Error al copiar";
+  if (msg === lastCopyAnnounce) msg += "\u00A0";
+  lastCopyAnnounce = msg;
+  tip.textContent = "";
+  void button.offsetWidth;
+  button.setAttribute(ok ? "data-copied" : "data-failed", "");
+  requestAnimationFrame(() => { tip.textContent = msg; });
+  copyTimers.set(button, setTimeout(() => {
+    button.removeAttribute("data-copied");
+    button.removeAttribute("data-failed");
+    tip.textContent = "";
+  }, 2000));
+}
+
+async function copyTargetText(button, target) {
+  if (!target) return;
+  const text = target.matches?.("input, textarea") ? target.value : (target.innerText || target.textContent || "").trim();
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    reportCopyState(button, true);
+  } catch {
+    const ok = legacyCopyText(text);
+    reportCopyState(button, ok);
+  }
+}
+
+const covCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+function sortCoverageTable(button) {
+  const table = document.getElementById("cov-table");
+  const tbody = document.getElementById("cov-table-body");
+  const th = button?.closest("th");
+  if (!table || !tbody || !th) return;
+  const dir = th.getAttribute("aria-sort") === "ascending" ? "descending" : "ascending";
+  for (const header of table.tHead.rows[0].cells) header.removeAttribute("aria-sort");
+  th.setAttribute("aria-sort", dir);
+  const idx = th.cellIndex;
+  const type = th.dataset.type || "text";
+  const factor = dir === "ascending" ? 1 : -1;
+  const getVal = (row) => row.cells[idx]?.dataset.value ?? row.cells[idx]?.textContent?.trim() ?? "";
+  const rows = [...tbody.rows].sort((a, b) => {
+    const va = getVal(a);
+    const vb = getVal(b);
+    if (type === "number") {
+      const na = Number(va);
+      const nb = Number(vb);
+      const finA = Number.isFinite(na);
+      const finB = Number.isFinite(nb);
+      if (finA && finB) return factor * (na - nb);
+      if (finA !== finB) return finA ? -1 : 1;
+    }
+    return factor * covCollator.compare(va, vb);
+  });
+  for (const row of rows) {
+    if (tbody.moveBefore) tbody.moveBefore(row, null);
+    else tbody.appendChild(row);
+  }
+  const st = document.getElementById("cov-sort-status");
+  if (st) st.textContent = `Ordenado por ${button.textContent.trim()}, ${dir}, ${rows.length} filas`;
+}
+
+if (hasCommandEvent) {
+  document.addEventListener("command", (e) => {
+    if (e.command?.startsWith("--copy")) copyTargetText(e.source, e.target);
+    else if (e.command === "--sort" && e.target?.id === "cov-table") sortCoverageTable(e.source);
+  }, true);
+} else {
   document.addEventListener("click", (e) => {
+    const copyBtn = e.target.closest?.('button[command^="--copy"]');
+    if (copyBtn) {
+      copyTargetText(copyBtn, document.getElementById(copyBtn.getAttribute("commandfor")));
+      return;
+    }
+    const sortBtn = e.target.closest?.('button[command="--sort"]');
+    if (sortBtn && sortBtn.getAttribute("commandfor") === "cov-table") {
+      sortCoverageTable(sortBtn);
+      return;
+    }
     const btn = e.target.closest?.("[commandfor][command]");
     if (!btn) return;
     const target = document.getElementById(btn.getAttribute("commandfor"));
@@ -1225,6 +1689,7 @@ if (!("commandForElement" in HTMLButtonElement.prototype)) {
     else if (cmd === "toggle-popover" && target.togglePopover) target.togglePopover();
   });
 }
+
 if (!("closedBy" in HTMLDialogElement.prototype)) {
   document.querySelectorAll('dialog[closedby="any"]').forEach((dlg) => {
     let downOutside = false;
@@ -1237,7 +1702,61 @@ if (!("closedBy" in HTMLDialogElement.prototype)) {
   });
 }
 
-// Accessible Tabs with selection follows focus & hidden="until-found"
+// Persistent manual toast queue (suppressed while a modal dialog is open)
+let toastCounter = 0;
+function showToast(message, tone = "ok") {
+  if (document.querySelector("dialog[open]")) return;
+  const region = document.getElementById("toast-region");
+  if (!region) return;
+  const priorFocus = document.activeElement;
+  const tid = `toast-${++toastCounter}`;
+  const toast = document.createElement("div");
+  toast.id = tid;
+  toast.className = "toast-item";
+  toast.dataset.tone = tone;
+  if (hasPopover) toast.setAttribute("popover", "manual");
+
+  const span = document.createElement("span");
+  span.textContent = message;
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "subtle";
+  closeBtn.textContent = "Cerrar";
+  closeBtn.setAttribute("popovertarget", tid);
+  closeBtn.setAttribute("popovertargetaction", "hide");
+  closeBtn.onclick = () => {
+    const wasFocused = toast.contains(document.activeElement);
+    if (hasPopover && toast.matches(":popover-open")) toast.hidePopover();
+    toast.remove();
+    if (wasFocused) {
+      const nextBtn = region.querySelector(".toast-item button");
+      if (nextBtn) nextBtn.focus();
+      else if (priorFocus?.focus) priorFocus.focus();
+    }
+  };
+  toast.append(span, closeBtn);
+  region.append(toast);
+  if (hasPopover) {
+    try { toast.showPopover(); } catch {}
+  }
+  if (typeof document.ariaNotify === "function") document.ariaNotify(message);
+  else announcer.textContent = message;
+
+  let timer = null;
+  const scheduleHide = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (toast.contains(document.activeElement)) return;
+      if (hasPopover && toast.matches(":popover-open")) try { toast.hidePopover(); } catch {}
+      toast.remove();
+    }, 4500);
+  };
+  toast.addEventListener("focusin", () => clearTimeout(timer));
+  toast.addEventListener("focusout", scheduleHide);
+  scheduleHide();
+}
+
+// Accessible Tabs + Workflow Stepper Bar
 const tablist = document.getElementById("workbench-tablist");
 const tabs = [...tablist.querySelectorAll('[role="tab"]')];
 const panels = [...document.querySelectorAll('.panels-stack > [role="tabpanel"]')];
@@ -1258,8 +1777,22 @@ function activateTab(targetTab) {
       p.removeAttribute("tabindex");
     }
   });
+  document.querySelectorAll("#workflow-bar .wf-step").forEach((step) => {
+    if (step.dataset.stepTab === targetTab.id) step.setAttribute("aria-current", "step");
+    else step.removeAttribute("aria-current");
+  });
   targetTab.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
+
+document.querySelectorAll("#workflow-bar .wf-step").forEach((step) => {
+  step.addEventListener("click", () => {
+    const target = document.getElementById(step.dataset.stepTab);
+    if (target) {
+      activateTab(target);
+      target.focus();
+    }
+  });
+});
 
 tabs.forEach((tab, idx) => {
   tab.addEventListener("click", () => activateTab(tab));
@@ -1284,6 +1817,75 @@ panels.forEach((panel) => {
     if (owner) activateTab(owner);
   });
 });
+
+const SLIDER_SPECS = {
+  hover_power_screen: [
+    { key: "thrust_n", label: "Empuje T", unit: "N", min: 2000, max: 24000, step: 200 },
+    { key: "disk_area_m2", label: "Area Disco A", unit: "m2", min: 4, max: 25, step: 0.5 },
+    { key: "figure_of_merit", label: "Figura Merito FM", unit: "-", min: 0.35, max: 0.9, step: 0.01 }
+  ],
+  bolt_screen: [
+    { key: "shear_force_n", label: "Cortante V", unit: "N", min: 500, max: 25000, step: 250 },
+    { key: "tensile_force_n", label: "Traccion N", unit: "N", min: 500, max: 25000, step: 250 },
+    { key: "area_mm2", label: "Seccion A", unit: "mm2", min: 20, max: 250, step: 5 }
+  ],
+  rigid_body_point_mass: [
+    { key: "mass_kg", label: "Masa M", unit: "kg", min: 400, max: 1600, step: 20 },
+    { key: "load_factor", label: "Factor Carga nz", unit: "g", min: -1.5, max: 3.5, step: 0.1 },
+    { key: "cg_x_m", label: "Posicion CG X", unit: "m", min: -0.6, max: 0.6, step: 0.02 }
+  ]
+};
+
+function syncSliderVars(slider, readout) {
+  slider.style.setProperty("--attr-min", slider.min || 0);
+  slider.style.setProperty("--attr-max", slider.max || 99);
+  slider.style.setProperty("--control-value", slider.value);
+  const unit = slider.dataset.unit && slider.dataset.unit !== "-" ? ` ${slider.dataset.unit}` : "";
+  const formatted = `${Number(slider.value).toFixed(slider.step.includes(".") ? 2 : 0)}${unit}`;
+  slider.setAttribute("aria-valuetext", formatted);
+  if (readout) readout.textContent = formatted;
+}
+
+function renderCalcSliders(method, inputsObj) {
+  const host = document.getElementById("calc-sliders");
+  if (!host) return;
+  host.replaceChildren();
+  (SLIDER_SPECS[method] || []).forEach((spec) => {
+    const wrap = document.createElement("div");
+    wrap.className = "slider-item";
+    const head = document.createElement("div");
+    head.className = "slider-head";
+    const lbl = document.createElement("label");
+    lbl.setAttribute("for", `rng-${spec.key}`);
+    lbl.textContent = spec.label;
+    const readout = document.createElement("span");
+    readout.className = "slider-val";
+    readout.id = `rng-val-${spec.key}`;
+    head.append(lbl, readout);
+
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.className = "eng-slider";
+    slider.id = `rng-${spec.key}`;
+    slider.dataset.key = spec.key;
+    slider.dataset.unit = spec.unit;
+    slider.min = String(spec.min);
+    slider.max = String(spec.max);
+    slider.step = String(spec.step);
+    const numVal = parseFloat(inputsObj?.[spec.key] ?? spec.min);
+    slider.value = String(Number.isFinite(numVal) ? Math.min(spec.max, Math.max(spec.min, numVal)) : spec.min);
+    syncSliderVars(slider, readout);
+
+    slider.addEventListener("input", () => {
+      syncSliderVars(slider, readout);
+      const textInput = document.getElementById(`dyn-${spec.key}`);
+      if (textInput) textInput.value = Number(slider.value).toFixed(3);
+      syncFormToJson();
+    });
+    wrap.append(head, slider);
+    host.append(wrap);
+  });
+}
 
 // Dynamic engineering form synchronized with calc-inputs-json
 function renderDynamicCalcForm(inputsObj) {
@@ -1322,7 +1924,15 @@ function renderDynamicCalcForm(inputsObj) {
     inp.dataset.error = eid;
     if (!isArr) inp.pattern = "^-?\\d+(\\.\\d+)?$";
     inp.value = isArr ? val.join(", ") : String(val);
-    inp.addEventListener("input", () => syncFormToJson());
+    inp.addEventListener("input", () => {
+      const slider = document.getElementById(`rng-${key}`);
+      const num = parseFloat(inp.value);
+      if (slider && Number.isFinite(num)) {
+        slider.value = String(num);
+        syncSliderVars(slider, document.getElementById(`rng-val-${key}`));
+      }
+      syncFormToJson();
+    });
     wrap.appendChild(inp);
     const err = document.createElement("div");
     err.id = eid;
@@ -1356,6 +1966,8 @@ function syncMethodTemplates(presetMap = DEFAULT_INPUTS) {
   const inp = presetMap[m];
   document.getElementById("calc-inputs-json").value = JSON.stringify(inp, null, 2);
   document.getElementById("calc-stated-json").value = JSON.stringify(DEFAULT_STATED[m], null, 2);
+  document.getElementById("compare-diff-box").hidden = true;
+  renderCalcSliders(m, inp);
   renderDynamicCalcForm(inp);
   renderCadDiagram(m, inp, null);
 }
@@ -1364,82 +1976,234 @@ document.getElementById("calc-method").addEventListener("change", () => syncMeth
 document.getElementById("preset-nominal").addEventListener("click", () => syncMethodTemplates(DEFAULT_INPUTS));
 document.getElementById("preset-stress").addEventListener("click", () => syncMethodTemplates(STRESS_INPUTS));
 
+let lastVerifiedCalc = { method: "hover_power_screen", inputs: DEFAULT_INPUTS.hover_power_screen, outputs: null, intervals: null };
+
+function formatDisplayUnits(method, inputs, outputs) {
+  const sys = document.getElementById("display-unit-sys")?.value || "si";
+  const bar = document.getElementById("unit-readout-bar");
+  const catiaPre = document.getElementById("catia-params-preview");
+  if (!bar) return;
+  bar.replaceChildren();
+  const chips = [];
+  if (method === "hover_power_screen") {
+    const tN = parseFloat(inputs.thrust_n || "0") || 0;
+    const aM2 = parseFloat(inputs.disk_area_m2 || "0") || 0;
+    const pKw = parseFloat(outputs?.shaft_power_kw ?? inputs.power_available_kw ?? "0") || 0;
+    if (sys === "catia") {
+      chips.push(`F = ${(tN / 1e3).toFixed(3)} kN`);
+      chips.push(`A = ${(aM2 * 1e6).toExponential(2)} mm2`);
+      chips.push(`P = ${pKw.toFixed(2)} kW`);
+    } else if (sys === "imperial") {
+      chips.push(`T = ${(tN * 0.224809).toFixed(1)} lbf`);
+      chips.push(`A = ${(aM2 * 10.7639).toFixed(2)} ft2`);
+      chips.push(`P = ${(pKw * 1.34102).toFixed(1)} hp`);
+    } else {
+      chips.push(`T = ${tN.toFixed(2)} N`);
+      chips.push(`A = ${aM2.toFixed(2)} m2`);
+      chips.push(`P = ${pKw.toFixed(2)} kW`);
+    }
+    if (outputs?.disk_loading_pa) {
+      const pa = parseFloat(outputs.disk_loading_pa);
+      chips.push(sys === "imperial" ? `DL = ${(pa * 0.000145038).toFixed(3)} psi` : `DL = ${pa.toFixed(2)} Pa`);
+    }
+  } else if (method === "bolt_screen") {
+    const vN = parseFloat(inputs.shear_force_n || "0") || 0;
+    const nN = parseFloat(inputs.tensile_force_n || "0") || 0;
+    const aMm2 = parseFloat(inputs.area_mm2 || "0") || 0;
+    if (sys === "imperial") {
+      chips.push(`V = ${(vN * 0.224809).toFixed(1)} lbf`);
+      chips.push(`N = ${(nN * 0.224809).toFixed(1)} lbf`);
+      chips.push(`A = ${(aMm2 * 0.00155).toFixed(4)} in2`);
+    } else if (sys === "catia") {
+      chips.push(`V = ${(vN / 1e3).toFixed(3)} kN`);
+      chips.push(`N = ${(nN / 1e3).toFixed(3)} kN`);
+      chips.push(`A = ${aMm2.toFixed(1)} mm2`);
+    } else {
+      chips.push(`V = ${vN.toFixed(1)} N`);
+      chips.push(`N = ${nN.toFixed(1)} N`);
+      chips.push(`A = ${aMm2.toFixed(1)} mm2`);
+    }
+  } else {
+    const mKg = parseFloat(inputs.mass_kg || "0") || 0;
+    const nz = parseFloat(inputs.load_factor || "1") || 1;
+    const cgM = parseFloat(inputs.cg_x_m || "0") || 0;
+    if (sys === "catia") {
+      chips.push(`M = ${mKg.toFixed(1)} kg`);
+      chips.push(`nz = ${nz.toFixed(2)} g`);
+      chips.push(`CG_X = ${(cgM * 1e3).toFixed(1)} mm`);
+    } else if (sys === "imperial") {
+      chips.push(`M = ${(mKg * 2.20462).toFixed(1)} lb`);
+      chips.push(`nz = ${nz.toFixed(2)} g`);
+      chips.push(`CG_X = ${(cgM * 39.3701).toFixed(2)} in`);
+    } else {
+      chips.push(`M = ${mKg.toFixed(1)} kg`);
+      chips.push(`nz = ${nz.toFixed(2)} g`);
+      chips.push(`CG_X = ${cgM.toFixed(3)} m`);
+    }
+  }
+  chips.forEach((txt) => {
+    const c = document.createElement("span");
+    c.className = "unit-chip";
+    c.textContent = txt;
+    bar.append(c);
+  });
+
+  if (catiaPre) {
+    const lines = [`' CATIA Knowledgeware Parameters (${method})`, ...Object.entries(inputs).map(([k, v]) => `AEROREGU\\${k} = ${Array.isArray(v) ? v.join(";") : v}`)];
+    if (outputs) {
+      lines.push("' Verified Exact Outputs (Decimal + Flint)");
+      Object.entries(outputs).forEach(([k, v]) => {
+        if (["string", "number", "boolean"].includes(typeof v) || Array.isArray(v)) {
+          lines.push(`AEROREGU\\OUT_${k} = ${Array.isArray(v) ? v.join(";") : v}`);
+        }
+      });
+    }
+    catiaPre.textContent = lines.join("\n");
+  }
+}
+
+document.getElementById("display-unit-sys")?.addEventListener("change", () => {
+  formatDisplayUnits(lastVerifiedCalc.method, lastVerifiedCalc.inputs, lastVerifiedCalc.outputs);
+});
+
 function svgEl(tag, attrs = {}) {
   const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
   Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, String(v)));
   return el;
 }
 
+function drawBlueprintGrid(svg) {
+  for (let x = 20; x < 560; x += 40) {
+    svg.appendChild(svgEl("line", { x1: x, y1: 0, x2: x, y2: 220, stroke: "currentColor", opacity: 0.08, "stroke-width": 1 }));
+  }
+  for (let y = 20; y < 220; y += 40) {
+    svg.appendChild(svgEl("line", { x1: 0, y1: y, x2: 560, y2: y, stroke: "currentColor", opacity: 0.08, "stroke-width": 1 }));
+  }
+}
+
 function renderCadDiagram(method, inputs, outputs) {
+  lastVerifiedCalc = { ...lastVerifiedCalc, method, inputs, outputs: outputs ?? lastVerifiedCalc.outputs };
   const svg = document.getElementById("cad-svg");
   const title = document.getElementById("cad-title");
   const badge = document.getElementById("cad-badge");
   svg.replaceChildren();
+  drawBlueprintGrid(svg);
+  formatDisplayUnits(method, inputs, outputs);
 
   if (method === "hover_power_screen") {
-    title.textContent = "Actuator-Disk Hover Power Envelope";
+    title.textContent = "CATIA Rotor Actuator-Disk Power Envelope";
     const pAvail = parseFloat(inputs.power_available_kw || "350") || 350;
-    const pShaft = outputs ? parseFloat(outputs.shaft_power_kw || "0") : pAvail * 0.45;
-    const ratio = Math.max(0, Math.min(1.2, pShaft / pAvail));
-    const fillW = Math.round(ratio * 240);
-    badge.textContent = outputs ? `Margin ${outputs.power_margin_ratio}` : "Preview";
+    const thrust = parseFloat(inputs.thrust_n || "9800") || 9800;
+    const area = parseFloat(inputs.disk_area_m2 || "10") || 10;
+    const rho = parseFloat(inputs.air_density_kg_m3 || "1.225") || 1.225;
+    const fm = parseFloat(inputs.figure_of_merit || "0.7") || 0.7;
+    const estShaftKw = (thrust * Math.sqrt(thrust / Math.max(0.1, 2 * rho * area))) / (fm * 1e3);
+    const pShaft = outputs ? parseFloat(outputs.shaft_power_kw || "0") : estShaftKw;
+    const ratio = Math.max(0, Math.min(1.25, pShaft / pAvail));
+    const fillW = Math.round(ratio * 420);
+    const estMargin = (pAvail - pShaft) / pAvail;
+    badge.textContent = outputs ? `Margin ${outputs.power_margin_ratio}` : `Est Margin ${estMargin.toFixed(3)}`;
     badge.dataset.tone = ratio <= 0.95 ? "ok" : "err";
-    svg.appendChild(svgEl("rect", { x: 40, y: 52, width: 280, height: 34, rx: 6, fill: "none", stroke: "currentColor", opacity: 0.35 }));
-    svg.appendChild(svgEl("rect", { x: 42, y: 54, width: Math.min(276, fillW), height: 30, rx: 4, fill: ratio <= 0.95 ? "#16a34a" : "#dc2626", opacity: 0.78 }));
-    const t1 = svgEl("text", { x: 40, y: 38, fill: "currentColor", "font-size": 12, "font-family": "monospace" });
-    t1.textContent = `Thrust ${inputs.thrust_n} N | Disk ${inputs.disk_area_m2} m2`;
-    svg.appendChild(t1);
-    const t2 = svgEl("text", { x: 40, y: 112, fill: "currentColor", "font-size": 12, "font-family": "monospace" });
-    t2.textContent = `Shaft ${outputs ? outputs.shaft_power_kw : "preview"} kW / Available ${pAvail} kW`;
+
+    const diskR = Math.min(200, Math.max(80, Math.round(Math.sqrt(area) * 42)));
+    svg.appendChild(svgEl("ellipse", { cx: 280, cy: 52, rx: diskR, ry: 18, fill: "#0a58ca", "fill-opacity": 0.14, stroke: "#0a58ca", "stroke-width": 2 }));
+    svg.appendChild(svgEl("line", { x1: 280, y1: 52, x2: 280, y2: 18, stroke: "#16a34a", "stroke-width": 3 }));
+    svg.appendChild(svgEl("polygon", { points: "280,10 274,22 286,22", fill: "#16a34a" }));
+    const lblTop = svgEl("text", { x: 294, y: 24, fill: "currentColor", "font-size": 12, "font-family": "monospace" });
+    lblTop.textContent = `T=${thrust.toFixed(0)} N | A=${area.toFixed(1)} m2 | FM=${fm.toFixed(2)}`;
+    svg.appendChild(lblTop);
+
+    svg.appendChild(svgEl("rect", { x: 56, y: 112, width: 448, height: 38, rx: 7, fill: "none", stroke: "currentColor", opacity: 0.45 }));
+    svg.appendChild(svgEl("rect", { x: 58, y: 114, width: Math.min(444, fillW), height: 34, rx: 5, fill: ratio <= 0.95 ? "#16a34a" : "#dc2626", opacity: 0.8 }));
+    svg.appendChild(svgEl("line", { x1: 478, y1: 104, x2: 478, y2: 158, stroke: "#dc2626", "stroke-dasharray": "4 3", "stroke-width": 1.6 }));
+    const t2 = svgEl("text", { x: 56, y: 182, fill: "currentColor", "font-size": 13, "font-family": "monospace" });
+    t2.textContent = `Shaft ${pShaft.toFixed(2)} kW / Limit ${pAvail.toFixed(1)} kW`;
     svg.appendChild(t2);
     return;
   }
 
   if (method === "bolt_screen") {
-    title.textContent = "Bolt Combined Interaction Quadrant (rs^2 + rt^2 <= 1)";
-    const cx = 64;
-    const cy = 128;
-    const r = 92;
-    svg.appendChild(svgEl("line", { x1: cx, y1: 22, x2: cx, y2: cy, stroke: "currentColor", opacity: 0.45 }));
-    svg.appendChild(svgEl("line", { x1: cx, y1: cy, x2: 260, y2: cy, stroke: "currentColor", opacity: 0.45 }));
-    svg.appendChild(svgEl("path", { d: `M ${cx} ${cy - r} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`, fill: "none", stroke: "#0a58ca", "stroke-width": 2.4 }));
-    const rs = outputs ? Math.min(1.3, parseFloat(outputs.shear_ratio || "0.2")) : 0.2;
-    const rt = outputs ? Math.min(1.3, parseFloat(outputs.tensile_ratio || "0.2")) : 0.25;
+    title.textContent = "CATIA Fastener Combined Interaction (rs^2 + rt^2 <= 1)";
+    const cx = 110;
+    const cy = 186;
+    const r = 136;
+    svg.appendChild(svgEl("line", { x1: cx, y1: 24, x2: cx, y2: cy, stroke: "currentColor", opacity: 0.5 }));
+    svg.appendChild(svgEl("line", { x1: cx, y1: cy, x2: 490, y2: cy, stroke: "currentColor", opacity: 0.5 }));
+    svg.appendChild(svgEl("path", { d: `M ${cx} ${cy - r} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`, fill: "#0a58ca", "fill-opacity": 0.09, stroke: "#0a58ca", "stroke-width": 2.6 }));
+    const area = parseFloat(inputs.area_mm2 || "80") || 80;
+    const shAllow = parseFloat(inputs.shear_allowable_mpa || "250") || 250;
+    const tnAllow = parseFloat(inputs.tensile_allowable_mpa || "250") || 250;
+    const rsEst = (parseFloat(inputs.shear_force_n || "3000") / area) / shAllow;
+    const rtEst = (parseFloat(inputs.tensile_force_n || "4000") / area) / tnAllow;
+    const rs = Math.min(1.4, outputs ? parseFloat(outputs.shear_ratio || rsEst) : rsEst);
+    const rt = Math.min(1.4, outputs ? parseFloat(outputs.tensile_ratio || rtEst) : rtEst);
     const px = cx + rs * r;
     const py = cy - rt * r;
     const inter = outputs ? parseFloat(outputs.interaction_ratio || "0") : Math.hypot(rs, rt);
-    badge.textContent = outputs ? `Interaction ${outputs.interaction_ratio}` : "Preview";
+    badge.textContent = outputs ? `Interaction ${outputs.interaction_ratio}` : `Est Ratio ${inter.toFixed(3)}`;
     badge.dataset.tone = inter <= 1 ? "ok" : "err";
-    svg.appendChild(svgEl("circle", { cx: px.toFixed(1), cy: py.toFixed(1), r: 6, fill: inter <= 1 ? "#16a34a" : "#dc2626" }));
-    const lbl = svgEl("text", { x: 185, y: 48, fill: "currentColor", "font-size": 11, "font-family": "monospace" });
-    lbl.textContent = `rs=${rs.toFixed(3)}, rt=${rt.toFixed(3)}`;
+    svg.appendChild(svgEl("line", { x1: cx, y1: cy, x2: px.toFixed(1), y2: py.toFixed(1), stroke: inter <= 1 ? "#16a34a" : "#dc2626", "stroke-dasharray": "4 3", "stroke-width": 1.6 }));
+    svg.appendChild(svgEl("circle", { cx: px.toFixed(1), cy: py.toFixed(1), r: 8, fill: inter <= 1 ? "#16a34a" : "#dc2626" }));
+    const lbl = svgEl("text", { x: 290, y: 66, fill: "currentColor", "font-size": 13, "font-family": "monospace" });
+    lbl.textContent = `rs=${rs.toFixed(3)} | rt=${rt.toFixed(3)} | R=${inter.toFixed(3)}`;
     svg.appendChild(lbl);
     return;
   }
 
-  title.textContent = "4-Unit Rigid Body Point-Mass Balance";
-  svg.appendChild(svgEl("line", { x1: 36, y1: 86, x2: 324, y2: 86, stroke: "currentColor", "stroke-width": 3 }));
+  title.textContent = "CATIA Datum 4-Unit Point-Mass & CG Balance";
+  svg.appendChild(svgEl("line", { x1: 56, y1: 122, x2: 504, y2: 122, stroke: "currentColor", "stroke-width": 3.5 }));
+  svg.appendChild(svgEl("line", { x1: 280, y1: 30, x2: 280, y2: 196, stroke: "currentColor", "stroke-dasharray": "4 3", opacity: 0.4 }));
   const xs = Array.isArray(inputs.unit_x_m) ? inputs.unit_x_m.map(Number) : [-1, -0.3, 0.3, 1];
   const ops = Array.isArray(inputs.unit_operative) ? inputs.unit_operative : [true, true, true, true];
   const forces = outputs && Array.isArray(outputs.unit_force_n) ? outputs.unit_force_n : [];
   xs.forEach((xVal, i) => {
-    const sx = 180 + (Number.isFinite(xVal) ? xVal : 0) * 65;
+    const sx = 280 + (Number.isFinite(xVal) ? xVal : 0) * 145;
     const active = ops[i] !== false;
-    svg.appendChild(svgEl("circle", { cx: sx, cy: 86, r: 6, fill: active ? "#16a34a" : "#dc2626" }));
+    svg.appendChild(svgEl("circle", { cx: sx, cy: 122, r: 8, fill: active ? "#16a34a" : "#dc2626" }));
     if (active) {
-      svg.appendChild(svgEl("line", { x1: sx, y1: 80, x2: sx, y2: 40, stroke: "#0a58ca", "stroke-width": 2.4 }));
+      svg.appendChild(svgEl("line", { x1: sx, y1: 112, x2: sx, y2: 52, stroke: "#0a58ca", "stroke-width": 3 }));
+      svg.appendChild(svgEl("polygon", { points: `${sx},44 ${sx - 5},56 ${sx + 5},56`, fill: "#0a58ca" }));
     }
-    const ft = svgEl("text", { x: sx - 16, y: 32, fill: "currentColor", "font-size": 9.5, "font-family": "monospace" });
-    ft.textContent = forces[i] ? `${forces[i]}N` : `U${i + 1}`;
+    const ft = svgEl("text", { x: sx - 24, y: 36, fill: "currentColor", "font-size": 11, "font-family": "monospace" });
+    ft.textContent = forces[i] ? `${forces[i]}N` : `U${i + 1} (${xVal}m)`;
     svg.appendChild(ft);
   });
-  const cgx = 180 + (parseFloat(inputs.cg_x_m || "0") || 0) * 65;
-  svg.appendChild(svgEl("polygon", { points: `${cgx},90 ${cgx - 7},108 ${cgx + 7},108`, fill: "#d97706" }));
-  badge.textContent = outputs ? `Residual ${outputs.vertical_residual_n} N` : "Preview";
+  const cgx = 280 + (parseFloat(inputs.cg_x_m || "0") || 0) * 145;
+  svg.appendChild(svgEl("polygon", { points: `${cgx},128 ${cgx - 10},154 ${cgx + 10},154`, fill: "#d97706" }));
+  const cgLbl = svgEl("text", { x: cgx - 36, y: 174, fill: "currentColor", "font-size": 12, "font-family": "monospace" });
+  cgLbl.textContent = `CG=${parseFloat(inputs.cg_x_m || "0").toFixed(2)}m | nz=${inputs.load_factor || "1.0"}`;
+  svg.appendChild(cgLbl);
+  badge.textContent = outputs ? `Residual ${outputs.vertical_residual_n} N` : `Mass ${inputs.mass_kg} kg`;
   badge.dataset.tone = "ok";
 }
 
 syncMethodTemplates(DEFAULT_INPUTS);
+
+function renderCompareDiffCard(res) {
+  const box = document.getElementById("compare-diff-box");
+  const badge = document.getElementById("compare-fault-badge");
+  const summary = document.getElementById("compare-diff-summary");
+  if (!box || !res?.fault_kind) {
+    if (box) box.hidden = true;
+    return;
+  }
+  const fk = res.fault_kind;
+  badge.textContent = fk;
+  badge.dataset.tone = fk === "clean" ? "ok" : "warn";
+  const exact = res.recomputed || {};
+  const stated = res.stated_outputs || {};
+  const diffs = Object.keys(exact).map((k) => {
+    const ev = exact[k];
+    const sv = stated[k];
+    if (typeof ev !== "string" && typeof ev !== "number") return null;
+    const ne = parseFloat(ev);
+    const ns = parseFloat(sv);
+    const dStr = Number.isFinite(ne) && Number.isFinite(ns) ? ` (Δ ${(ne - ns).toFixed(4)})` : "";
+    return `${k}: Exacto=${ev} vs CATIA=${sv ?? "-"}${dStr}`;
+  }).filter(Boolean);
+  summary.textContent = diffs.join(" | ") || `Clasificacion: ${fk}`;
+  box.hidden = false;
+}
 
 function renderCalcResultTable(data) {
   const sc = data?.result?.structuredContent;
@@ -1473,12 +2237,14 @@ function renderCalcResultTable(data) {
     tbody.appendChild(tr);
   });
   box.hidden = false;
+  renderCompareDiffCard(res);
   const ver = String(res.method_version || data?.method_version || "");
   const method = (ver.includes("@") ? ver.split("@", 1)[0] : "") || document.getElementById("calc-method").value;
   try {
     const inputsObj = method === "rigid_body_point_mass" && DEFAULT_INPUTS[method]
       ? { ...DEFAULT_INPUTS[method], ...JSON.parse(document.getElementById("calc-inputs-json").value || "{}") }
       : JSON.parse(document.getElementById("calc-inputs-json").value || "{}");
+    lastVerifiedCalc = { method, inputs: inputsObj, outputs, intervals: ivs };
     renderCadDiagram(method, inputsObj, outputs);
     if (res.fault_kind) {
       const badge = document.getElementById("cad-badge");
@@ -1498,6 +2264,9 @@ function renderCoverageCellsTable(cells) {
   tbody.replaceChildren();
   cells.slice(0, 25).forEach((c) => {
     const axes = c.axes || {};
+    const massVal = axes.mass_kg ?? c.mass_kg;
+    const lfVal = axes.load_factor ?? c.load_factor;
+    const cgVal = axes.cg_x_m ?? c.cg_x_m;
     const tr = document.createElement("tr");
     const th = document.createElement("th");
     th.textContent = c.cell_id || "-";
@@ -1506,13 +2275,16 @@ function renderCoverageCellsTable(cells) {
     tdS.textContent = c.status || "-";
     const tdM = document.createElement("td");
     tdM.dataset.label = "Masa";
-    tdM.textContent = axes.mass_kg ?? c.mass_kg ?? "-";
+    tdM.dataset.value = massVal ?? "";
+    tdM.textContent = massVal ?? "-";
     const tdL = document.createElement("td");
     tdL.dataset.label = "Factor Carga";
-    tdL.textContent = axes.load_factor ?? c.load_factor ?? "-";
+    tdL.dataset.value = lfVal ?? "";
+    tdL.textContent = lfVal ?? "-";
     const tdC = document.createElement("td");
     tdC.dataset.label = "CG";
-    tdC.textContent = axes.cg_x_m ?? c.cg_x_m ?? "-";
+    tdC.dataset.value = cgVal ?? "";
+    tdC.textContent = cgVal ?? "-";
     tr.append(th, tdS, tdM, tdL, tdC);
     tbody.appendChild(tr);
   });
@@ -1550,11 +2322,82 @@ function renderLedgerEventsTable(events) {
   box.hidden = false;
 }
 
+function markWorkflowStep(id, label) {
+  const pill = document.getElementById(id);
+  if (!pill) return;
+  pill.textContent = label;
+  const step = pill.closest(".wf-step");
+  if (step) step.dataset.done = "true";
+}
+
+function updateEngineeringSummary(data) {
+  const card = document.getElementById("summary-card");
+  const title = document.getElementById("summary-title");
+  const body = document.getElementById("summary-body");
+  if (!card || !data) return;
+  const sc = data?.result?.structuredContent;
+  const res = sc || data?.result || {};
+  const conf = data?.confidence || (data?.result?.isError ? "error" : "ok");
+  card.dataset.tone = conf === "abstain" ? "warn" : (conf === "error" ? "err" : "ok");
+
+  if (conf === "abstain") {
+    const rsn = data?.abstain?.reason || res?.error || "Datos insuficientes o fuera de rango.";
+    title.textContent = "Abstencion Segura (No Inventa)";
+    body.textContent = rsn;
+    return;
+  }
+  if (res?.fault_kind) {
+    title.textContent = `Comparativa CATIA: ${res.fault_kind}`;
+    body.textContent = `Metodo ${res.method_version || "-"} verificado en Decimal exacto vs salida declarada.`;
+    markWorkflowStep("wf-state-calc", "Verificado");
+    return;
+  }
+  if (res?.outputs || res?.exact_intervals || ["disk_loading_pa", "shear_stress_mpa", "weight_n"].some((k) => k in res)) {
+    const out = res.outputs || res;
+    const summaryPairs = Object.entries(out).filter(([, v]) => ["string", "number"].includes(typeof v)).slice(0, 3).map(([k, v]) => `${k}=${v}`);
+    title.textContent = `Calculo Verificado (${conf})`;
+    body.textContent = summaryPairs.join(" · ") || "Intervalos Flint calculados.";
+    markWorkflowStep("wf-state-calc", "Verificado");
+    return;
+  }
+  if (typeof res?.gap_count === "number") {
+    title.textContent = `Cobertura SL-1: ${res.calc_count || 0}/${res.cell_count} celdas`;
+    body.textContent = `Gaps pendientes: ${res.gap_count}.`;
+    markWorkflowStep("wf-state-cov", res.gap_count === 0 ? "Completa" : `${res.calc_count || 0}/${res.cell_count}`);
+    return;
+  }
+  if (typeof res?.ready === "boolean") {
+    title.textContent = res.ready ? "Traceability Gate: LISTO" : "Traceability Gate: PENDIENTE";
+    body.textContent = res.blocking_reasons?.length ? `Bloqueos: ${res.blocking_reasons.join(", ")}` : "Todas las puertas cubiertas.";
+    markWorkflowStep("wf-state-cov", res.ready ? "Listo" : "Revisar");
+    return;
+  }
+  if (res?.status && (res?.z3 || res?.cvc5 || res?.property)) {
+    title.textContent = `Prueba Formal SMT: ${res.status}`;
+    body.textContent = `Doble solver Z3 + cvc5 sobre ${res.property || "especificacion"}.`;
+    markWorkflowStep("wf-state-audit", String(res.status));
+    return;
+  }
+  if (res?.merkle_root) {
+    title.textContent = res.chain_verified === false ? "Ledger Alterado" : "Ledger Integridad Verificada";
+    body.textContent = `Eventos: ${res.event_count ?? "-"} · Merkle: ${String(res.merkle_root).slice(0, 14)}...`;
+    markWorkflowStep("wf-state-audit", "Sellado");
+    return;
+  }
+  if (Array.isArray(res?.spans) || Array.isArray(res?.findings) || Array.isArray(data?.sources)) {
+    const nSrc = data?.sources?.length || res?.spans?.length || 0;
+    title.textContent = `Evidencia & Supervisores (${conf})`;
+    body.textContent = `${nSrc} fuentes/spans citables con pagina + bbox.`;
+    if (res?.spans || res?.stages) markWorkflowStep("wf-state-docs", "Trazado");
+  }
+}
+
 function updateBadgesAndTables(data) {
   const outBadge = document.getElementById("out-badge");
   const conf = data?.confidence || (data?.result?.isError ? "error" : "ok");
   outBadge.textContent = conf;
   outBadge.dataset.tone = conf === "abstain" ? "warn" : (conf === "error" ? "err" : "ok");
+  updateEngineeringSummary(data);
 
   const res = data?.result?.structuredContent || data?.result;
   const hasCalcVars = res && (
@@ -1689,7 +2532,11 @@ async function ensureSession() {
 })();
 
 document.getElementById("login-now-btn").onclick = async () => {
-  if (await ensureSession()) document.getElementById("settings-dialog").close();
+  const actor = await ensureSession();
+  if (actor) {
+    document.getElementById("settings-dialog").close();
+    showToast(`Sesion iniciada: ${actor} @ ${currentTenant()}`, "ok");
+  }
 };
 document.getElementById("logout-now-btn").onclick = async () => {
   try {
@@ -1698,15 +2545,10 @@ document.getElementById("logout-now-btn").onclick = async () => {
     st.textContent = "Session: anonymous";
     st.dataset.tone = "";
     document.getElementById("settings-dialog").close();
+    showToast("Sesion cerrada correctamente.", "warn");
   } catch (err) {
     setOutput(`Error cerrando sesion: ${err?.message || err}`, "err", "Error");
   }
-};
-document.getElementById("copy-out-btn").onclick = async () => {
-  try {
-    await navigator.clipboard?.writeText(document.getElementById("out").textContent);
-    document.getElementById("out-badge").textContent = "Copiado";
-  } catch {}
 };
 document.getElementById("clear-out-btn").onclick = () => {
   document.getElementById("out").textContent = "Ready.";
@@ -1718,9 +2560,87 @@ document.getElementById("clear-out-btn").onclick = () => {
 document.getElementById("calc-inputs-json").addEventListener("change", () => {
   try {
     const parsed = JSON.parse(document.getElementById("calc-inputs-json").value || "{}");
+    const method = document.getElementById("calc-method").value;
+    renderCalcSliders(method, parsed);
     renderDynamicCalcForm(parsed);
-    renderCadDiagram(document.getElementById("calc-method").value, parsed, null);
+    renderCadDiagram(method, parsed, null);
   } catch {}
+});
+
+document.getElementById("download-svg-btn")?.addEventListener("click", () => {
+  const svg = document.getElementById("cad-svg");
+  const xml = new XMLSerializer().serializeToString(svg);
+  const blob = new Blob([xml], { type: "image/svg+xml;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `aeroregu_${lastVerifiedCalc.method}.svg`;
+  a.click();
+  showToast(`Diagrama ${lastVerifiedCalc.method}.svg descargado.`, "ok");
+});
+
+document.getElementById("download-catia-csv")?.addEventListener("click", () => {
+  const rows = [];
+  const inp = lastVerifiedCalc.inputs || {};
+  const out = lastVerifiedCalc.outputs || {};
+  const ivs = lastVerifiedCalc.intervals || {};
+  const headers = [...Object.keys(inp), ...Object.keys(out).filter((k) => ["string", "number", "boolean"].includes(typeof out[k]))];
+  const vals = headers.map((k) => {
+    const v = inp[k] ?? out[k];
+    return Array.isArray(v) ? `"${v.join(";")}"` : String(v);
+  });
+  rows.push(headers.join(","), vals.join(","));
+  Object.entries(ivs).forEach(([k, iv]) => {
+    rows.push(`# INTERVAL ${k}: [${iv.lower} .. ${iv.upper}]`);
+  });
+  const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `catia_design_table_${lastVerifiedCalc.method}.csv`;
+  a.click();
+  showToast("CATIA Design Table (.csv) exportada.", "ok");
+});
+
+function parseCatiaCsvRow(rawText) {
+  const lines = rawText.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#") && !l.startsWith("'"));
+  if (lines.length < 2) return null;
+  const sep = lines[0].includes(";") ? ";" : (lines[0].includes("\t") ? "\t" : ",");
+  const headers = lines[0].split(sep).map((h) => h.trim().replace(/^"|"$/g, ""));
+  const vals = lines[1].split(sep).map((v) => v.trim().replace(/^"|"$/g, ""));
+  const method = document.getElementById("calc-method").value;
+  const merged = structuredClone(DEFAULT_INPUTS[method]);
+  let matched = 0;
+  headers.forEach((h, i) => {
+    if (h in merged && vals[i] !== undefined && vals[i] !== "") {
+      matched++;
+      merged[h] = Array.isArray(merged[h])
+        ? vals[i].split(/[;|]/).map((x) => (h === "unit_operative" ? x.toLowerCase() === "true" || x === "1" : x.trim()))
+        : vals[i];
+    }
+  });
+  if (!matched) return null;
+  document.getElementById("calc-inputs-json").value = JSON.stringify(merged, null, 2);
+  renderCalcSliders(method, merged);
+  renderDynamicCalcForm(merged);
+  renderCadDiagram(method, merged, null);
+  return matched;
+}
+
+document.getElementById("catia-csv-picker")?.addEventListener("change", (e) => {
+  const f = e.target.files?.[0];
+  if (!f) return;
+  f.text().then((txt) => {
+    document.getElementById("catia-csv-paste").value = txt.slice(0, 4000);
+    const n = parseCatiaCsvRow(txt);
+    if (n) showToast(`Design Table CATIA cargada (${n} parametros).`, "ok");
+    else showToast("Ningun parametro del CSV coincide con el metodo activo.", "warn");
+  });
+});
+
+document.getElementById("apply-catia-csv")?.addEventListener("click", () => {
+  const txt = document.getElementById("catia-csv-paste")?.value || "";
+  const n = parseCatiaCsvRow(txt);
+  if (n) showToast(`Design Table aplicada (${n} parametros).`, "ok");
+  else showToast("Pega cabecera y una fila de valores compatibles.", "warn");
 });
 
 // File drag-and-drop & file picker ingestion (supports real PDF/DOCX/XLSX via content_base64)

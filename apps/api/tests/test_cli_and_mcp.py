@@ -428,5 +428,14 @@ def test_calculation_workbench_ui_contract(tmp_path: Path, monkeypatch) -> None:
         'popovertarget="calc-help-popover"',
         'id="logout-now-btn"',
         "^(?:[a-z0-9_]|-){1,32}$",
+        'id="workflow-bar"',
+        'id="calc-sliders"',
+        'id="display-unit-sys"',
+        'id="catia-params-preview"',
+        'id="download-catia-csv"',
+        'id="apply-catia-csv"',
+        'id="cov-table"',
+        'id="summary-card"',
+        'id="toast-region"',
     ):
         assert marker in page
