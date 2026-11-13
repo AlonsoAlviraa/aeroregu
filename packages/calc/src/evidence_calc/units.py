@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Any
 
 from pint import UnitRegistry
-from pint.errors import UndefinedUnitError
+from pint.errors import DimensionalityError, OffsetUnitCalculusError, UndefinedUnitError
 
 from evidence_calc.errors import AbstainError
 
@@ -82,7 +82,14 @@ def conversion_interval(left: str, right: str) -> Any:
         if not left_unit.is_compatible_with(right_unit):
             return "incompatible"
         magnitude = ((2 * left_unit) - (1 * left_unit)).to(right_unit.units).magnitude
-    except Exception:
+    except (
+        UndefinedUnitError,
+        DimensionalityError,
+        OffsetUnitCalculusError,
+        ValueError,
+        TypeError,
+        ZeroDivisionError,
+    ):
         return None
     if not isinstance(magnitude, Decimal):
         return None

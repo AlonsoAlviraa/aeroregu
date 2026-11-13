@@ -6,7 +6,7 @@
   "bearing_zip_in_register": true,
   "bearing_zip_sha256": "816ccb70e9866692276bc3ab2095c885bdb39fe69b146e4163072d177d5aab0f",
   "command": "make bench",
-  "date": "2026-11-10",
+  "date": "2026-11-13",
   "docling": "2.146.0",
   "frozen": {
     "b2_dev": true,
@@ -45,5 +45,5 @@
   "s1_seed": 20261103,
   "s1_seed_controls_sampling": false,
   "s1_version": "s1@1.0.0",
-  "uv_lock_sha256": "c4c2c1a29bc7bf84619acc859bfba8fe45d94b15195c63664dce55f7d740d11c"
+  "uv_lock_sha256": "cfded88fec8910d7e8b95548aefe791ba4f642d59fae590874f42840aa24e2e3"
 }

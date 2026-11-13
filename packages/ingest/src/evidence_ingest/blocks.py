@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 class IngestAbstain(Exception):
@@ -15,30 +16,57 @@ class Block:
     span_start: int
     span_end: int
     source_hash: str
+    page_no: int | None = None
+    bbox: tuple[float, float, float, float] | None = None
+    block_kind: str = "text"
+    table_rows: list[list[str]] | None = None
 
-    def as_dict(self) -> dict[str, object]:
-        return {
+    def as_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
             "text": self.text,
             "span_start": self.span_start,
             "span_end": self.span_end,
             "source_hash": self.source_hash,
         }
+        if self.page_no is not None:
+            payload["page_no"] = self.page_no
+        if self.bbox is not None:
+            payload["bbox"] = [round(coord, 2) for coord in self.bbox]
+        if self.block_kind != "text":
+            payload["block_kind"] = self.block_kind
+        if self.table_rows is not None:
+            payload["table_rows"] = self.table_rows
+        return payload
 
 
-def blocks_from_text(full: str, source_hash: str) -> list[Block]:
+def blocks_from_text(
+    full: str,
+    source_hash: str,
+    *,
+    page_no: int | None = None,
+    bbox: tuple[float, float, float, float] | None = None,
+    block_kind: str = "text",
+) -> list[Block]:
+    """Split text into blocks in O(N) time while preserving exact character spans."""
     if not full.strip():
         raise IngestAbstain("no_text_layer")
     blocks: list[Block] = []
-    for index, line in enumerate(full.splitlines()):
-        if not line.strip():
-            continue
-        start = _offset(full, index)
-        blocks.append(Block(line, start, start + len(line), source_hash))
+    offset = 0
+    for raw_line in full.splitlines(keepends=True):
+        line = raw_line.rstrip("\r\n")
+        if line.strip():
+            blocks.append(
+                Block(
+                    line,
+                    offset,
+                    offset + len(line),
+                    source_hash,
+                    page_no=page_no,
+                    bbox=bbox,
+                    block_kind=block_kind,
+                )
+            )
+        offset += len(raw_line)
     if not blocks:
         raise IngestAbstain("no_text_layer")
     return blocks
-
-
-def _offset(full: str, line_index: int) -> int:
-    lines = full.splitlines(keepends=True)
-    return sum(len(lines[i]) for i in range(line_index))

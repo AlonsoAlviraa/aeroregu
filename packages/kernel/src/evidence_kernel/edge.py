@@ -60,7 +60,10 @@ EDGE_PRESETS: dict[str, dict[str, Any]] = {
 }
 
 _SIGNAL_RE = re.compile(
-    r"(?:\b[A-Z][A-Z0-9_-]{1,12}[.-]\d+(?:\.\d+)*\b|\bshall\b|\bmaximum\b|\bminimum\b|\d+\.\d+)",
+    r"(?:\b[A-Z][A-Z0-9_-]{1,12}[.-]\d+(?:\.\d+)*\b"
+    r"|\b(?:shall|must|maximum|minimum|deber[aá]|m[aá]ximo|m[ií]nimo|l[ií]mite|requisito|tabla)\b"
+    r"|\b\d+(?:[.,]\d+)?\s*(?:mm|cm|m|km|kg|g|N|kN|daN|MPa|GPa|Pa|kW|W|V|A|Hz|deg|rad|bar|psi|rpm|s)\b"
+    r"|\d+[.,]\d+)",
     re.IGNORECASE,
 )
 
@@ -88,7 +91,8 @@ def compact_blocks_for_edge(
     for idx, block in enumerate(blocks):
         text = str(block.get("text", ""))
         hits = len(_SIGNAL_RE.findall(text))
-        priority = (2 if hits > 0 else 0) + (1 if idx == 0 else 0)
+        is_table = block.get("block_kind") == "table" or bool(block.get("table_rows"))
+        priority = (2 if hits > 0 else 0) + (2 if is_table else 0) + (1 if idx == 0 else 0)
         scored.append((-priority, idx, dict(block)))
 
     chosen_indices: list[int] = []

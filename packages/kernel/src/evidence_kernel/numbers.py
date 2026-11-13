@@ -3,12 +3,16 @@ from __future__ import annotations
 import re
 from typing import Any
 
-DECIMAL_TOKEN = re.compile(r"-?\d+\.\d+")
-INTEGER_TOKEN = re.compile(r"(?<![\d.])-?\d+(?![\d.])")
+SCIENTIFIC_TOKEN = re.compile(r"(?<![A-Za-z0-9_.])[-−]?\d+(?:[.,]\d+)?[eE][+-]?\d+(?![A-Za-z0-9_])")
+DECIMAL_TOKEN = re.compile(r"(?:[-−]?\d+\.\d+)|(?<![\d.,])[-−]?\d+,\d+(?![\d.,])")
+FRACTION_TOKEN = re.compile(r"(?<![A-Za-z0-9_./:-])[-−]?\d+/\d+(?![A-Za-z0-9_./:-])")
+INTEGER_TOKEN = re.compile(r"(?<![\d.,])[-−]?\d+(?![\d.,])")
+UNICODE_MINUS_TOKEN = re.compile(r"−\d+(?:\.\d+)?")
 HEX_HASH = re.compile(r"^[0-9a-f]{64}$")
 _INDEX_KEYS = frozenset({"span_start", "span_end"})
 _UNIT_KEYS = frozenset({"unit", "unit_text"})
 _GATE_PROBABILITY = re.compile(r"^(?:0\.\d{3}|1\.000)$")
+_ISO_OR_DATE_PREFIX = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def collect_decimals(value: Any) -> set[str]:
@@ -20,9 +24,9 @@ def collect_decimals(value: Any) -> set[str]:
 def _walk(value: Any, found: set[str]) -> None:
     if isinstance(value, str):
         if DECIMAL_TOKEN.fullmatch(value):
-            found.add(value)
+            found.add(value.replace("−", "-"))
         else:
-            found.update(DECIMAL_TOKEN.findall(value))
+            found.update(tok.replace("−", "-") for tok in DECIMAL_TOKEN.findall(value))
         return
     if isinstance(value, list):
         for item in value:
@@ -73,31 +77,63 @@ def _stray(value: Any, allowed: set[str], stray: list[str], key: str | None) -> 
             _stray(item, allowed, stray, next_key)
 
 
+def _canonical_num_token(token: str) -> str:
+    return token.replace("−", "-").replace(",", ".")
+
+
+def _collect_matches(
+    value: str,
+    pattern: re.Pattern[str],
+    allowed: set[str],
+    stray: list[str],
+    consumed: list[tuple[int, int]],
+    *,
+    skip_exponent: bool = False,
+) -> None:
+    for match in pattern.finditer(value):
+        s_idx, e_idx = match.span()
+        if any(not (e_idx <= cs or s_idx >= ce) for cs, ce in consumed):
+            continue
+        if _glued(value, s_idx):
+            continue
+        if skip_exponent and _unit_exponent(value, s_idx):
+            continue
+        raw_tok = match.group()
+        norm_tok = _canonical_num_token(raw_tok)
+        if raw_tok not in allowed and norm_tok not in allowed:
+            stray.append(raw_tok)
+        consumed.append((s_idx, e_idx))
+
+
 def _stray_text(value: str, allowed: set[str], stray: list[str], key: str | None) -> None:
     if key == "gate_probability" and _GATE_PROBABILITY.fullmatch(value):
         return
+    if SCIENTIFIC_TOKEN.fullmatch(value):
+        if value not in allowed and _canonical_num_token(value) not in allowed:
+            stray.append(value)
+        return
     if DECIMAL_TOKEN.fullmatch(value):
-        if value not in allowed:
+        if value not in allowed and _canonical_num_token(value) not in allowed:
+            stray.append(value)
+        return
+    if FRACTION_TOKEN.fullmatch(value):
+        if value not in allowed and _canonical_num_token(value) not in allowed:
             stray.append(value)
         return
     if INTEGER_TOKEN.fullmatch(value):
-        if key not in _INDEX_KEYS and key not in _UNIT_KEYS and value not in allowed:
-            stray.append(value)
+        if key not in _INDEX_KEYS and key not in _UNIT_KEYS:
+            norm = _canonical_num_token(value)
+            if value not in allowed and norm not in allowed:
+                stray.append(value)
         return
-    for match in DECIMAL_TOKEN.finditer(value):
-        token = match.group()
-        if _glued(value, match.start()):
-            continue
-        if token not in allowed:
-            stray.append(token)
+
+    consumed: list[tuple[int, int]] = []
+    _collect_matches(value, SCIENTIFIC_TOKEN, allowed, stray, consumed)
+    _collect_matches(value, DECIMAL_TOKEN, allowed, stray, consumed)
+    _collect_matches(value, FRACTION_TOKEN, allowed, stray, consumed)
     if key in _INDEX_KEYS or key in _UNIT_KEYS:
         return
-    for match in INTEGER_TOKEN.finditer(value):
-        token = match.group()
-        if _glued(value, match.start()) or _unit_exponent(value, match.start()):
-            continue
-        if token not in allowed:
-            stray.append(token)
+    _collect_matches(value, INTEGER_TOKEN, allowed, stray, consumed, skip_exponent=True)
 
 
 def _glued(value: str, start: int) -> bool:

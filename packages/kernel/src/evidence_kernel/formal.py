@@ -1,13 +1,17 @@
+"""Exact rational and nonlinear real (QF_NRA) SMT verification via Z3 + cvc5."""
+
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import asdict, dataclass
 from decimal import Decimal
 from fractions import Fraction
 from typing import Any
 
+import cvc5
 import z3
+from cvc5 import Kind
+
+from evidence_kernel.canonical import inputs_hash
 
 
 @dataclass(frozen=True)
@@ -25,10 +29,6 @@ class SMTProofResult:
         return asdict(self)
 
 
-def _canonical_json(data: Any) -> str:
-    return json.dumps(data, sort_keys=True, separators=(",", ":"))
-
-
 def compute_proof_hash(
     property_name: str,
     status: str,
@@ -36,6 +36,7 @@ def compute_proof_hash(
     assertion: str,
     counterexample: dict[str, str] | None,
 ) -> str:
+    """Compute RFC 8785 canonical SHA-256 hash using kernel canonicalization."""
     payload = {
         "property_name": property_name,
         "status": status,
@@ -43,19 +44,25 @@ def compute_proof_hash(
         "assertion": assertion,
         "counterexample": counterexample,
     }
-    return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+    return inputs_hash(payload)
+
+
+def _to_fraction(val: str | int | Decimal | Fraction) -> Fraction:
+    if isinstance(val, Fraction):
+        return val
+    if isinstance(val, (int, str, Decimal)):
+        return Fraction(str(val))
+    raise TypeError(f"Unsupported type for exact rational: {type(val)}")
 
 
 def _to_z3_real(val: str | int | Decimal | Fraction) -> z3.ArithRef:
-    if isinstance(val, (int, str)):
-        f = Fraction(str(val))
-    elif isinstance(val, Decimal):
-        f = Fraction(str(val))
-    elif isinstance(val, Fraction):
-        f = val
-    else:
-        raise TypeError(f"Unsupported type for exact rational: {type(val)}")
+    f = _to_fraction(val)
     return z3.Q(f.numerator, f.denominator)
+
+
+def _to_cvc5_real(solver: cvc5.Solver, val: str | int | Decimal | Fraction) -> cvc5.Term:
+    f = _to_fraction(val)
+    return solver.mkReal(f.numerator, f.denominator)
 
 
 def _rat_to_decimal_str(rat_val: Any, decimals: int = 4) -> str:
@@ -63,17 +70,141 @@ def _rat_to_decimal_str(rat_val: Any, decimals: int = 4) -> str:
         frac = rat_val.as_fraction()
         dec = Decimal(frac.numerator) / Decimal(frac.denominator)
         return f"{dec:.{decimals}f}"
+    if hasattr(rat_val, "getRealValue"):
+        frac = rat_val.getRealValue()
+        dec = Decimal(frac.numerator) / Decimal(frac.denominator)
+        return f"{dec:.{decimals}f}"
     return str(rat_val)
 
 
+def _new_cvc5_solver(timeout_ms: int) -> cvc5.Solver:
+    solver = cvc5.Solver()
+    solver.setLogic("QF_NRA")
+    solver.setOption("produce-models", "true")
+    solver.setOption("tlimit-per", str(max(1, int(timeout_ms))))
+    return solver
+
+
+def _cvc5_status_str(res: cvc5.Result) -> str:
+    if res.isUnsat():
+        return "unsat"
+    if res.isSat():
+        return "sat"
+    return "unknown"
+
+
 class SMTSolverProofEngine:
-    """Exact rational SMT verification engine using Z3 theorem prover.
+    """Dual-backend exact rational & QF_NRA SMT verification engine (Z3 + cvc5)."""
 
-    Evaluates continuous intervals and mathematical constraints without floating-point errors.
-    """
-
-    def __init__(self, timeout_ms: int = 5000) -> None:
+    def __init__(self, timeout_ms: int = 5000, *, cross_check: bool = True) -> None:
         self.timeout_ms = timeout_ms
+        self.cross_check = cross_check
+
+    def _reconcile_verdicts(
+        self,
+        *,
+        property_name: str,
+        assumptions: dict[str, Any],
+        assertion: str,
+        z3_status_str: str,
+        z3_cex: dict[str, str] | None,
+        z3_reason: str,
+        cvc5_status_str: str | None,
+        cvc5_cex: dict[str, str] | None,
+        proved_reason: str,
+        cex_reason: str,
+    ) -> SMTProofResult:
+        cross_meta: dict[str, Any] = {"z3": z3_status_str}
+        if cvc5_status_str is not None:
+            cross_meta["cvc5"] = cvc5_status_str
+
+        # Fail closed on direct solver disagreement between unsat and sat
+        if (
+            cvc5_status_str is not None
+            and {z3_status_str, cvc5_status_str} == {"unsat", "sat"}
+        ):
+            cross_meta["agreed"] = False
+            h = compute_proof_hash(property_name, "UNKNOWN", assumptions, assertion, None)
+            return SMTProofResult(
+                property_name=property_name,
+                proved=False,
+                status="UNKNOWN",
+                assumptions=assumptions,
+                assertion=assertion,
+                counterexample=None,
+                proof_hash=h,
+                solver_stats={
+                    "check": "unknown",
+                    "reason": "Solver disagreement between Z3 and cvc5",
+                    "cross_check": cross_meta,
+                },
+            )
+
+        effective_status = z3_status_str
+        effective_cex = z3_cex
+        if z3_status_str == "unknown" and cvc5_status_str in {"unsat", "sat"}:
+            effective_status = cvc5_status_str
+            effective_cex = cvc5_cex
+            cross_meta["rescued_by"] = "cvc5"
+
+        if cvc5_status_str is not None:
+            cross_meta["agreed"] = (
+                z3_status_str == cvc5_status_str
+                or z3_status_str == "unknown"
+                or cvc5_status_str == "unknown"
+            )
+
+        if effective_status == "unsat":
+            h = compute_proof_hash(property_name, "PROVED_UNSAT", assumptions, assertion, None)
+            return SMTProofResult(
+                property_name=property_name,
+                proved=True,
+                status="PROVED_UNSAT",
+                assumptions=assumptions,
+                assertion=assertion,
+                counterexample=None,
+                proof_hash=h,
+                solver_stats={
+                    "check": "unsat",
+                    "reason": proved_reason,
+                    "cross_check": cross_meta,
+                },
+            )
+
+        if effective_status == "sat":
+            h = compute_proof_hash(
+                property_name, "COUNTEREXAMPLE_FOUND", assumptions, assertion, effective_cex
+            )
+            return SMTProofResult(
+                property_name=property_name,
+                proved=False,
+                status="COUNTEREXAMPLE_FOUND",
+                assumptions=assumptions,
+                assertion=assertion,
+                counterexample=effective_cex,
+                proof_hash=h,
+                solver_stats={
+                    "check": "sat",
+                    "reason": cex_reason,
+                    "cross_check": cross_meta,
+                },
+            )
+
+        h = compute_proof_hash(property_name, "UNKNOWN", assumptions, assertion, None)
+        return SMTProofResult(
+            property_name=property_name,
+            proved=False,
+            status="UNKNOWN",
+            assumptions=assumptions,
+            assertion=assertion,
+            counterexample=None,
+            proof_hash=h,
+            solver_stats={
+                "check": "unknown",
+                "reason": z3_reason,
+                "cross_check": cross_meta,
+            },
+        )
 
     def prove_structural_margin(
         self,
@@ -85,19 +216,13 @@ class SMTSolverProofEngine:
 
         the combined stress does not exceed allowable margins.
         """
-        solver = z3.Solver()
-        solver.set("timeout", self.timeout_ms)
-
-        area = z3.Real("area_mm2")
-        shear = z3.Real("shear_force_n")
-        tensile = z3.Real("tensile_force_n")
-
         area_min_dec = Decimal(bounds["area_mm2"][0])
         area_max_dec = Decimal(bounds["area_mm2"][1])
         shear_min_dec = Decimal(bounds["shear_force_n"][0])
         shear_max_dec = Decimal(bounds["shear_force_n"][1])
         tensile_min_dec = Decimal(bounds["tensile_force_n"][0])
         tensile_max_dec = Decimal(bounds["tensile_force_n"][1])
+
         if (
             area_min_dec > area_max_dec
             or shear_min_dec > shear_max_dec
@@ -113,88 +238,100 @@ class SMTSolverProofEngine:
         if tau_dec <= 0 or sigma_dec <= 0 or sf_dec <= 0:
             raise ValueError("allowables and safety_factor must be positive")
 
-        area_min = _to_z3_real(bounds["area_mm2"][0])
-        area_max = _to_z3_real(bounds["area_mm2"][1])
-        shear_min = _to_z3_real(bounds["shear_force_n"][0])
-        shear_max = _to_z3_real(bounds["shear_force_n"][1])
-        tensile_min = _to_z3_real(bounds["tensile_force_n"][0])
-        tensile_max = _to_z3_real(bounds["tensile_force_n"][1])
+        solver = z3.Solver()
+        solver.set("timeout", self.timeout_ms)
+        area = z3.Real("area_mm2")
+        shear = z3.Real("shear_force_n")
+        tensile = z3.Real("tensile_force_n")
 
+        solver.add(
+            area >= _to_z3_real(bounds["area_mm2"][0]),
+            area <= _to_z3_real(bounds["area_mm2"][1]),
+            shear >= _to_z3_real(bounds["shear_force_n"][0]),
+            shear <= _to_z3_real(bounds["shear_force_n"][1]),
+            tensile >= _to_z3_real(bounds["tensile_force_n"][0]),
+            tensile <= _to_z3_real(bounds["tensile_force_n"][1]),
+        )
         sf = _to_z3_real(safety_factor)
         tau_allow = _to_z3_real(allowables["shear_allowable_mpa"])
         sigma_allow = _to_z3_real(allowables["tensile_allowable_mpa"])
-
-        # Domain bounds (continuous interval)
-        solver.add(area >= area_min, area <= area_max)
-        solver.add(shear >= shear_min, shear <= shear_max)
-        solver.add(tensile >= tensile_min, tensile <= tensile_max)
-
-        # Failure condition (negation of safety envelope):
-        # ((shear*sf*sigma_allow)^2 + (tensile*sf*tau_allow)^2) > (area*tau_allow*sigma_allow)^2
         lhs = ((shear * sf * sigma_allow) ** 2) + ((tensile * sf * tau_allow) ** 2)
         rhs = (area * tau_allow * sigma_allow) ** 2
         solver.add(lhs > rhs)
 
-        check_status = solver.check()
+        z3_check = solver.check()
+        z3_status_str = (
+            "unsat" if z3_check == z3.unsat else ("sat" if z3_check == z3.sat else "unknown")
+        )
+        z3_cex = None
+        if z3_check == z3.sat:
+            m = solver.model()
+            z3_cex = {
+                "area_mm2": _rat_to_decimal_str(m[area]),
+                "shear_force_n": _rat_to_decimal_str(m[shear]),
+                "tensile_force_n": _rat_to_decimal_str(m[tensile]),
+            }
+
+        cvc5_status_str: str | None = None
+        cvc5_cex: dict[str, str] | None = None
+        if self.cross_check or z3_status_str == "unknown":
+            cs = _new_cvc5_solver(self.timeout_ms)
+            real = cs.getRealSort()
+            c_area = cs.mkConst(real, "area_mm2")
+            c_shear = cs.mkConst(real, "shear_force_n")
+            c_tensile = cs.mkConst(real, "tensile_force_n")
+            cs.assertFormula(cs.mkTerm(Kind.GEQ, c_area, _to_cvc5_real(cs, bounds["area_mm2"][0])))
+            cs.assertFormula(cs.mkTerm(Kind.LEQ, c_area, _to_cvc5_real(cs, bounds["area_mm2"][1])))
+            cs.assertFormula(
+                cs.mkTerm(Kind.GEQ, c_shear, _to_cvc5_real(cs, bounds["shear_force_n"][0]))
+            )
+            cs.assertFormula(
+                cs.mkTerm(Kind.LEQ, c_shear, _to_cvc5_real(cs, bounds["shear_force_n"][1]))
+            )
+            cs.assertFormula(
+                cs.mkTerm(Kind.GEQ, c_tensile, _to_cvc5_real(cs, bounds["tensile_force_n"][0]))
+            )
+            cs.assertFormula(
+                cs.mkTerm(Kind.LEQ, c_tensile, _to_cvc5_real(cs, bounds["tensile_force_n"][1]))
+            )
+            c_sf = _to_cvc5_real(cs, safety_factor)
+            c_tau = _to_cvc5_real(cs, allowables["shear_allowable_mpa"])
+            c_sig = _to_cvc5_real(cs, allowables["tensile_allowable_mpa"])
+            t1 = cs.mkTerm(Kind.MULT, c_shear, c_sf, c_sig)
+            t2 = cs.mkTerm(Kind.MULT, c_tensile, c_sf, c_tau)
+            t3 = cs.mkTerm(Kind.MULT, c_area, c_tau, c_sig)
+            c_lhs = cs.mkTerm(
+                Kind.ADD, cs.mkTerm(Kind.MULT, t1, t1), cs.mkTerm(Kind.MULT, t2, t2)
+            )
+            c_rhs = cs.mkTerm(Kind.MULT, t3, t3)
+            cs.assertFormula(cs.mkTerm(Kind.GT, c_lhs, c_rhs))
+            c_res = cs.checkSat()
+            cvc5_status_str = _cvc5_status_str(c_res)
+            if cvc5_status_str == "sat":
+                cvc5_cex = {
+                    "area_mm2": _rat_to_decimal_str(cs.getValue(c_area)),
+                    "shear_force_n": _rat_to_decimal_str(cs.getValue(c_shear)),
+                    "tensile_force_n": _rat_to_decimal_str(cs.getValue(c_tensile)),
+                }
+
         assumptions = {
             "bounds": bounds,
             "allowables": allowables,
             "safety_factor": safety_factor,
         }
         assertion = "forall loads in bounds: ((tau*SF)^2/tau_all^2)+((sig*SF)^2/sig_all^2) <= 1"
-
-        if check_status == z3.unsat:
-            h = compute_proof_hash(
-                "structural_margin", "PROVED_UNSAT", assumptions, assertion, None
-            )
-            return SMTProofResult(
-                property_name="structural_margin",
-                proved=True,
-                status="PROVED_UNSAT",
-                assumptions=assumptions,
-                assertion=assertion,
-                counterexample=None,
-                proof_hash=h,
-                solver_stats={
-                    "check": "unsat",
-                    "reason": "No counterexample exists in continuous domain",
-                },
-            )
-        elif check_status == z3.sat:
-            m = solver.model()
-            cex = {
-                "area_mm2": _rat_to_decimal_str(m[area]),
-                "shear_force_n": _rat_to_decimal_str(m[shear]),
-                "tensile_force_n": _rat_to_decimal_str(m[tensile]),
-            }
-            h = compute_proof_hash(
-                "structural_margin", "COUNTEREXAMPLE_FOUND", assumptions, assertion, cex
-            )
-            return SMTProofResult(
-                property_name="structural_margin",
-                proved=False,
-                status="COUNTEREXAMPLE_FOUND",
-                assumptions=assumptions,
-                assertion=assertion,
-                counterexample=cex,
-                proof_hash=h,
-                solver_stats={
-                    "check": "sat",
-                    "reason": "Structural margin violated at counterexample point",
-                },
-            )
-        else:
-            h = compute_proof_hash("structural_margin", "UNKNOWN", assumptions, assertion, None)
-            return SMTProofResult(
-                property_name="structural_margin",
-                proved=False,
-                status="UNKNOWN",
-                assumptions=assumptions,
-                assertion=assertion,
-                counterexample=None,
-                proof_hash=h,
-                solver_stats={"check": "unknown", "reason": str(solver.reason_unknown())},
-            )
+        return self._reconcile_verdicts(
+            property_name="structural_margin",
+            assumptions=assumptions,
+            assertion=assertion,
+            z3_status_str=z3_status_str,
+            z3_cex=z3_cex,
+            z3_reason=str(solver.reason_unknown()) if z3_status_str == "unknown" else "",
+            cvc5_status_str=cvc5_status_str,
+            cvc5_cex=cvc5_cex,
+            proved_reason="No counterexample exists in continuous domain",
+            cex_reason="Structural margin violated at counterexample point",
+        )
 
     def prove_station_equilibrium(
         self,
@@ -223,39 +360,78 @@ class SMTSolverProofEngine:
 
         solver = z3.Solver()
         solver.set("timeout", self.timeout_ms)
-
         mass = z3.Real("mass_kg")
         load_factor = z3.Real("load_factor")
         cg_x = z3.Real("cg_x_m")
 
-        mass_min = _to_z3_real(bounds["mass_kg"][0])
-        mass_max = _to_z3_real(bounds["mass_kg"][1])
-        lf_min = _to_z3_real(bounds["load_factor"][0])
-        lf_max = _to_z3_real(bounds["load_factor"][1])
-        cg_min = _to_z3_real(bounds["cg_x_m"][0])
-        cg_max = _to_z3_real(bounds["cg_x_m"][1])
-
-        grav = _to_z3_real(gravity_m_s2)
-        f_max = _to_z3_real(max_station_force_n)
-        active_count = _to_z3_real(str(active_stations_min))
-
-        solver.add(mass >= mass_min, mass <= mass_max)
-        solver.add(load_factor >= lf_min, load_factor <= lf_max)
-        solver.add(cg_x >= cg_min, cg_x <= cg_max)
-
-        req_force = mass * grav * load_factor
-        total_capacity = active_count * f_max
-
         station_decimals = [Decimal(s) for s in stations]
-        min_pos = _to_z3_real(str(min(station_decimals)))
-        max_pos = _to_z3_real(str(max(station_decimals)))
+        min_station_str = str(min(station_decimals))
+        max_station_str = str(max(station_decimals))
 
-        cg_out_of_span = z3.Or(cg_x < min_pos, cg_x > max_pos)
-        thrust_exceeded = req_force > total_capacity
+        solver.add(
+            mass >= _to_z3_real(bounds["mass_kg"][0]),
+            mass <= _to_z3_real(bounds["mass_kg"][1]),
+            load_factor >= _to_z3_real(bounds["load_factor"][0]),
+            load_factor <= _to_z3_real(bounds["load_factor"][1]),
+            cg_x >= _to_z3_real(bounds["cg_x_m"][0]),
+            cg_x <= _to_z3_real(bounds["cg_x_m"][1]),
+        )
+        req_force = mass * _to_z3_real(gravity_m_s2) * load_factor
+        total_capacity = _to_z3_real(str(active_stations_min)) * _to_z3_real(max_station_force_n)
+        cg_out_of_span = z3.Or(
+            cg_x < _to_z3_real(min_station_str),
+            cg_x > _to_z3_real(max_station_str),
+        )
+        solver.add(z3.Or(req_force > total_capacity, cg_out_of_span))
 
-        solver.add(z3.Or(thrust_exceeded, cg_out_of_span))
+        z3_check = solver.check()
+        z3_status_str = (
+            "unsat" if z3_check == z3.unsat else ("sat" if z3_check == z3.sat else "unknown")
+        )
+        z3_cex = None
+        if z3_check == z3.sat:
+            m = solver.model()
+            z3_cex = {
+                "mass_kg": _rat_to_decimal_str(m[mass]),
+                "load_factor": _rat_to_decimal_str(m[load_factor]),
+                "cg_x_m": _rat_to_decimal_str(m[cg_x]),
+            }
 
-        check_status = solver.check()
+        cvc5_status_str: str | None = None
+        cvc5_cex: dict[str, str] | None = None
+        if self.cross_check or z3_status_str == "unknown":
+            cs = _new_cvc5_solver(self.timeout_ms)
+            real = cs.getRealSort()
+            c_mass = cs.mkConst(real, "mass_kg")
+            c_lf = cs.mkConst(real, "load_factor")
+            c_cg = cs.mkConst(real, "cg_x_m")
+            cs.assertFormula(cs.mkTerm(Kind.GEQ, c_mass, _to_cvc5_real(cs, bounds["mass_kg"][0])))
+            cs.assertFormula(cs.mkTerm(Kind.LEQ, c_mass, _to_cvc5_real(cs, bounds["mass_kg"][1])))
+            cs.assertFormula(cs.mkTerm(Kind.GEQ, c_lf, _to_cvc5_real(cs, bounds["load_factor"][0])))
+            cs.assertFormula(cs.mkTerm(Kind.LEQ, c_lf, _to_cvc5_real(cs, bounds["load_factor"][1])))
+            cs.assertFormula(cs.mkTerm(Kind.GEQ, c_cg, _to_cvc5_real(cs, bounds["cg_x_m"][0])))
+            cs.assertFormula(cs.mkTerm(Kind.LEQ, c_cg, _to_cvc5_real(cs, bounds["cg_x_m"][1])))
+            c_req = cs.mkTerm(Kind.MULT, c_mass, _to_cvc5_real(cs, gravity_m_s2), c_lf)
+            c_cap = cs.mkTerm(
+                Kind.MULT,
+                _to_cvc5_real(cs, str(active_stations_min)),
+                _to_cvc5_real(cs, max_station_force_n),
+            )
+            c_cg_out = cs.mkTerm(
+                Kind.OR,
+                cs.mkTerm(Kind.LT, c_cg, _to_cvc5_real(cs, min_station_str)),
+                cs.mkTerm(Kind.GT, c_cg, _to_cvc5_real(cs, max_station_str)),
+            )
+            cs.assertFormula(cs.mkTerm(Kind.OR, cs.mkTerm(Kind.GT, c_req, c_cap), c_cg_out))
+            c_res = cs.checkSat()
+            cvc5_status_str = _cvc5_status_str(c_res)
+            if cvc5_status_str == "sat":
+                cvc5_cex = {
+                    "mass_kg": _rat_to_decimal_str(cs.getValue(c_mass)),
+                    "load_factor": _rat_to_decimal_str(cs.getValue(c_lf)),
+                    "cg_x_m": _rat_to_decimal_str(cs.getValue(c_cg)),
+                }
+
         assumptions = {
             "bounds": bounds,
             "stations": stations,
@@ -264,59 +440,18 @@ class SMTSolverProofEngine:
             "active_stations_min": active_stations_min,
         }
         assertion = "forall (mass, nz, cg) in bounds: req_force <= capacity and cg in station span"
-
-        if check_status == z3.unsat:
-            h = compute_proof_hash(
-                "station_equilibrium", "PROVED_UNSAT", assumptions, assertion, None
-            )
-            return SMTProofResult(
-                property_name="station_equilibrium",
-                proved=True,
-                status="PROVED_UNSAT",
-                assumptions=assumptions,
-                assertion=assertion,
-                counterexample=None,
-                proof_hash=h,
-                solver_stats={
-                    "check": "unsat",
-                    "reason": "Equilibrium authority proved across entire envelope",
-                },
-            )
-        elif check_status == z3.sat:
-            m = solver.model()
-            cex = {
-                "mass_kg": _rat_to_decimal_str(m[mass]),
-                "load_factor": _rat_to_decimal_str(m[load_factor]),
-                "cg_x_m": _rat_to_decimal_str(m[cg_x]),
-            }
-            h = compute_proof_hash(
-                "station_equilibrium", "COUNTEREXAMPLE_FOUND", assumptions, assertion, cex
-            )
-            return SMTProofResult(
-                property_name="station_equilibrium",
-                proved=False,
-                status="COUNTEREXAMPLE_FOUND",
-                assumptions=assumptions,
-                assertion=assertion,
-                counterexample=cex,
-                proof_hash=h,
-                solver_stats={
-                    "check": "sat",
-                    "reason": "Control envelope violated at counterexample point",
-                },
-            )
-        else:
-            h = compute_proof_hash("station_equilibrium", "UNKNOWN", assumptions, assertion, None)
-            return SMTProofResult(
-                property_name="station_equilibrium",
-                proved=False,
-                status="UNKNOWN",
-                assumptions=assumptions,
-                assertion=assertion,
-                counterexample=None,
-                proof_hash=h,
-                solver_stats={"check": "unknown", "reason": str(solver.reason_unknown())},
-            )
+        return self._reconcile_verdicts(
+            property_name="station_equilibrium",
+            assumptions=assumptions,
+            assertion=assertion,
+            z3_status_str=z3_status_str,
+            z3_cex=z3_cex,
+            z3_reason=str(solver.reason_unknown()) if z3_status_str == "unknown" else "",
+            cvc5_status_str=cvc5_status_str,
+            cvc5_cex=cvc5_cex,
+            proved_reason="Equilibrium authority proved across entire envelope",
+            cex_reason="Control envelope violated at counterexample point",
+        )
 
     def prove_hover_power_envelope(
         self,
@@ -344,21 +479,55 @@ class SMTSolverProofEngine:
 
         solver = z3.Solver()
         solver.set("timeout", self.timeout_ms)
-
         thrust = z3.Real("thrust_n")
-        t_min = _to_z3_real(thrust_bounds_n[0])
-        t_max = _to_z3_real(thrust_bounds_n[1])
+        solver.add(
+            thrust >= _to_z3_real(thrust_bounds_n[0]),
+            thrust <= _to_z3_real(thrust_bounds_n[1]),
+        )
         area = _to_z3_real(disk_area_m2)
         rho = _to_z3_real(air_density_kg_m3)
         fm = _to_z3_real(figure_of_merit)
         p_avail = _to_z3_real(max_power_available_kw)
-
-        solver.add(thrust >= t_min, thrust <= t_max)
-        # Failure condition: P_shaft > P_avail <=> T^3 > 2 * rho * A * (1000 * FM * P_avail)^2
         rhs_kw_to_w = _to_z3_real("1000") * fm * p_avail
         solver.add((thrust * thrust * thrust) > (_to_z3_real("2") * rho * area * (rhs_kw_to_w**2)))
 
-        check_status = solver.check()
+        z3_check = solver.check()
+        z3_status_str = (
+            "unsat" if z3_check == z3.unsat else ("sat" if z3_check == z3.sat else "unknown")
+        )
+        z3_cex = None
+        if z3_check == z3.sat:
+            m = solver.model()
+            z3_cex = {"thrust_n": _rat_to_decimal_str(m[thrust])}
+
+        cvc5_status_str: str | None = None
+        cvc5_cex: dict[str, str] | None = None
+        if self.cross_check or z3_status_str == "unknown":
+            cs = _new_cvc5_solver(self.timeout_ms)
+            c_thrust = cs.mkConst(cs.getRealSort(), "thrust_n")
+            cs.assertFormula(cs.mkTerm(Kind.GEQ, c_thrust, _to_cvc5_real(cs, thrust_bounds_n[0])))
+            cs.assertFormula(cs.mkTerm(Kind.LEQ, c_thrust, _to_cvc5_real(cs, thrust_bounds_n[1])))
+            c_rhs_w = cs.mkTerm(
+                Kind.MULT,
+                _to_cvc5_real(cs, "1000"),
+                _to_cvc5_real(cs, figure_of_merit),
+                _to_cvc5_real(cs, max_power_available_kw),
+            )
+            c_rhs = cs.mkTerm(
+                Kind.MULT,
+                _to_cvc5_real(cs, "2"),
+                _to_cvc5_real(cs, air_density_kg_m3),
+                _to_cvc5_real(cs, disk_area_m2),
+                c_rhs_w,
+                c_rhs_w,
+            )
+            c_t3 = cs.mkTerm(Kind.MULT, c_thrust, c_thrust, c_thrust)
+            cs.assertFormula(cs.mkTerm(Kind.GT, c_t3, c_rhs))
+            c_res = cs.checkSat()
+            cvc5_status_str = _cvc5_status_str(c_res)
+            if cvc5_status_str == "sat":
+                cvc5_cex = {"thrust_n": _rat_to_decimal_str(cs.getValue(c_thrust))}
+
         assumptions = {
             "thrust_bounds_n": thrust_bounds_n,
             "disk_area_m2": disk_area_m2,
@@ -367,51 +536,15 @@ class SMTSolverProofEngine:
             "max_power_available_kw": max_power_available_kw,
         }
         assertion = "forall thrust in bounds: T^3 <= 2 * rho * A * (1000 * FM * P_avail)^2"
-
-        if check_status == z3.unsat:
-            h = compute_proof_hash(
-                "hover_power_envelope", "PROVED_UNSAT", assumptions, assertion, None
-            )
-            return SMTProofResult(
-                property_name="hover_power_envelope",
-                proved=True,
-                status="PROVED_UNSAT",
-                assumptions=assumptions,
-                assertion=assertion,
-                counterexample=None,
-                proof_hash=h,
-                solver_stats={
-                    "check": "unsat",
-                    "reason": "Shaft power stays within available budget across thrust interval",
-                },
-            )
-        if check_status == z3.sat:
-            m = solver.model()
-            cex = {"thrust_n": _rat_to_decimal_str(m[thrust])}
-            h = compute_proof_hash(
-                "hover_power_envelope", "COUNTEREXAMPLE_FOUND", assumptions, assertion, cex
-            )
-            return SMTProofResult(
-                property_name="hover_power_envelope",
-                proved=False,
-                status="COUNTEREXAMPLE_FOUND",
-                assumptions=assumptions,
-                assertion=assertion,
-                counterexample=cex,
-                proof_hash=h,
-                solver_stats={
-                    "check": "sat",
-                    "reason": "Power budget exceeded at counterexample thrust",
-                },
-            )
-        h = compute_proof_hash("hover_power_envelope", "UNKNOWN", assumptions, assertion, None)
-        return SMTProofResult(
+        return self._reconcile_verdicts(
             property_name="hover_power_envelope",
-            proved=False,
-            status="UNKNOWN",
             assumptions=assumptions,
             assertion=assertion,
-            counterexample=None,
-            proof_hash=h,
-            solver_stats={"check": "unknown", "reason": str(solver.reason_unknown())},
+            z3_status_str=z3_status_str,
+            z3_cex=z3_cex,
+            z3_reason=str(solver.reason_unknown()) if z3_status_str == "unknown" else "",
+            cvc5_status_str=cvc5_status_str,
+            cvc5_cex=cvc5_cex,
+            proved_reason="Shaft power stays within available budget across thrust interval",
+            cex_reason="Power budget exceeded at counterexample thrust",
         )

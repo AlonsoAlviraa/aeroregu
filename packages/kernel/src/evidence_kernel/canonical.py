@@ -1,43 +1,43 @@
-"""RFC 8785-style canonical JSON for the types this repo stores.
+"""RFC 8785 (JCS) canonical JSON for the types this repo stores.
 
-Floats are rejected. Object keys sort by UTF-16 code units. Output is compact UTF-8 text.
+Floats are rejected. Strings are Unicode NFC-normalized before RFC 8785 serialization.
 Physical quantities must already be strings before they reach this function.
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
+import unicodedata
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+import rfc8785
 
-def _key_sort(key: str) -> bytes:
-    return key.encode("utf-16-be")
+
+def _prepare_jcs(value: Any) -> Any:
+    """Validate allowed types (no floats) and apply Unicode NFC normalization."""
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        raise TypeError("float is not allowed in canonical JSON")
+    if isinstance(value, str):
+        return unicodedata.normalize("NFC", value)
+    if isinstance(value, Mapping):
+        return {
+            unicodedata.normalize("NFC", str(key)): _prepare_jcs(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_prepare_jcs(item) for item in value]
+    raise TypeError(f"unsupported canonical value: {type(value).__name__}")
 
 
 def canonicalize(value: Any) -> str:
-    return _emit(value)
-
-
-def _emit(value: Any) -> str:
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-    if isinstance(value, int) and not isinstance(value, bool):
-        return str(value)
-    if isinstance(value, float):
-        raise TypeError("float is not allowed in canonical JSON")
-    if isinstance(value, Mapping):
-        keys = sorted((str(key) for key in value), key=_key_sort)
-        parts = [f"{_emit(key)}:{_emit(value[key])}" for key in keys]
-        return "{" + ",".join(parts) + "}"
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return "[" + ",".join(_emit(item) for item in value) + "]"
-    raise TypeError(f"unsupported canonical value: {type(value).__name__}")
+    """Emit compact UTF-8 RFC 8785 canonical JSON text."""
+    prepared = _prepare_jcs(value)
+    return rfc8785.dumps(prepared).decode("utf-8")
 
 
 def sha256_text(text: str) -> str:
