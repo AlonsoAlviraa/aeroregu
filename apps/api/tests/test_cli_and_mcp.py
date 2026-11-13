@@ -424,5 +424,9 @@ def test_calculation_workbench_ui_contract(tmp_path: Path, monkeypatch) -> None:
         'id="mcp-tool-select"',
         'role="region"',
         'hidden="until-found"',
+        "pointer-events: none",
+        'popovertarget="calc-help-popover"',
+        'id="logout-now-btn"',
+        "^(?:[a-z0-9_]|-){1,32}$",
     ):
         assert marker in page

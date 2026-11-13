@@ -290,8 +290,23 @@ try {
   }
 
   .panels-stack > [role="tabpanel"] {
-    grid-area: 1 / 1;
     min-inline-size: 0;
+  }
+
+  .panels-stack > [role="tabpanel"][hidden] {
+    visibility: hidden;
+    pointer-events: none;
+    block-size: 0;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .panels-stack > [role="tabpanel"]:not([hidden]) {
+    position: relative;
+    z-index: 1;
+    pointer-events: auto;
   }
 
   .panel-card {
@@ -361,7 +376,7 @@ try {
     color: var(--muted);
   }
 
-  input[type="text"], input[type="number"], select, textarea {
+  input[type="text"], input[type="number"], input[type="password"], select, textarea {
     font: inherit;
     font-size: 0.88rem;
     padding: 0.45rem 0.6rem;
@@ -483,6 +498,13 @@ try {
     font-size: 0.84rem;
   }
 
+  caption {
+    text-align: start;
+    font-weight: 700;
+    padding: 0.5rem 0.65rem;
+    color: var(--muted);
+  }
+
   th, td {
     padding: 0.48rem 0.65rem;
     border-bottom: 1px solid var(--border);
@@ -508,7 +530,8 @@ try {
     font-weight: 600;
   }
 
-  @container (width < 520px) {
+  @container (width < 360px) {
+    .table-wrapper caption,
     .table-wrapper table,
     .table-wrapper thead,
     .table-wrapper tbody,
@@ -711,7 +734,7 @@ try {
             <div class="panel-head">
               <h2>Banco de Calculo Determinista y Diagrama de Esfuerzos</h2>
               <div class="row">
-                <button type="button" class="subtle" command="toggle-popover" commandfor="calc-help-popover">Ayuda unidades</button>
+                <button type="button" class="subtle" id="calc-help-btn" popovertarget="calc-help-popover">Ayuda unidades</button>
                 <button type="button" class="subtle" id="preset-nominal">Preset Nominal</button>
                 <button type="button" class="subtle" id="preset-stress">Preset Limite</button>
               </div>
@@ -1015,8 +1038,8 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
   <div class="sub-grid">
     <div class="field">
       <label for="tenant-input">Tenant Workspace</label>
-      <input id="tenant-input" type="text" value="demo" placeholder="demo" required pattern="^[A-Za-z0-9_-]{1,64}$" data-error="tenant-err">
-      <div id="tenant-err" class="error-msg">Solo letras, numeros, guiones y guion bajo.</div>
+      <input id="tenant-input" type="text" value="demo" placeholder="demo" required pattern="^(?:[a-z0-9_]|-){1,32}$" data-error="tenant-err">
+      <div id="tenant-err" class="error-msg">Usa minusculas, numeros, guiones y guion bajo (max 32).</div>
     </div>
     <div class="field">
       <label for="actor-select">Rol de Sesion Activo</label>
@@ -1024,6 +1047,10 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
         <option value="author">author (human)</option>
         <option value="reviewer">reviewer (human)</option>
       </select>
+    </div>
+    <div class="field">
+      <label for="password-input">Password (opcional en modo dev)</label>
+      <input id="password-input" type="password" placeholder="autocompleta demo local">
     </div>
     <div class="field">
       <label for="theme-select">Tema Visual</label>
@@ -1035,6 +1062,7 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
     </div>
   </div>
   <div class="row" style="margin-top:1rem;justify-content:flex-end;">
+    <button id="logout-now-btn" class="subtle" type="button">Cerrar Sesion</button>
     <button id="login-now-btn" class="primary" type="button">Iniciar Sesion en Tenant</button>
   </div>
 </dialog>
@@ -1414,10 +1442,12 @@ function renderCadDiagram(method, inputs, outputs) {
 syncMethodTemplates(DEFAULT_INPUTS);
 
 function renderCalcResultTable(data) {
-  const res = data.result || {};
-  const outputs = res.outputs || res;
+  const sc = data?.result?.structuredContent;
+  const res = sc || data?.result || {};
+  const outputs = res.outputs || res.recomputed || res;
   const ivs = res.exact_intervals || {};
-  const keys = Object.keys(outputs).filter((k) => ["string", "number", "boolean"].includes(typeof outputs[k]) || Array.isArray(outputs[k]));
+  const skip = new Set(["sources", "confidence", "exact_intervals", "unit_conversions", "fault_kind", "stated_outputs", "method_version", "isError"]);
+  const keys = Object.keys(outputs).filter((k) => !skip.has(k) && (["string", "number", "boolean"].includes(typeof outputs[k]) || Array.isArray(outputs[k])));
   const box = document.getElementById("calc-table-box");
   const tbody = document.getElementById("calc-table-body");
   if (!keys.length) {
@@ -1426,7 +1456,6 @@ function renderCalcResultTable(data) {
   }
   tbody.replaceChildren();
   keys.forEach((k) => {
-    if (k === "sources" || k === "confidence") return;
     const tr = document.createElement("tr");
     const th = document.createElement("th");
     th.textContent = k;
@@ -1444,9 +1473,18 @@ function renderCalcResultTable(data) {
     tbody.appendChild(tr);
   });
   box.hidden = false;
-  const method = document.getElementById("calc-method").value;
+  const ver = String(res.method_version || data?.method_version || "");
+  const method = (ver.includes("@") ? ver.split("@", 1)[0] : "") || document.getElementById("calc-method").value;
   try {
-    renderCadDiagram(method, JSON.parse(document.getElementById("calc-inputs-json").value), outputs);
+    const inputsObj = method === "rigid_body_point_mass" && DEFAULT_INPUTS[method]
+      ? { ...DEFAULT_INPUTS[method], ...JSON.parse(document.getElementById("calc-inputs-json").value || "{}") }
+      : JSON.parse(document.getElementById("calc-inputs-json").value || "{}");
+    renderCadDiagram(method, inputsObj, outputs);
+    if (res.fault_kind) {
+      const badge = document.getElementById("cad-badge");
+      badge.textContent = `Compare: ${res.fault_kind}`;
+      badge.dataset.tone = res.fault_kind === "clean" ? "ok" : "warn";
+    }
   } catch {}
 }
 
@@ -1459,6 +1497,7 @@ function renderCoverageCellsTable(cells) {
   }
   tbody.replaceChildren();
   cells.slice(0, 25).forEach((c) => {
+    const axes = c.axes || {};
     const tr = document.createElement("tr");
     const th = document.createElement("th");
     th.textContent = c.cell_id || "-";
@@ -1467,13 +1506,13 @@ function renderCoverageCellsTable(cells) {
     tdS.textContent = c.status || "-";
     const tdM = document.createElement("td");
     tdM.dataset.label = "Masa";
-    tdM.textContent = c.mass_kg || "-";
+    tdM.textContent = axes.mass_kg ?? c.mass_kg ?? "-";
     const tdL = document.createElement("td");
     tdL.dataset.label = "Factor Carga";
-    tdL.textContent = c.load_factor || "-";
+    tdL.textContent = axes.load_factor ?? c.load_factor ?? "-";
     const tdC = document.createElement("td");
     tdC.dataset.label = "CG";
-    tdC.textContent = c.cg_x_m || "-";
+    tdC.textContent = axes.cg_x_m ?? c.cg_x_m ?? "-";
     tr.append(th, tdS, tdM, tdL, tdC);
     tbody.appendChild(tr);
   });
@@ -1517,50 +1556,76 @@ function updateBadgesAndTables(data) {
   outBadge.textContent = conf;
   outBadge.dataset.tone = conf === "abstain" ? "warn" : (conf === "error" ? "err" : "ok");
 
-  if (data?.result?.outputs) {
-    document.getElementById("kpi-calc").textContent = "Decimal Verificado";
+  const res = data?.result?.structuredContent || data?.result;
+  const hasCalcVars = res && (
+    res.outputs ||
+    res.recomputed ||
+    res.exact_intervals ||
+    ["disk_loading_pa", "shear_stress_mpa", "weight_n"].some((k) => k in res)
+  );
+  if (hasCalcVars && conf !== "abstain") {
+    document.getElementById("kpi-calc").textContent = res.fault_kind ? `Compare: ${res.fault_kind}` : "Decimal Verificado";
     renderCalcResultTable(data);
   }
-  if (typeof data?.result?.gap_count === "number") {
-    document.getElementById("kpi-cov").textContent = `${data.result.calc_count || 0}/${data.result.cell_count} cubiertas`;
+  if (typeof res?.gap_count === "number") {
+    document.getElementById("kpi-cov").textContent = `${res.calc_count || 0}/${res.cell_count} cubiertas`;
   }
-  if (typeof data?.result?.ready === "boolean") {
+  if (typeof res?.ready === "boolean") {
     const pill = document.getElementById("cov-gate-pill");
-    pill.textContent = `Gate: ${data.result.ready ? "LISTO" : "PENDIENTE"}`;
-    pill.dataset.tone = data.result.ready ? "ok" : "warn";
+    pill.textContent = `Gate: ${res.ready ? "LISTO" : "PENDIENTE"}`;
+    pill.dataset.tone = res.ready ? "ok" : "warn";
   }
-  if (Array.isArray(data?.result?.cells)) renderCoverageCellsTable(data.result.cells);
-  if (Array.isArray(data?.result?.events)) renderLedgerEventsTable(data.result.events);
-  if (data?.result?.status) document.getElementById("kpi-smt").textContent = data.result.status;
-  if (data?.result?.merkle_root) {
-    document.getElementById("kpi-ledger").textContent = String(data.result.merkle_root).slice(0, 14) + "...";
+  if (Array.isArray(res?.cells)) renderCoverageCellsTable(res.cells);
+  if (Array.isArray(res?.events)) renderLedgerEventsTable(res.events);
+  if (res?.status) document.getElementById("kpi-smt").textContent = res.status;
+  if (res?.merkle_root) {
+    document.getElementById("kpi-ledger").textContent = String(res.merkle_root).slice(0, 14) + "...";
   }
 }
 
+function setOutput(text, tone = "ok", badgeLabel = null) {
+  const badge = document.getElementById("out-badge");
+  if (badgeLabel) badge.textContent = badgeLabel;
+  badge.dataset.tone = tone;
+  document.getElementById("out").textContent = String(text || "").slice(0, 4000);
+}
+
 async function show(url, options) {
-  const response = await fetch(url, options);
-  const text = await response.text();
-  let shown = text;
+  const badge = document.getElementById("out-badge");
+  badge.textContent = "Cargando...";
+  badge.dataset.tone = "";
   try {
-    const data = JSON.parse(text);
-    updateBadgesAndTables(data);
-    if (data.result && data.result.cell_count) {
-      shown = JSON.stringify({
-        confidence: data.confidence,
-        method_version: data.method_version,
-        cell_count: data.result.cell_count,
-        calc_count: data.result.calc_count,
-        gap_count: data.result.gap_count,
-        calc_cells: (data.result.calc_cells || []).slice(0, 3),
-        gaps: (data.result.gaps || []).slice(0, 3)
-      }, null, 2);
-    } else {
-      shown = JSON.stringify(data, null, 2);
+    const response = await fetch(url, options);
+    const text = await response.text();
+    let shown = text;
+    try {
+      const data = JSON.parse(text);
+      updateBadgesAndTables(data);
+      if (!response.ok) {
+        badge.textContent = `HTTP ${response.status}`;
+        badge.dataset.tone = "err";
+      }
+      if (data.result && data.result.cell_count) {
+        shown = JSON.stringify({
+          confidence: data.confidence,
+          method_version: data.method_version,
+          cell_count: data.result.cell_count,
+          calc_count: data.result.calc_count,
+          gap_count: data.result.gap_count,
+          calc_cells: (data.result.calc_cells || []).slice(0, 3),
+          gaps: (data.result.gaps || []).slice(0, 3)
+        }, null, 2);
+      } else {
+        shown = JSON.stringify(data, null, 2);
+      }
+    } catch {
+      badge.textContent = response.ok ? "text/plain" : `HTTP ${response.status}`;
+      badge.dataset.tone = response.ok ? "ok" : "err";
     }
-  } catch {
-    document.getElementById("out-badge").textContent = response.ok ? "text/plain" : `HTTP ${response.status}`;
+    document.getElementById("out").textContent = shown.slice(0, 4000);
+  } catch (err) {
+    setOutput(`Error de red al consultar ${url}: ${err?.message || err}`, "err", "Offline");
   }
-  document.getElementById("out").textContent = shown.slice(0, 4000);
 }
 
 function post(url, body) {
@@ -1584,32 +1649,79 @@ function tenantUrl(path) {
 async function ensureSession() {
   const actor = document.getElementById("actor-select").value || "author";
   const tenant_id = currentTenant();
-  const response = await fetch("/auth/login", {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ actor_id: actor, password: `${actor}-local`, tenant_id })
-  });
-  if (!response.ok) {
-    document.getElementById("out").textContent = await response.text();
+  const customPw = (document.getElementById("password-input")?.value || "").trim();
+  const password = customPw || `${actor}-local`;
+  try {
+    const response = await fetch("/auth/login", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actor_id: actor, password, tenant_id })
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      setOutput(errText, "err", `Auth ${response.status}`);
+      return null;
+    }
+    const st = document.getElementById("session-status");
+    st.textContent = `Session: ${actor} @ ${tenant_id}`;
+    st.dataset.tone = "ok";
+    return actor;
+  } catch (err) {
+    setOutput(`Error de red en /auth/login: ${err?.message || err}`, "err", "Offline");
     return null;
   }
-  const st = document.getElementById("session-status");
-  st.textContent = `Session: ${actor} @ ${tenant_id}`;
-  st.dataset.tone = "ok";
-  return actor;
 }
+
+(async function hydrateSession() {
+  try {
+    const resp = await fetch(tenantUrl("/auth/me"), { credentials: "same-origin" });
+    if (resp.ok) {
+      const data = await resp.json();
+      const info = data?.result;
+      if (info?.actor_id) {
+        const st = document.getElementById("session-status");
+        st.textContent = `Session: ${info.actor_id} @ ${info.tenant_id}`;
+        st.dataset.tone = "ok";
+      }
+    }
+  } catch {}
+})();
 
 document.getElementById("login-now-btn").onclick = async () => {
   if (await ensureSession()) document.getElementById("settings-dialog").close();
 };
-document.getElementById("copy-out-btn").onclick = () => {
-  navigator.clipboard?.writeText(document.getElementById("out").textContent);
+document.getElementById("logout-now-btn").onclick = async () => {
+  try {
+    await post(tenantUrl("/auth/logout"), {});
+    const st = document.getElementById("session-status");
+    st.textContent = "Session: anonymous";
+    st.dataset.tone = "";
+    document.getElementById("settings-dialog").close();
+  } catch (err) {
+    setOutput(`Error cerrando sesion: ${err?.message || err}`, "err", "Error");
+  }
+};
+document.getElementById("copy-out-btn").onclick = async () => {
+  try {
+    await navigator.clipboard?.writeText(document.getElementById("out").textContent);
+    document.getElementById("out-badge").textContent = "Copiado";
+  } catch {}
 };
 document.getElementById("clear-out-btn").onclick = () => {
   document.getElementById("out").textContent = "Ready.";
-  document.getElementById("out-badge").textContent = "Ready";
+  const badge = document.getElementById("out-badge");
+  badge.textContent = "Ready";
+  badge.dataset.tone = "";
 };
+
+document.getElementById("calc-inputs-json").addEventListener("change", () => {
+  try {
+    const parsed = JSON.parse(document.getElementById("calc-inputs-json").value || "{}");
+    renderDynamicCalcForm(parsed);
+    renderCadDiagram(document.getElementById("calc-method").value, parsed, null);
+  } catch {}
+});
 
 // File drag-and-drop & file picker ingestion (supports real PDF/DOCX/XLSX via content_base64)
 let uploadedBase64 = null;
@@ -1665,41 +1777,51 @@ document.getElementById("stream-supervisor").onclick = async () => {
   const actor = await ensureSession();
   if (!actor) return;
   const out = document.getElementById("out");
+  const badge = document.getElementById("out-badge");
   const runtime_mode = document.getElementById("runtime-mode").value;
   const edge_preset = document.getElementById("edge-preset").value;
   const modelVal = (document.getElementById("model-override").value || "").trim();
   ["reader", "checker", "refuter", "scribe"].forEach((s) => {
     document.getElementById(`stage-${s}`).dataset.done = "false";
   });
+  badge.textContent = "Streaming...";
+  badge.dataset.tone = "";
   out.textContent = "Streaming supervisor stages...\n";
-  const resp = await fetch("/supervisor/stream", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      example: "first_cell",
-      actor_id: actor,
-      tenant_id: currentTenant(),
-      runtime_mode,
-      edge_preset,
-      compact_for_edge: runtime_mode === "edge" || runtime_mode === "hybrid",
-      model: modelVal || undefined,
-      edge_model: modelVal || undefined
-    })
-  });
-  if (!resp.body) {
-    out.textContent = await resp.text();
-    return;
-  }
-  const reader = resp.body.getReader();
-  const dec = new TextDecoder();
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    const chunk = dec.decode(value, { stream: true });
-    out.textContent += chunk;
-    ["reader", "checker", "refuter", "scribe"].forEach((s) => {
-      if (chunk.includes(s)) document.getElementById(`stage-${s}`).dataset.done = "true";
+  try {
+    const resp = await fetch("/supervisor/stream", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        example: "first_cell",
+        actor_id: actor,
+        tenant_id: currentTenant(),
+        runtime_mode,
+        edge_preset,
+        compact_for_edge: runtime_mode === "edge" || runtime_mode === "hybrid",
+        model: modelVal || undefined,
+        edge_model: modelVal || undefined
+      })
     });
+    if (!resp.ok || !resp.body) {
+      setOutput(await resp.text(), "err", `HTTP ${resp.status}`);
+      return;
+    }
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const chunk = dec.decode(value, { stream: true });
+      out.textContent += chunk;
+      ["reader", "checker", "refuter", "scribe"].forEach((s) => {
+        if (chunk.includes(s)) document.getElementById(`stage-${s}`).dataset.done = "true";
+      });
+    }
+    badge.textContent = "Stream OK";
+    badge.dataset.tone = "ok";
+  } catch (err) {
+    setOutput(`Error en stream SSE: ${err?.message || err}`, "err", "Offline");
   }
 };
 document.getElementById("show-coverage").onclick = () => show(tenantUrl("/coverage/gaps"));
@@ -1728,31 +1850,48 @@ document.getElementById("verify-ledger").onclick = () => show(tenantUrl("/ledger
 document.getElementById("query-events").onclick = () => show(tenantUrl("/ledger/events?limit=25"));
 document.getElementById("check-consistency").onclick = () => show(tenantUrl("/ledger/consistency?old_count=0"));
 document.getElementById("prove-head").onclick = async () => {
-  const verifyResp = await fetch(tenantUrl("/ledger/verify"));
-  const verifyJson = await verifyResp.json();
-  const head = verifyJson.result && verifyJson.result.head_hash;
-  if (!head || /^0+$/.test(head)) {
-    document.getElementById("out").textContent = "Ledger is empty; run a load case first.";
-    return;
+  try {
+    const verifyResp = await fetch(tenantUrl("/ledger/verify"));
+    const verifyJson = await verifyResp.json();
+    const head = verifyJson.result && verifyJson.result.head_hash;
+    if (!head || /^0+$/.test(head)) {
+      setOutput("Ledger vacio: ejecuta primero 'Ejecutar Carga SL-1' o ingesta/sweep.", "warn", "Empty");
+      return;
+    }
+    show(tenantUrl(`/ledger/proof/${head}`));
+  } catch (err) {
+    setOutput(`Error consultando head: ${err?.message || err}`, "err", "Offline");
   }
-  show(tenantUrl(`/ledger/proof/${head}`));
 };
 document.getElementById("signoff-head").onclick = async () => {
   const actor = await ensureSession();
-  if (actor) post("/ledger/signoff", { actor_id: actor, tenant_id: currentTenant() });
+  if (actor) post("/ledger/signoff", { actor_id: actor, tenant_id: currentTenant(), review_duration_ms: 2500 });
 };
 document.getElementById("check-unit").onclick = () => post("/notes/check", { example: "unit_scale" });
 document.getElementById("check-missing").onclick = () => post("/notes/check", { example: "missing_input" });
 document.getElementById("run-custom-calc").onclick = () => {
   const method_id = document.getElementById("calc-method").value;
-  const inputs = JSON.parse(document.getElementById("calc-inputs-json").value || "{}");
+  let inputs;
+  try {
+    inputs = JSON.parse(document.getElementById("calc-inputs-json").value || "{}");
+  } catch (err) {
+    setOutput(`JSON invalido en Inputs: ${err.message}`, "err", "JSON Error");
+    return;
+  }
   const normalize_units = document.getElementById("calc-normalize-units").checked;
   post("/calc/run", { method_id, inputs, normalize_units, tenant_id: currentTenant() });
 };
 document.getElementById("run-compare-calc").onclick = () => {
   const method_id = document.getElementById("calc-method").value;
-  const inputs = JSON.parse(document.getElementById("calc-inputs-json").value || "{}");
-  const stated_outputs = JSON.parse(document.getElementById("calc-stated-json").value || "{}");
+  let inputs;
+  let stated_outputs;
+  try {
+    inputs = JSON.parse(document.getElementById("calc-inputs-json").value || "{}");
+    stated_outputs = JSON.parse(document.getElementById("calc-stated-json").value || "{}");
+  } catch (err) {
+    setOutput(`JSON invalido en Inputs o Stated Outputs: ${err.message}`, "err", "JSON Error");
+    return;
+  }
   const normalize_units = document.getElementById("calc-normalize-units").checked;
   post("/calc/compare", { method_id, inputs, stated_outputs, normalize_units });
 };
@@ -1772,32 +1911,39 @@ document.getElementById("ingest-supervise").onclick = async () => {
   const body = { filename, record: false, tenant_id: currentTenant() };
   if (uploadedBase64) body.content_base64 = uploadedBase64;
   else body.content_text = document.getElementById("ingest-text").value || "";
-  const resp = await fetch("/ingest/document", {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
-  });
-  const ingested = await resp.json();
-  if (!resp.ok || ingested.confidence !== "deterministic") {
-    document.getElementById("out").textContent = JSON.stringify(ingested, null, 2);
-    return;
+  try {
+    const resp = await fetch("/ingest/document", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const ingested = await resp.json();
+    if (!resp.ok || ingested.confidence !== "deterministic") {
+      setOutput(JSON.stringify(ingested, null, 2), "warn", `HTTP ${resp.status}`);
+      return;
+    }
+    post("/supervisor/run", {
+      example: "first_cell",
+      actor_id: actor,
+      tenant_id: currentTenant(),
+      blocks: ingested.result.blocks,
+      record_requirements: true,
+      runtime_mode: document.getElementById("runtime-mode").value,
+      edge_preset: document.getElementById("edge-preset").value,
+      compact_for_edge: ["edge", "hybrid"].includes(document.getElementById("runtime-mode").value),
+      model: document.getElementById("model-override").value || undefined,
+      edge_model: document.getElementById("model-override").value || undefined
+    });
+  } catch (err) {
+    setOutput(`Error en ingesta supervisada: ${err?.message || err}`, "err", "Offline");
   }
-  post("/supervisor/run", {
-    example: "first_cell",
-    actor_id: actor,
-    tenant_id: currentTenant(),
-    blocks: ingested.result.blocks,
-    record_requirements: true,
-    runtime_mode: document.getElementById("runtime-mode").value,
-    edge_preset: document.getElementById("edge-preset").value,
-    compact_for_edge: ["edge", "hybrid"].includes(document.getElementById("runtime-mode").value),
-    model: document.getElementById("model-override").value || undefined,
-    edge_model: document.getElementById("model-override").value || undefined
-  });
 };
 document.getElementById("agent-runtime").onclick = () => show("/agents/runtime");
-document.getElementById("agent-probe").onclick = () => post("/agents/probe", { target: "all" });
+document.getElementById("agent-probe").onclick = async () => {
+  const actor = await ensureSession();
+  if (actor) post("/agents/probe", { target: "all", tenant_id: currentTenant() });
+};
 document.getElementById("edge-preflight").onclick = () => {
   const text = document.getElementById("ingest-text").value || "";
   const edge_preset = document.getElementById("edge-preset").value;
@@ -1810,7 +1956,7 @@ document.getElementById("edge-browser-check").onclick = async () => {
     device_memory_gb_approx: navigator.deviceMemory || null,
     local_deterministic_kernels: ["calc_decimal_exact", "z3_smt_formal", "sha256_merkle_proofs"]
   };
-  document.getElementById("out").textContent = JSON.stringify(info, null, 2);
+  setOutput(JSON.stringify(info, null, 2), "ok", "local");
 };
 document.getElementById("agent-invoke").onclick = async () => {
   const actor = await ensureSession();
@@ -1835,40 +1981,86 @@ document.getElementById("agent-invoke").onclick = async () => {
 };
 document.getElementById("export-zip").onclick = async () => {
   if (!(await ensureSession())) return;
-  const response = await fetch(tenantUrl("/export/zip"), { method: "POST", credentials: "same-origin" });
-  if (!response.ok) {
-    document.getElementById("out").textContent = await response.text();
-    return;
+  try {
+    const response = await fetch(tenantUrl("/export/zip"), { method: "POST", credentials: "same-origin" });
+    if (!response.ok) {
+      setOutput(await response.text(), "err", `HTTP ${response.status}`);
+      return;
+    }
+    const blob = await response.blob();
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "evidence-chain.zip";
+    link.click();
+    setOutput("Export started. The zip README names the verifier command.", "ok", "ZIP");
+  } catch (err) {
+    setOutput(`Error exportando ZIP: ${err?.message || err}`, "err", "Offline");
   }
-  const blob = await response.blob();
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = "evidence-chain.zip";
-  link.click();
-  document.getElementById("out").textContent = "Export started. The zip README names the verifier command.";
 };
+
+const MCP_DEFAULT_ARGS = {
+  evidence_calc_list: {},
+  evidence_calc_run: { method_id: "bolt_screen", inputs: DEFAULT_INPUTS.bolt_screen },
+  evidence_coverage_status: { tenant_id: "demo", action: "summary" },
+  evidence_formal_prove: { kind: "hover_power" },
+  evidence_notes_check: { example: "unit_scale" },
+  evidence_redteam_benchmark: {},
+  evidence_bench_compare: { mode: "fixture" },
+  evidence_safety_scan: { text: "CS-27.301 nominal structural load verification.", mode: "both" },
+  evidence_agents_runtime: { action: "status" },
+  evidence_dossier_export: { tenant_id: "demo", format: "summary" },
+  evidence_bundle_export: { tenant_id: "demo", output_path: "studio_export.zip" },
+  evidence_bundle_verify: { bundle_path: "studio_export.zip" }
+};
+
+document.getElementById("mcp-tool-select").addEventListener("change", (e) => {
+  const preset = MCP_DEFAULT_ARGS[e.target.value];
+  if (preset) document.getElementById("mcp-args-json").value = JSON.stringify(preset, null, 2);
+});
+
+const MCP_WRITE_TOOLS = new Set([
+  "evidence_bundle_export",
+  "evidence_bundle_verify",
+  "evidence_verify_case",
+  "evidence_ledger_signoff",
+  "evidence_coverage_sweep"
+]);
 
 // MCP Studio interactive calls against POST /mcp
 async function callMcpRpc(method, params = {}) {
-  await ensureSession();
-  const resp = await fetch("/mcp", {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params })
-  });
-  const data = await resp.json();
-  document.getElementById("out").textContent = JSON.stringify(data, null, 2).slice(0, 4000);
-  if (method === "tools/list" && Array.isArray(data?.result?.tools)) {
-    const sel = document.getElementById("mcp-tool-select");
-    sel.replaceChildren();
-    data.result.tools.forEach((t) => {
-      const opt = document.createElement("option");
-      opt.value = t.name;
-      opt.textContent = `${t.name} — ${t.description.slice(0, 48)}`;
-      sel.appendChild(opt);
+  const toolName = params?.name || "";
+  const needsAuth = MCP_WRITE_TOOLS.has(toolName) || Boolean(params?.arguments?.record);
+  if (needsAuth && !(await ensureSession())) return;
+  const badge = document.getElementById("out-badge");
+  badge.textContent = "MCP...";
+  badge.dataset.tone = "";
+  try {
+    const resp = await fetch(tenantUrl("/mcp"), {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params })
     });
-    document.getElementById("kpi-mcp").textContent = `${data.result.tools.length} Tools Live`;
+    const data = await resp.json();
+    updateBadgesAndTables(data);
+    document.getElementById("out").textContent = JSON.stringify(data, null, 2).slice(0, 4000);
+    if (!resp.ok || data?.result?.isError) {
+      badge.textContent = data?.result?.structuredContent?.error || `HTTP ${resp.status}`;
+      badge.dataset.tone = "err";
+    }
+    if (method === "tools/list" && Array.isArray(data?.result?.tools)) {
+      const sel = document.getElementById("mcp-tool-select");
+      sel.replaceChildren();
+      data.result.tools.forEach((t) => {
+        const opt = document.createElement("option");
+        opt.value = t.name;
+        opt.textContent = `${t.name} — ${t.description.slice(0, 48)}`;
+        sel.appendChild(opt);
+      });
+      document.getElementById("kpi-mcp").textContent = `${data.result.tools.length} Tools Live`;
+    }
+  } catch (err) {
+    setOutput(`Error en /mcp: ${err?.message || err}`, "err", "Offline");
   }
 }
 document.getElementById("mcp-list-tools").onclick = () => callMcpRpc("tools/list");
@@ -1876,7 +2068,13 @@ document.getElementById("mcp-run-redteam").onclick = () => callMcpRpc("tools/cal
 document.getElementById("mcp-run-b2").onclick = () => callMcpRpc("tools/call", { name: "evidence_bench_compare", arguments: {} });
 document.getElementById("mcp-invoke-tool").onclick = () => {
   const name = document.getElementById("mcp-tool-select").value;
-  const args = JSON.parse(document.getElementById("mcp-args-json").value || "{}");
+  let args;
+  try {
+    args = JSON.parse(document.getElementById("mcp-args-json").value || "{}");
+  } catch (err) {
+    setOutput(`JSON invalido en Argumentos MCP: ${err.message}`, "err", "JSON Error");
+    return;
+  }
   callMcpRpc("tools/call", { name, arguments: args });
 };
 document.getElementById("mcp-scan-text").onclick = () => {
