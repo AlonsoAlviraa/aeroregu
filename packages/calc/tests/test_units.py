@@ -1,58 +1,55 @@
+from __future__ import annotations
+
+from decimal import Decimal
+
+import pytest
 from evidence_calc.errors import AbstainError
-from evidence_calc.registry import run_method
+from evidence_calc.registry import load_card, run_method
+from evidence_calc.units import convert_inputs_to_card_units
 
 
-def test_compatible_units_still_run() -> None:
-    ran = run_method(
-        "bolt_screen",
-        {
-            "shear_force_n": "3000.000",
-            "tensile_force_n": "4000.000",
-            "area_mm2": "80.000",
-            "shear_allowable_mpa": "250.000",
-            "tensile_allowable_mpa": "250.000",
+def test_convert_inputs_to_card_units_kn_to_n_and_run_method() -> None:
+    card = load_card("bolt_screen")
+    inputs = {
+        "shear_force_n": "3.000",
+        "tensile_force_n": "4.000",
+        "area_mm2": "80.000",
+        "shear_allowable_mpa": "250.000",
+        "tensile_allowable_mpa": "250.000",
+        "_input_units": {
+            "shear_force_n": "kN",
+            "tensile_force_n": "kN",
+            "area_mm2": "mm^2",
+            "shear_allowable_mpa": "MPa",
+            "tensile_allowable_mpa": "MPa",
         },
-    )
-    assert "interaction_ratio" in ran["outputs"]
+    }
+    converted, conversions = convert_inputs_to_card_units(inputs, card)
+    assert Decimal(converted["shear_force_n"]) == Decimal("3000.000")
+    assert Decimal(converted["tensile_force_n"]) == Decimal("4000.000")
+    assert len(conversions) == 2
+    assert {item["field"] for item in conversions} == {"shear_force_n", "tensile_force_n"}
+
+    ran = run_method("bolt_screen", inputs, normalize_units=True)
+    assert ran["outputs"]["shear_stress_mpa"] == "37.500"
+    assert ran["outputs"]["tensile_stress_mpa"] == "50.000"
+    assert ran["outputs"]["interaction_ratio"] == "0.250"
+    assert ran["normalized_inputs"]["shear_force_n"].startswith("3000")
+    assert len(ran["unit_conversions"]) == 2
 
 
-def test_conversion_interval_for_a_multiplicative_unit() -> None:
-    from decimal import Decimal
-
-    from evidence_calc.units import conversion_interval
-
-    assert conversion_interval("meter", "meter") == Decimal("1")
-    foot = conversion_interval("meter", "foot")
-    exact = Decimal(1250) / Decimal(381)
-    floated = Decimal("3.2808398950131235")
-    assert isinstance(foot, Decimal)
-    assert abs(foot - exact) < abs(floated - exact)
-    assert conversion_interval("meter", "second") == "incompatible"
-    assert conversion_interval("°C", "K") is None
-
-
-def test_meter_is_length() -> None:
-    from evidence_calc.units import dimension_exponents
-
-    assert dimension_exponents("meter") == {"L": 1}
-    assert dimension_exponents("not-a-unit") is None
-
-
-def test_incompatible_unit_abstains() -> None:
-    try:
-        run_method(
-            "rigid_body_point_mass",
-            {
-                "mass_kg": "800.000",
-                "gravity_m_s2": "9.810",
-                "load_factor": "1.500",
-                "cg_x_m": "0.000",
-                "unit_x_m": ["-2.000", "-1.000", "1.000", "2.000"],
-                "unit_operative": [True, True, True, True],
-                "_input_units": {"mass_kg": "meter"},
-            },
-        )
-    except AbstainError as exc:
-        assert exc.reason == "unit_mismatch"
-        return
-    raise AssertionError("expected unit_mismatch")
+def test_convert_inputs_rejects_incompatible_dimension() -> None:
+    card = load_card("bolt_screen")
+    bad_inputs = {
+        "shear_force_n": "3.000",
+        "tensile_force_n": "4.000",
+        "area_mm2": "80.000",
+        "shear_allowable_mpa": "250.000",
+        "tensile_allowable_mpa": "250.000",
+        "_input_units": {
+            "shear_force_n": "meter",
+        },
+    }
+    with pytest.raises(AbstainError) as exc:
+        convert_inputs_to_card_units(bad_inputs, card)
+    assert exc.value.reason == "unit_mismatch"

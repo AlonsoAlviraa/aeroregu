@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import Any
 
+from evidence_calc.diagnostics import classify_numeric_delta
 from evidence_calc.errors import AbstainError
 from evidence_calc.registry import load_card, run_method
 from evidence_kernel.canonical import inputs_hash
 from evidence_kernel.envelope import make_envelope, project_source
 from evidence_kernel.numbers import only_new_physical_tokens_are_integers, stray_physical_numbers
 
-from evidence_eval.numbers import DECIMAL, format_quantum, scale_decimals
+from evidence_eval.numbers import DECIMAL
 
 DETERMINISTIC_FAULTS = (
     "unit_scale",
@@ -59,7 +59,7 @@ def assess(artifact: dict[str, Any]) -> dict[str, Any]:
     if artifact.get("coverage_status") == "calc":
         if artifact.get("coverage_evidence_hash") != inputs_hash(recomputed):
             found.append("false_coverage")
-    numeric = _numeric_flag(method_id, inputs, stated, recomputed)
+    numeric = classify_numeric_delta(method_id, inputs, stated, recomputed)
     if numeric == "unexplained" and only_new_physical_tokens_are_integers(stated, recomputed):
         if not found:
             return _done("abstain", _abstain(card, inputs, "unrecomputed_integer"))
@@ -88,75 +88,6 @@ def llm_numeric_violations(case: dict[str, Any]) -> int:
         if stray_physical_numbers(turn, allowed):
             count += 1
     return count
-
-
-def _numeric_flag(
-    method_id: str,
-    inputs: dict[str, Any],
-    stated: Any,
-    recomputed: dict[str, Any],
-) -> str:
-    if stated == recomputed:
-        return "clean"
-    if _matches_scaled_input(method_id, inputs, stated, Decimal("1000")):
-        return "unit_scale"
-    if _matches_scaled_input(method_id, inputs, stated, Decimal("0.001")):
-        return "unit_scale"
-    if _matches_sign(method_id, inputs, stated):
-        return "sign"
-    if _matches_replaced_field(method_id, inputs, stated):
-        return "wrong_input"
-    if stated == scale_decimals(recomputed, Decimal("2")):
-        return "arithmetic"
-    return "unexplained"
-
-
-def _matches_scaled_input(
-    method_id: str, inputs: dict[str, Any], stated: Any, factor: Decimal
-) -> bool:
-    for field, value in _scalar_decimals(inputs):
-        trial = dict(inputs)
-        trial[field] = format_quantum(Decimal(value) * factor)
-        if _same(method_id, trial, stated):
-            return True
-    return False
-
-
-def _matches_sign(method_id: str, inputs: dict[str, Any], stated: Any) -> bool:
-    for field, value in _scalar_decimals(inputs):
-        trial = dict(inputs)
-        trial[field] = format_quantum(-Decimal(value))
-        if _same(method_id, trial, stated):
-            return True
-    return False
-
-
-def _matches_replaced_field(method_id: str, inputs: dict[str, Any], stated: Any) -> bool:
-    scalars = _scalar_decimals(inputs)
-    for field, _value in scalars:
-        for other, other_value in scalars:
-            if field == other or other_value == inputs[field]:
-                continue
-            trial = dict(inputs)
-            trial[field] = other_value
-            if _same(method_id, trial, stated):
-                return True
-    return False
-
-
-def _same(method_id: str, inputs: dict[str, Any], stated: Any) -> bool:
-    try:
-        return run_method(method_id, inputs)["outputs"] == stated
-    except AbstainError:
-        return False
-
-
-def _scalar_decimals(inputs: dict[str, Any]) -> list[tuple[str, str]]:
-    found: list[tuple[str, str]] = []
-    for key, value in inputs.items():
-        if isinstance(value, str) and DECIMAL.fullmatch(value):
-            found.append((key, value))
-    return found
 
 
 def _contradictory(artifact: dict[str, Any]) -> bool:

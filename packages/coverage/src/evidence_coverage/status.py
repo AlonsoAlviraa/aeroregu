@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from evidence_calc.registry import run_method
 from evidence_kernel.canonical import inputs_hash
 from evidence_kernel.envelope import make_envelope, project_source
 from evidence_kernel.ledger import Ledger
@@ -141,3 +142,121 @@ def _latest_status(events: list[dict[str, Any]]) -> dict[str, str]:
         elif body["event_type"] == "invalidated":
             status[body["payload"]["cell_id"]] = "gap"
     return status
+
+
+def list_cells_with_status(
+    events: list[dict[str, Any]],
+    *,
+    status_filter: str | None = None,
+    stale_only: bool = False,
+    cells: list[Cell] | None = None,
+) -> list[dict[str, Any]]:
+    """Return every envelope cell enriched with current status, evidence hash, and stale count."""
+    chosen = cells or generate_cells()
+    latest_status: dict[str, str] = {}
+    latest_evidence: dict[str, str] = {}
+    invalidations: dict[str, int] = {}
+    for event in events:
+        body = event["body"]
+        ev_type = body["event_type"]
+        payload = body["payload"]
+        cid = str(payload.get("cell_id", ""))
+        if not cid:
+            continue
+        if ev_type == "cell_status_set":
+            latest_status[cid] = str(payload.get("status", "gap"))
+            latest_evidence[cid] = str(payload.get("evidence_event_hash") or "")
+        elif ev_type == "invalidated":
+            latest_status[cid] = "gap"
+            latest_evidence[cid] = ""
+            invalidations[cid] = invalidations.get(cid, 0) + 1
+
+    rows: list[dict[str, Any]] = []
+    for cell in chosen:
+        cur_status = latest_status.get(cell.cell_id, "gap")
+        inval_count = invalidations.get(cell.cell_id, 0)
+        is_stale = cur_status == "gap" and inval_count > 0
+        if status_filter and cur_status != status_filter:
+            continue
+        if stale_only and not is_stale:
+            continue
+        rows.append(
+            {
+                "cell_id": cell.cell_id,
+                "axes": dict(cell.axes),
+                "status": cur_status,
+                "evidence_event_hash": latest_evidence.get(cell.cell_id, ""),
+                "invalidation_count": str(inval_count),
+                "stale": is_stale,
+            }
+        )
+    return rows
+
+
+def run_coverage_sweep(
+    ledger: Ledger,
+    *,
+    actor_id: str,
+    created_at: str,
+    target_status: str = "gap",
+    stale_only: bool = False,
+    limit: int = 20,
+    cells: list[Cell] | None = None,
+) -> dict[str, Any]:
+    """Deterministically compute and close pending or stale coverage cells in batch."""
+    chosen = cells or generate_cells()
+    cells_by_id = {cell.cell_id: cell for cell in chosen}
+    candidates = list_cells_with_status(
+        ledger.events(),
+        status_filter=target_status,
+        stale_only=stale_only,
+        cells=chosen,
+    )
+    selected = candidates[: max(0, min(limit, len(chosen)))]
+    processed_ids: list[str] = []
+    calc_hashes: list[str] = []
+
+    for item in selected:
+        cell = cells_by_id[item["cell_id"]]
+        calc_inputs = calc_inputs_for(cell)
+        ran = run_method("rigid_body_point_mass", calc_inputs)
+        envelope = make_envelope(
+            sources=ran["sources"],
+            method_version=ran["method_version"],
+            inputs=calc_inputs,
+            confidence="deterministic",
+            result=ran["outputs"],
+        )
+        calc_hash = record(
+            ledger,
+            {
+                "event_type": "calc",
+                "tenant_id": ledger.tenant_id,
+                "actor_id": actor_id,
+                "created_at": created_at,
+                "payload": {
+                    "method_id": "rigid_body_point_mass",
+                    "inputs": calc_inputs,
+                    "outputs": ran["outputs"],
+                },
+                "envelope": envelope,
+            },
+        )
+        set_cell_status(
+            ledger,
+            cell=cell,
+            status="calc",
+            actor_id=actor_id,
+            actor_role="human",
+            created_at=created_at,
+            evidence_event_hash=calc_hash,
+        )
+        processed_ids.append(cell.cell_id)
+        calc_hashes.append(calc_hash)
+
+    return {
+        "processed_count": str(len(processed_ids)),
+        "remaining_candidates": str(max(0, len(candidates) - len(processed_ids))),
+        "cell_ids": processed_ids,
+        "calc_event_hashes": calc_hashes,
+    }

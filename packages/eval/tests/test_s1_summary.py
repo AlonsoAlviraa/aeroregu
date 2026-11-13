@@ -71,3 +71,11 @@ def test_equal_shift_recall_is_reported_as_no_drop() -> None:
     recalls["missing_input"] = "0/0"
     note = shift_gap_note({"shift_recall": {"in_distribution": recalls, "shifted": dict(recalls)}})
     assert "did not lower the checker" in note
+
+
+def test_seeded_s1_sampling_is_deterministic_and_flips_flag() -> None:
+    r1 = run_s1(limit=4, shuffle_seed=42)
+    r2 = run_s1(limit=4, shuffle_seed=42)
+    s1 = public_summary(r1)
+    assert s1["seed_controls_sampling"] is True
+    assert r1 == r2

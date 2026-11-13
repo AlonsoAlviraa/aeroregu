@@ -236,3 +236,84 @@ def test_ledger_releases_the_sqlite_file(tmp_path: Path) -> None:
     ledger = Ledger(folder / "quotes.sqlite3", "bench")
     assert ledger.events() == []
     shutil.rmtree(folder)
+
+
+def test_unique_prev_hash_prevents_chain_fork(tmp_path: Path) -> None:
+    path = tmp_path / "fork.sqlite3"
+    ledger = Ledger(path, "tenant-a")
+    first = ledger.append(
+        _body("tenant-a", "calc", {"marker": "one"}, _envelope({"marker": "one"}))
+    )
+    ledger.append(_body("tenant-a", "calc", {"marker": "two"}, _envelope({"marker": "two"})))
+    with sqlite3.connect(path) as conn, pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO events (event_hash, prev_hash, body_json) VALUES (?, ?, ?)",
+            ("f" * 64, first, "{}"),
+        )
+
+
+def test_wal_and_concurrent_appends_across_threads_and_instances(tmp_path: Path) -> None:
+    import threading
+
+    path = tmp_path / "concurrent.sqlite3"
+    primary = Ledger(path, "tenant-a")
+    with sqlite3.connect(path) as conn:
+        mode = str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+    assert mode == "wal"
+
+    errors: list[Exception] = []
+    hashes: list[str] = []
+    lock = threading.Lock()
+
+    def worker(worker_id: int) -> None:
+        local_ledger = primary if worker_id % 2 == 0 else Ledger(path, "tenant-a")
+        for step in range(8):
+            try:
+                tag = f"w{chr(ord('a') + worker_id)}s{chr(ord('a') + step)}"
+                digest = local_ledger.append(
+                    _body("tenant-a", "calc", {"marker": tag}, _envelope({"marker": tag}))
+                )
+                with lock:
+                    hashes.append(digest)
+            except Exception as exc:  # pragma: no cover - assertion checks empty
+                with lock:
+                    errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(idx,)) for idx in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+    assert len(hashes) == 48
+    assert len(set(hashes)) == 48
+    assert primary.verify()
+
+
+def test_incremental_cache_tracks_external_appends_and_append_many(tmp_path: Path) -> None:
+    path = tmp_path / "cache.sqlite3"
+    reader_ledger = Ledger(path, "tenant-a")
+    writer_ledger = Ledger(path, "tenant-a")
+
+    h1 = reader_ledger.append(
+        _body("tenant-a", "calc", {"marker": "a"}, _envelope({"marker": "a"}))
+    )
+    root_1 = reader_ledger.merkle_root()
+    assert len(reader_ledger.events()) == 1
+
+    many_hashes = writer_ledger.append_many(
+        [
+            _body("tenant-a", "calc", {"marker": "b"}, _envelope({"marker": "b"})),
+            _body("tenant-a", "calc", {"marker": "c"}, _envelope({"marker": "c"})),
+        ]
+    )
+    assert len(many_hashes) == 2
+    assert len(reader_ledger.events()) == 3
+    root_3 = reader_ledger.merkle_root()
+    assert root_3 != root_1
+    assert reader_ledger.inclusion_proof(h1)["merkle_root"] == root_3
+    queried = reader_ledger.query_events(event_type="calc", limit=2, offset=1)
+    assert queried["total"] == 3
+    assert [e["body"]["payload"]["marker"] for e in queried["events"]] == ["b", "c"]
+    assert reader_ledger.verify()

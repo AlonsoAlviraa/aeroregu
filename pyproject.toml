@@ -11,6 +11,7 @@ dependencies = [
     "evidence-eval",
     "evidence-ingest",
     "evidence-kernel",
+    "z3-solver>=5.4.1.0",
 ]
 
 [tool.uv]

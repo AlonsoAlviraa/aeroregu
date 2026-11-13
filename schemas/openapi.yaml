@@ -16,6 +16,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Envelope"
+  /ingest/document:
+    post:
+      operationId: ingestDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename]
+              properties:
+                filename:
+                  type: string
+                content_text:
+                  type: string
+                content_base64:
+                  type: string
+                record:
+                  type: boolean
+                tenant_id:
+                  type: string
+                actor_id:
+                  type: string
+      responses:
+        "200":
+          description: Unified document ingestion result (PDF, DOCX, XLSX, TXT/MD) with blocks, requirement spans, and optional ledger receipt.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
   /calc/run:
     post:
       operationId: calcRun
@@ -32,9 +62,43 @@ paths:
                 inputs:
                   type: object
                   additionalProperties: true
+                normalize_units:
+                  type: boolean
+                record:
+                  type: boolean
+                tenant_id:
+                  type: string
       responses:
         "200":
           description: Deterministic envelope, or abstain with no result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /calc/compare:
+    post:
+      operationId: calcCompare
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [method_id, inputs, stated_outputs]
+              properties:
+                method_id:
+                  type: string
+                inputs:
+                  type: object
+                  additionalProperties: true
+                stated_outputs:
+                  type: object
+                  additionalProperties: true
+                normalize_units:
+                  type: boolean
+      responses:
+        "200":
+          description: Compare stated outputs with deterministic recomputation and root-cause fault flag.
           content:
             application/json:
               schema:
@@ -45,6 +109,101 @@ paths:
       responses:
         "200":
           description: Envelope whose result carries the new event hash.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /ledger/verify:
+    get:
+      operationId: ledgerVerify
+      parameters:
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Verify append-only hash chain and return current head hash and Merkle root.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /ledger/events:
+    get:
+      operationId: ledgerEvents
+      parameters:
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+        - in: query
+          name: event_type
+          schema:
+            type: string
+        - in: query
+          name: actor_id
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: offset
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Query paginated and filtered ledger events for a tenant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /ledger/consistency:
+    get:
+      operationId: ledgerConsistency
+      parameters:
+        - in: query
+          name: old_count
+          schema:
+            type: integer
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: O(log N) Merkle append-only consistency proof from old_count to current count.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /ledger/proof/{event_hash}:
+    get:
+      operationId: ledgerProof
+      parameters:
+        - in: path
+          name: event_hash
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: O(log N) Merkle inclusion proof for the specified event hash.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /ledger/signoff:
+    post:
+      operationId: ledgerSignoff
+      responses:
+        "200":
+          description: Record a human sign-off event against a ledger event hash.
           content:
             application/json:
               schema:
@@ -64,9 +223,287 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Envelope"
+  /coverage/cells:
+    get:
+      operationId: coverageCells
+      parameters:
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: stale_only
+          schema:
+            type: boolean
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: offset
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Paginated list of coverage cells with computed status and staleness.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /coverage/sweep:
+    post:
+      operationId: coverageSweep
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenant_id:
+                  type: string
+                target_status:
+                  type: string
+                stale_only:
+                  type: boolean
+                limit:
+                  type: integer
+      responses:
+        "200":
+          description: Batch deterministic verification sweep across coverage cells.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /coverage/gate:
+    get:
+      operationId: coverageGate
+      parameters:
+        - in: query
+          name: require_signoff
+          schema:
+            type: boolean
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OpenFastTrace-style traceability and re-verification gate report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /coverage/cell-status:
+    post:
+      operationId: coverageCellStatus
+      responses:
+        "200":
+          description: Authenticated human status assignment for a coverage grid cell.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /coverage/mass-shift:
+    post:
+      operationId: coverageMassShift
+      responses:
+        "200":
+          description: Invalidate covered cells under a +5% mass shift and emit delta manifest.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /dossier/summary:
+    get:
+      operationId: dossierSummary
+      responses:
+        "200":
+          description: Enterprise certification lineage graph and delta re-verification manifest.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /dossier/strictdoc:
+    get:
+      operationId: dossierStrictDoc
+      responses:
+        "200":
+          description: StrictDoc (.sdoc) airworthiness requirements and evidence matrix.
+          content:
+            text/plain:
+              schema:
+                type: string
+  /dossier/oscal:
+    get:
+      operationId: dossierOscal
+      responses:
+        "200":
+          description: NIST OSCAL Assessment Results (SAR) airworthiness evaluation report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /formal/prove:
+    post:
+      operationId: formalProve
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind:
+                  type: string
+                  enum: [flight_envelope, structural_margin, hover_power]
+                tenant_id:
+                  type: string
+                bounds:
+                  type: object
+                safety_factor:
+                  type: string
+                allowables:
+                  type: object
+                disk_area_m2:
+                  type: string
+                air_density_kg_m3:
+                  type: string
+                figure_of_merit:
+                  type: string
+                max_power_available_kw:
+                  type: string
+      responses:
+        "200":
+          description: SMT formal verification receipt with exact rational proof.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /agents/runtime:
+    get:
+      operationId: agentsRuntime
+      responses:
+        "200":
+          description: Agent registry, prompt hashes, API/Edge backend readiness, and Edge hardware presets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /agents/probe:
+    post:
+      operationId: agentsProbe
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target:
+                  type: string
+                  enum: [all, api, edge]
+                timeout_s:
+                  type: number
+      responses:
+        "200":
+          description: Probe configured API and Edge model endpoints for availability and models.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /agents/edge/preflight:
+    post:
+      operationId: agentsEdgePreflight
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                edge_preset:
+                  type: string
+                text:
+                  type: string
+                blocks:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        "200":
+          description: Deterministic CPU pre-screening and span-preserving context compaction for Edge SLMs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /agents/invoke:
+    post:
+      operationId: agentsInvoke
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id]
+              properties:
+                agent_id:
+                  type: string
+                  enum: [reader, checker, refuter, scribe, decision_gate]
+                text:
+                  type: string
+                runtime_mode:
+                  type: string
+                  enum: [auto, fixture, api, edge, hybrid]
+                model:
+                  type: string
+                edge_model:
+                  type: string
+                edge_preset:
+                  type: string
+                compact_for_edge:
+                  type: boolean
+                record:
+                  type: boolean
+                tenant_id:
+                  type: string
+      responses:
+        "200":
+          description: Invoke a single verification agent with schema, numeric, and safety guards.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
   /supervisor/run:
     post:
       operationId: supervisorRun
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                runtime_mode:
+                  type: string
+                  enum: [auto, fixture, api, edge, hybrid]
+                model:
+                  type: string
+                edge_model:
+                  type: string
+                edge_preset:
+                  type: string
+                compact_for_edge:
+                  type: boolean
+                max_schema_retries:
+                  type: integer
+                tenant_id:
+                  type: string
       responses:
         "200":
           description: Supervisor graph result. Abstain omits result.
@@ -74,6 +511,38 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Envelope"
+  /supervisor/stream:
+    post:
+      operationId: supervisorStream
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                runtime_mode:
+                  type: string
+                  enum: [auto, fixture, api, edge, hybrid]
+                model:
+                  type: string
+                edge_model:
+                  type: string
+                edge_preset:
+                  type: string
+                compact_for_edge:
+                  type: boolean
+                max_schema_retries:
+                  type: integer
+                tenant_id:
+                  type: string
+      responses:
+        "200":
+          description: Server-Sent Events stream of per-stage and per-agent verification updates.
+          content:
+            text/event-stream:
+              schema:
+                type: string
   /notes/check:
     post:
       operationId: notesCheck

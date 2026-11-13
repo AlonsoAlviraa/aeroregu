@@ -2,24 +2,309 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>aeroregu</title>
+<title>aeroregu — Verification Workbench</title>
 <style>
-  body { font-family: Georgia, serif; margin: 2rem auto; max-width: 46rem; line-height: 1.45; background: #f4f1ea; color: #243027; }
-  button { font: inherit; margin: 0.3rem 0.4rem 0.3rem 0; padding: 0.35rem 0.7rem; }
-  pre { white-space: pre-wrap; background: #fffdf8; padding: 0.8rem; border: 1px solid #d9d3c7; }
+  :root {
+    --bg: #f4f1ea;
+    --card: #fffdf8;
+    --ink: #243027;
+    --muted: #5c665e;
+    --border: #d9d3c7;
+    --accent: #2c523c;
+    --accent-soft: #e6eee8;
+    --warn: #8c3f2b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: Georgia, serif;
+    margin: 2rem auto;
+    max-width: 64rem;
+    padding: 0 1.2rem;
+    line-height: 1.5;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  header {
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 1rem;
+    margin-bottom: 1.2rem;
+  }
+  #banner {
+    background: var(--accent-soft);
+    border-left: 4px solid var(--accent);
+    padding: 0.7rem 1rem;
+    margin: 0 0 0.75rem 0;
+  }
+  .meta-note { color: var(--muted); font-size: 0.95rem; margin: 0.25rem 0; }
+  .toolbar, .panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+  .panel h2 {
+    margin: 0 0 0.75rem 0;
+    font-size: 1.05rem;
+    color: var(--accent);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.35rem;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 0.75rem;
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
+  label { font-size: 0.88rem; color: var(--muted); display: flex; flex-direction: column; gap: 0.2rem; }
+  input, select, textarea {
+    font: inherit;
+    font-size: 0.9rem;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: #ffffff;
+    color: var(--ink);
+  }
+  textarea { width: 98%; min-height: 4.5rem; font-family: monospace; font-size: 0.82rem; }
+  button {
+    font: inherit;
+    font-size: 0.9rem;
+    padding: 0.42rem 0.8rem;
+    border: 1px solid var(--accent);
+    background: #ffffff;
+    color: var(--accent);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: #ffffff; }
+  button:hover { opacity: 0.92; }
+  .status-pill {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+  pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--card);
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    max-height: 28rem;
+    overflow-y: auto;
+  }
 </style>
 </head>
 <body>
-  <p id="banner"><strong>This tool assists a human reviewer. It does not determine compliance.</strong></p>
-  <p>Aircraft SL-1 is synthetic. The load method is a project-defined screening illustration. A human signs the ledger. A reviewer sign-off stores the actor and the statement reviewed this event.</p>
-  <button id="show-requirements" type="button">Show requirement ids</button>
-  <button id="run-load" type="button">Run one load case</button>
-  <button id="show-coverage" type="button">Show coverage</button>
-  <button id="check-unit" type="button">Check a unit-scale note</button>
-  <button id="check-missing" type="button">Check a missing-thickness note</button>
-  <button id="export-zip" type="button">Export zip</button>
+  <header>
+    <p id="banner"><strong>This tool assists a human reviewer. It does not determine compliance.</strong></p>
+    <p class="meta-note">Aircraft SL-1 is synthetic. Screening methods are project-defined illustrations. A human signs the ledger. A reviewer sign-off stores the actor and the statement reviewed this event.</p>
+    <div class="row">
+      <label>Tenant Workspace
+        <input id="tenant-input" type="text" value="demo" placeholder="demo">
+      </label>
+      <label>Active Session Role
+        <select id="actor-select">
+          <option value="author">author (human)</option>
+          <option value="reviewer">reviewer (human)</option>
+        </select>
+      </label>
+      <span id="session-status" class="status-pill">Session: anonymous</span>
+    </div>
+  </header>
+
+  <section class="panel">
+    <h2>1. Core Evidence, Coverage &amp; Traceability Workflow</h2>
+    <div class="row">
+      <button id="show-requirements" type="button">Show requirement ids</button>
+      <button id="run-load" class="primary" type="button">Run one load case</button>
+      <button id="run-supervisor" type="button">Run supervised agent review</button>
+      <button id="stream-supervisor" type="button">Stream supervisor (SSE)</button>
+      <button id="show-coverage" type="button">Show coverage</button>
+      <button id="show-cells" type="button">List coverage cells</button>
+      <button id="run-sweep" type="button">Run coverage sweep</button>
+      <button id="show-gate" type="button">Show traceability gate</button>
+      <button id="mass-shift" type="button">Simulate +5% mass shift</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>2. Formal SMT, Dossier &amp; Cryptographic Verification</h2>
+    <div class="row">
+      <button id="show-dossier" type="button">Show enterprise dossier</button>
+      <button id="show-strictdoc" type="button">Show StrictDoc matrix</button>
+      <button id="show-oscal" type="button">Show OSCAL SAR report</button>
+      <button id="prove-formal" type="button">Prove flight envelope (Z3 SMT)</button>
+      <button id="prove-hover" type="button">Prove hover power envelope (Z3 SMT)</button>
+      <button id="verify-ledger" type="button">Verify hash chain &amp; Merkle root</button>
+      <button id="query-events" type="button">Query ledger events</button>
+      <button id="check-consistency" type="button">Merkle consistency (from 0)</button>
+      <button id="prove-head" type="button">Merkle proof for head event</button>
+      <button id="signoff-head" class="primary" type="button">Sign off head event (human)</button>
+      <button id="export-zip" type="button">Export zip (+ in-toto attestation)</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>3. Deterministic Calc Workbench &amp; Fault Attribution</h2>
+    <div class="row">
+      <button id="check-unit" type="button">Check a unit-scale note</button>
+      <button id="check-missing" type="button">Check a missing-thickness note</button>
+      <label style="flex-direction:row;align-items:center;gap:0.35rem;">
+        <input id="calc-normalize-units" type="checkbox">
+        Normalize SI/prefix units (Decimal audited)
+      </label>
+    </div>
+    <div class="grid" style="margin-top:0.75rem;">
+      <label>Screening Method
+        <select id="calc-method">
+          <option value="hover_power_screen">hover_power_screen</option>
+          <option value="bolt_screen">bolt_screen</option>
+          <option value="rigid_body_point_mass">rigid_body_point_mass</option>
+        </select>
+      </label>
+      <label>Action
+        <button id="run-custom-calc" type="button">Recompute deterministic inputs</button>
+      </label>
+      <label>Compare Stated vs Recomputed
+        <button id="run-compare-calc" type="button">Diagnose numeric fault</button>
+      </label>
+    </div>
+    <div class="grid" style="margin-top:0.5rem;">
+      <label>Inputs JSON (Decimal strings)
+        <textarea id="calc-inputs-json"></textarea>
+      </label>
+      <label>Stated Outputs JSON (optional fault check)
+        <textarea id="calc-stated-json"></textarea>
+      </label>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>4. Document Ingestion &amp; Requirement Span Recording</h2>
+    <div class="grid">
+      <label>Document Filename (.txt, .md, .pdf, .docx, .xlsx)
+        <input id="ingest-filename" type="text" value="spec_excerpt.md">
+      </label>
+      <label>Actions
+        <span class="row" style="margin-top:0;">
+          <button id="ingest-only" type="button">Ingest document to ledger</button>
+          <button id="ingest-supervise" class="primary" type="button">Ingest &amp; run supervisor</button>
+        </span>
+      </label>
+    </div>
+    <label style="margin-top:0.5rem;">Document Text (UTF-8)
+      <textarea id="ingest-text">SL-1.REQ-01: Peak rotor thrust in hover shall remain within 9800.000 N envelope.
+SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</textarea>
+    </label>
+  </section>
+
+  <section class="panel">
+    <h2>5. Agent Runtime (API / Model) &amp; Edge Compute Workbench</h2>
+    <div class="grid">
+      <label>Runtime Mode
+        <select id="runtime-mode">
+          <option value="auto">auto (API + Edge Hybrid / Fixture)</option>
+          <option value="hybrid">hybrid (Edge SLM + API Escalation)</option>
+          <option value="edge">edge (Air-Gapped Local SLM)</option>
+          <option value="api">api (OpenAI-Compatible Remote/vLLM)</option>
+          <option value="fixture">fixture (Deterministic Offline Test)</option>
+        </select>
+      </label>
+      <label>Edge Hardware Preset
+        <select id="edge-preset">
+          <option value="laptop-cpu-16gb">laptop-cpu-16gb (Q4_K_M / 4K ctx)</option>
+          <option value="jetson-orin-8gb">jetson-orin-8gb (AWQ_INT4 / 4K ctx)</option>
+          <option value="apple-silicon-edge">apple-silicon-edge (Q5_K_M / 8K ctx)</option>
+          <option value="offline-wasm-webgpu">offline-wasm-webgpu (Q4F16 / 2K ctx)</option>
+        </select>
+      </label>
+      <label>Single Agent Target
+        <select id="single-agent-id">
+          <option value="reader">reader (span extraction)</option>
+          <option value="checker">checker (delta cross-check)</option>
+          <option value="refuter">refuter (adversarial check)</option>
+          <option value="scribe">scribe (human paraphrase)</option>
+        </select>
+      </label>
+      <label>Model Override (optional)
+        <input id="model-override" type="text" placeholder="e.g. qwen2.5:3b or gpt-4o-mini">
+      </label>
+    </div>
+    <div class="row" style="margin-top:0.75rem;">
+      <button id="agent-runtime" type="button">Inspect API/Edge runtime</button>
+      <button id="agent-probe" type="button">Probe live API &amp; Edge endpoints</button>
+      <button id="edge-preflight" type="button">Edge CPU pre-flight &amp; compaction</button>
+      <button id="edge-browser-check" type="button">Check browser WebGPU / CPU edge</button>
+      <button id="agent-invoke" class="primary" type="button">Invoke single agent</button>
+    </div>
+  </section>
+
   <pre id="out">Ready.</pre>
+
 <script>
+const DEFAULT_INPUTS = {
+  hover_power_screen: {
+    thrust_n: "9800.000",
+    disk_area_m2: "10.000",
+    air_density_kg_m3: "1.225",
+    figure_of_merit: "0.700",
+    power_available_kw: "350.000"
+  },
+  bolt_screen: {
+    shear_force_n: "3000.000",
+    tensile_force_n: "4000.000",
+    area_mm2: "80.000",
+    shear_allowable_mpa: "250.000",
+    tensile_allowable_mpa: "250.000"
+  },
+  rigid_body_point_mass: {
+    mass_kg: "800.000",
+    gravity_m_s2: "9.810",
+    load_factor: "1.000",
+    cg_x_m: "-0.200",
+    unit_x_m: ["-1.000", "-0.300", "0.300", "1.000"],
+    unit_operative: [true, true, true, true]
+  }
+};
+
+const DEFAULT_STATED = {
+  hover_power_screen: {
+    disk_loading_pa: "980.000",
+    induced_velocity_m_s: "20.000",
+    ideal_power_kw: "392.000",
+    shaft_power_kw: "560.000",
+    power_margin_ratio: "0.400"
+  },
+  bolt_screen: {
+    shear_stress_mpa: "37.500",
+    tensile_stress_mpa: "50.000",
+    shear_ratio: "0.150",
+    tensile_ratio: "0.200",
+    interaction_ratio: "0.250"
+  },
+  rigid_body_point_mass: {
+    weight_n: "7848.000",
+    required_vertical_force_n: "7848.000",
+    unit_force_n: ["1962.000", "1962.000", "1962.000", "1962.000"],
+    vertical_residual_n: "0.000",
+    moment_about_cg_n_m: "392.400"
+  }
+};
+
+function syncMethodTemplates() {
+  const m = document.getElementById("calc-method").value;
+  document.getElementById("calc-inputs-json").value = JSON.stringify(DEFAULT_INPUTS[m], null, 2);
+  document.getElementById("calc-stated-json").value = JSON.stringify(DEFAULT_STATED[m], null, 2);
+}
+document.getElementById("calc-method").onchange = syncMethodTemplates;
+syncMethodTemplates();
+
 async function show(url, options) {
   const response = await fetch(url, options);
   const text = await response.text();
@@ -44,6 +329,7 @@ async function show(url, options) {
   }
   document.getElementById("out").textContent = shown.slice(0, 4000);
 }
+
 function post(url, body) {
   return show(url, {
     method: "POST",
@@ -52,29 +338,219 @@ function post(url, body) {
     body: JSON.stringify(body)
   });
 }
-async function authorSession() {
+
+function currentTenant() {
+  return (document.getElementById("tenant-input").value || "demo").trim() || "demo";
+}
+
+function tenantUrl(path) {
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}tenant_id=${encodeURIComponent(currentTenant())}`;
+}
+
+async function ensureSession() {
+  const actor = document.getElementById("actor-select").value || "author";
+  const tenant_id = currentTenant();
   const response = await fetch("/auth/login", {
     method: "POST",
     credentials: "same-origin",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({actor_id: "author", password: "author-local"})
+    body: JSON.stringify({actor_id: actor, password: `${actor}-local`, tenant_id})
   });
   if (!response.ok) {
     document.getElementById("out").textContent = await response.text();
-    return false;
+    return null;
   }
-  return true;
+  document.getElementById("session-status").textContent = `Session: ${actor} @ ${tenant_id}`;
+  return actor;
 }
+
 document.getElementById("show-requirements").onclick = () => show("/requirements");
 document.getElementById("run-load").onclick = async () => {
-  if (await authorSession()) post("/calc/run", {example: "first_cell"});
+  const actor = await ensureSession();
+  if (actor) post("/calc/run", {example: "first_cell", actor_id: actor, tenant_id: currentTenant()});
 };
-document.getElementById("show-coverage").onclick = () => show("/coverage/gaps");
+document.getElementById("run-supervisor").onclick = async () => {
+  const actor = await ensureSession();
+  if (!actor) return;
+  const runtime_mode = document.getElementById("runtime-mode").value;
+  const edge_preset = document.getElementById("edge-preset").value;
+  const modelVal = (document.getElementById("model-override").value || "").trim();
+  post("/supervisor/run", {
+    example: "first_cell",
+    actor_id: actor,
+    tenant_id: currentTenant(),
+    runtime_mode,
+    edge_preset,
+    compact_for_edge: runtime_mode === "edge" || runtime_mode === "hybrid",
+    model: modelVal || undefined,
+    edge_model: modelVal || undefined
+  });
+};
+document.getElementById("stream-supervisor").onclick = async () => {
+  const actor = await ensureSession();
+  if (!actor) return;
+  const out = document.getElementById("out");
+  const runtime_mode = document.getElementById("runtime-mode").value;
+  const edge_preset = document.getElementById("edge-preset").value;
+  const modelVal = (document.getElementById("model-override").value || "").trim();
+  out.textContent = "Streaming supervisor stages...\n";
+  const resp = await fetch("/supervisor/stream", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      example: "first_cell",
+      actor_id: actor,
+      tenant_id: currentTenant(),
+      runtime_mode,
+      edge_preset,
+      compact_for_edge: runtime_mode === "edge" || runtime_mode === "hybrid",
+      model: modelVal || undefined,
+      edge_model: modelVal || undefined
+    })
+  });
+  if (!resp.body) {
+    out.textContent = await resp.text();
+    return;
+  }
+  const reader = resp.body.getReader();
+  const dec = new TextDecoder();
+  while (true) {
+    const {value, done} = await reader.read();
+    if (done) break;
+    out.textContent += dec.decode(value, {stream: true});
+  }
+};
+document.getElementById("show-coverage").onclick = () => show(tenantUrl("/coverage/gaps"));
+document.getElementById("show-cells").onclick = () => show(tenantUrl("/coverage/cells?limit=25"));
+document.getElementById("run-sweep").onclick = async () => {
+  const actor = await ensureSession();
+  if (actor) post("/coverage/sweep", {actor_id: actor, tenant_id: currentTenant(), target_status: "gap", limit: 15});
+};
+document.getElementById("show-gate").onclick = () => show(tenantUrl("/coverage/gate"));
+document.getElementById("mass-shift").onclick = async () => {
+  const actor = await ensureSession();
+  if (actor) post("/coverage/mass-shift", {actor_id: actor, tenant_id: currentTenant()});
+};
+document.getElementById("show-dossier").onclick = () => show(tenantUrl("/dossier/summary"));
+document.getElementById("show-strictdoc").onclick = () => show(tenantUrl("/dossier/strictdoc"));
+document.getElementById("show-oscal").onclick = () => show(tenantUrl("/dossier/oscal"));
+document.getElementById("prove-formal").onclick = async () => {
+  const actor = await ensureSession();
+  if (actor) post("/formal/prove", {kind: "flight_envelope", actor_id: actor, tenant_id: currentTenant()});
+};
+document.getElementById("prove-hover").onclick = async () => {
+  const actor = await ensureSession();
+  if (actor) post("/formal/prove", {kind: "hover_power", actor_id: actor, tenant_id: currentTenant()});
+};
+document.getElementById("verify-ledger").onclick = () => show(tenantUrl("/ledger/verify"));
+document.getElementById("query-events").onclick = () => show(tenantUrl("/ledger/events?limit=25"));
+document.getElementById("check-consistency").onclick = () => show(tenantUrl("/ledger/consistency?old_count=0"));
+document.getElementById("prove-head").onclick = async () => {
+  const verifyResp = await fetch(tenantUrl("/ledger/verify"));
+  const verifyJson = await verifyResp.json();
+  const head = verifyJson.result && verifyJson.result.head_hash;
+  if (!head || /^0+$/.test(head)) {
+    document.getElementById("out").textContent = "Ledger is empty; run a load case first.";
+    return;
+  }
+  show(tenantUrl(`/ledger/proof/${head}`));
+};
+document.getElementById("signoff-head").onclick = async () => {
+  const actor = await ensureSession();
+  if (actor) post("/ledger/signoff", {actor_id: actor, tenant_id: currentTenant()});
+};
 document.getElementById("check-unit").onclick = () => post("/notes/check", {example: "unit_scale"});
 document.getElementById("check-missing").onclick = () => post("/notes/check", {example: "missing_input"});
+document.getElementById("run-custom-calc").onclick = () => {
+  const method_id = document.getElementById("calc-method").value;
+  const inputs = JSON.parse(document.getElementById("calc-inputs-json").value || "{}");
+  const normalize_units = document.getElementById("calc-normalize-units").checked;
+  post("/calc/run", {method_id, inputs, normalize_units, tenant_id: currentTenant()});
+};
+document.getElementById("run-compare-calc").onclick = () => {
+  const method_id = document.getElementById("calc-method").value;
+  const inputs = JSON.parse(document.getElementById("calc-inputs-json").value || "{}");
+  const stated_outputs = JSON.parse(document.getElementById("calc-stated-json").value || "{}");
+  const normalize_units = document.getElementById("calc-normalize-units").checked;
+  post("/calc/compare", {method_id, inputs, stated_outputs, normalize_units});
+};
+document.getElementById("ingest-only").onclick = async () => {
+  const actor = await ensureSession();
+  if (!actor) return;
+  const filename = document.getElementById("ingest-filename").value || "spec_excerpt.md";
+  const content_text = document.getElementById("ingest-text").value || "";
+  post("/ingest/document", {filename, content_text, record: true, actor_id: actor, tenant_id: currentTenant()});
+};
+document.getElementById("ingest-supervise").onclick = async () => {
+  const actor = await ensureSession();
+  if (!actor) return;
+  const filename = document.getElementById("ingest-filename").value || "spec_excerpt.md";
+  const content_text = document.getElementById("ingest-text").value || "";
+  const resp = await fetch("/ingest/document", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({filename, content_text, record: false, tenant_id: currentTenant()})
+  });
+  const ingested = await resp.json();
+  if (!resp.ok || ingested.confidence !== "deterministic") {
+    document.getElementById("out").textContent = JSON.stringify(ingested, null, 2);
+    return;
+  }
+  post("/supervisor/run", {
+    example: "first_cell",
+    actor_id: actor,
+    tenant_id: currentTenant(),
+    blocks: ingested.result.blocks,
+    record_requirements: true,
+    runtime_mode: document.getElementById("runtime-mode").value,
+    edge_preset: document.getElementById("edge-preset").value,
+    compact_for_edge: document.getElementById("runtime-mode").value === "edge" || document.getElementById("runtime-mode").value === "hybrid",
+    model: document.getElementById("model-override").value || undefined,
+    edge_model: document.getElementById("model-override").value || undefined
+  });
+};
+document.getElementById("agent-runtime").onclick = () => show("/agents/runtime");
+document.getElementById("agent-probe").onclick = () => post("/agents/probe", {target: "all"});
+document.getElementById("edge-preflight").onclick = () => {
+  const text = document.getElementById("ingest-text").value || "";
+  const edge_preset = document.getElementById("edge-preset").value;
+  post("/agents/edge/preflight", {text, edge_preset});
+};
+document.getElementById("edge-browser-check").onclick = async () => {
+  const info = {
+    webgpu_available: Boolean(navigator.gpu),
+    hardware_concurrency_threads: navigator.hardwareConcurrency || null,
+    device_memory_gb_approx: navigator.deviceMemory || null,
+    local_deterministic_kernels: ["calc_decimal_exact", "z3_smt_formal", "sha256_merkle_proofs"]
+  };
+  document.getElementById("out").textContent = JSON.stringify(info, null, 2);
+};
+document.getElementById("agent-invoke").onclick = async () => {
+  const actor = await ensureSession();
+  if (!actor) return;
+  const agent_id = document.getElementById("single-agent-id").value;
+  const text = document.getElementById("ingest-text").value || "Alpha item is listed.";
+  const runtime_mode = document.getElementById("runtime-mode").value;
+  const edge_preset = document.getElementById("edge-preset").value;
+  const modelVal = (document.getElementById("model-override").value || "").trim();
+  post("/agents/invoke", {
+    agent_id,
+    text,
+    actor_id: actor,
+    tenant_id: currentTenant(),
+    runtime_mode,
+    edge_preset,
+    compact_for_edge: runtime_mode === "edge" || runtime_mode === "hybrid",
+    model: modelVal || undefined,
+    edge_model: modelVal || undefined,
+    record: true
+  });
+};
 document.getElementById("export-zip").onclick = async () => {
-  if (!(await authorSession())) return;
-  const response = await fetch("/export/zip", {method: "POST", credentials: "same-origin"});
+  if (!(await ensureSession())) return;
+  const response = await fetch(tenantUrl("/export/zip"), {method: "POST", credentials: "same-origin"});
   if (!response.ok) {
     document.getElementById("out").textContent = await response.text();
     return;

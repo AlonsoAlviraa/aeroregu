@@ -90,6 +90,49 @@ def test_block_without_an_identifier_is_empty() -> None:
     assert parse_requirements([block]) == []
 
 
+def test_unified_ingest_router_supports_txt_docx_xlsx_pdf_and_abstains() -> None:
+    from evidence_ingest.router import ingest_bytes
+
+    txt_res = ingest_bytes(
+        b"VTOL.2210 Structural design loads\nVTOL.2215 Secondary check\n",
+        "notes.md",
+    )
+    assert txt_res["media_type"] == "text"
+    assert txt_res["filename"] == "notes.md"
+    assert len(txt_res["blocks"]) == 2
+    assert len(txt_res["requirements"]) == 2
+
+    docx_buf = BytesIO()
+    doc = Document()
+    doc.add_paragraph("VTOL.2230 Flight envelope margins")
+    doc.save(docx_buf)
+    docx_res = ingest_bytes(docx_buf.getvalue(), "spec.docx")
+    assert docx_res["media_type"] == "docx"
+    assert docx_res["requirements"][0]["id"] == "VTOL.2230"
+
+    xlsx_buf = BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws["A1"] = "VTOL.2240"
+    ws["B1"] = "Rotor burst shielding"
+    wb.save(xlsx_buf)
+    xlsx_res = ingest_bytes(xlsx_buf.getvalue(), "matrix.xlsx")
+    assert xlsx_res["media_type"] == "xlsx"
+    assert any("VTOL.2240" in item["id"] for item in xlsx_res["requirements"])
+
+    pdf_res = ingest_bytes(_text_pdf("VTOL.2250 Proof loads"), "proof.pdf")
+    assert pdf_res["media_type"] == "pdf"
+    assert pdf_res["requirements"][0]["id"] == "VTOL.2250"
+
+    with pytest.raises(IngestAbstain) as exc_media:
+        ingest_bytes(b"abc", "image.png")
+    assert exc_media.value.reason == "unsupported_media_type"
+
+    with pytest.raises(IngestAbstain) as exc_utf8:
+        ingest_bytes(b"\xff\xfe\x00", "bad.txt")
+    assert exc_utf8.value.reason == "invalid_utf8"
+
+
 def _source_text(path: Path, blocks: list[Block]) -> str:
     from evidence_ingest.docx import ingest_docx as _again
 

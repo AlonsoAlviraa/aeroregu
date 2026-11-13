@@ -10,6 +10,7 @@ from collections import defaultdict
 from decimal import Decimal
 from json import dumps
 from pathlib import Path
+from random import Random
 from typing import Any
 
 from evidence_kernel.paths import repo_root
@@ -84,10 +85,17 @@ def iter_cases(limit: int | None = None):
         produced += 1
 
 
-def run_s1(limit: int = S1_COUNT) -> dict[str, Any]:
+def run_s1(limit: int = S1_COUNT, *, shuffle_seed: int | None = None) -> dict[str, Any]:
     if limit > plan_size():
         raise ValueError("limit exceeds the pinned S1 plan")
-    return _score(iter_cases(limit))
+    if shuffle_seed is None:
+        return _score(iter_cases(limit))
+    cases = list(iter_cases(limit))
+    Random(shuffle_seed).shuffle(cases)
+    report = _score(cases)
+    report["seed"] = shuffle_seed
+    report["seed_controls_sampling"] = True
+    return report
 
 
 def score_exemplars() -> dict[str, Any]:

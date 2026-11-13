@@ -1,0 +1,39 @@
+{
+  "method_id": "hover_power_screen",
+  "method_version": "hover_power_screen@1.0.0",
+  "title": "project-defined screening illustration",
+  "label": "ASSUMPTION",
+  "equation": "disk_loading_pa = quantize(thrust_n / disk_area_m2, 0.001); induced_velocity_m_s = quantize(sqrt(thrust_n / (2 * air_density_kg_m3 * disk_area_m2)), 0.001); ideal_power_kw = quantize((thrust_n * induced_velocity_m_s) / 1000, 0.001); shaft_power_kw = quantize(ideal_power_kw / figure_of_merit, 0.001); power_margin_ratio = quantize((power_available_kw - shaft_power_kw) / power_available_kw, 0.001).",
+  "note": "Screening illustration, not a certification method. Not attributed to a handbook.",
+  "quantum": "0.001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "thrust_n": "newton",
+    "disk_area_m2": "meter ** 2",
+    "air_density_kg_m3": "kilogram / meter ** 3",
+    "figure_of_merit": "dimensionless",
+    "power_available_kw": "kilowatt"
+  },
+  "required": [
+    "thrust_n",
+    "disk_area_m2",
+    "air_density_kg_m3",
+    "figure_of_merit",
+    "power_available_kw"
+  ],
+  "limits": {
+    "thrust_n": {"min_exclusive": "0", "max": "500000"},
+    "disk_area_m2": {"min_exclusive": "0", "max": "1000"},
+    "air_density_kg_m3": {"min": "0.100", "max": "2.000"},
+    "figure_of_merit": {"min": "0.300", "max": "0.950"},
+    "power_available_kw": {"min_exclusive": "0", "max": "50000"}
+  },
+  "sources": [
+    {
+      "source_id": "project-hover-power-screen",
+      "uri": "https://aeroregu.local/cards/hover_power_screen",
+      "content_hash": "assumption",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

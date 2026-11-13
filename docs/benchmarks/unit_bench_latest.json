@@ -1,0 +1,317 @@
+{
+  "benchmark": "unit_bench",
+  "disclaimer": "This tool assists a human reviewer. It does not determine compliance.",
+  "label": "ESTIMATE",
+  "provenance": "Curated 30-case deterministic unit conversion, dimensional signature, and calc-card unit mismatch suite.",
+  "total_cases": 30,
+  "passed": 30,
+  "pass_rate": "1.000",
+  "pass_fraction": "30/30",
+  "pass_ci95": {
+    "low": "0.886",
+    "high": "1.000",
+    "method": "wilson",
+    "z": "1.96"
+  },
+  "float_used": false,
+  "llm_numeric_violation": 0,
+  "category_breakdown": {
+    "multiplicative_interval": {
+      "passed": 10,
+      "total": 10,
+      "recall": "10/10",
+      "ci95": {
+        "low": "0.722",
+        "high": "1.000",
+        "method": "wilson",
+        "z": "1.96"
+      }
+    },
+    "compatibility_and_same_unit": {
+      "passed": 8,
+      "total": 8,
+      "recall": "8/8",
+      "ci95": {
+        "low": "0.676",
+        "high": "1.000",
+        "method": "wilson",
+        "z": "1.96"
+      }
+    },
+    "dimension_signature": {
+      "passed": 5,
+      "total": 5,
+      "recall": "5/5",
+      "ci95": {
+        "low": "0.566",
+        "high": "1.000",
+        "method": "wilson",
+        "z": "1.96"
+      }
+    },
+    "offset_unit_refusal": {
+      "passed": 3,
+      "total": 3,
+      "recall": "3/3",
+      "ci95": {
+        "low": "0.438",
+        "high": "1.000",
+        "method": "wilson",
+        "z": "1.96"
+      }
+    },
+    "calc_card_unit_enforcement": {
+      "passed": 4,
+      "total": 4,
+      "recall": "4/4",
+      "ci95": {
+        "low": "0.510",
+        "high": "1.000",
+        "method": "wilson",
+        "z": "1.96"
+      }
+    }
+  },
+  "cases": [
+    {
+      "case_id": "ub-int-01",
+      "category": "multiplicative_interval",
+      "description": "conversion_interval('meter', 'millimeter')",
+      "passed": true,
+      "float_used": false,
+      "detail": "1E+3"
+    },
+    {
+      "case_id": "ub-int-02",
+      "category": "multiplicative_interval",
+      "description": "conversion_interval('kilogram', 'gram')",
+      "passed": true,
+      "float_used": false,
+      "detail": "1E+3"
+    },
+    {
+      "case_id": "ub-int-03",
+      "category": "multiplicative_interval",
+      "description": "conversion_interval('newton', 'kilonewton')",
+      "passed": true,
+      "float_used": false,
+      "detail": "0.001"
+    },
+    {
+      "case_id": "ub-int-04",
+      "category": "multiplicative_interval",
+      "description": "conversion_interval('megapascal', 'pascal')",
+      "passed": true,
+      "float_used": false,
+      "detail": "1E+6"
+    },
+    {
+      "case_id": "ub-int-05",
+      "category": "multiplicative_interval",
+      "description": "conversion_interval('meter', 'foot')",
+      "passed": true,
+      "float_used": false,
+      "detail": "3.280839895013123359580052492"
+    },
+    {
+      "case_id": "ub-int-06",
+      "category": "multiplicative_interval",
+      "description": "conversion_interval('hour', 'second')",
+      "passed": true,
+      "float_used": false,
+      "detail": "3600"
+    },
+    {
+      "case_id": "ub-int-07",
+      "category": "multiplicative_interval",
+      "description": "conversion_interval('kN', 'newton')",
+      "passed": true,
+      "float_used": false,
+      "detail": "1E+3"
+    },
+    {
+      "case_id": "ub-int-08",
+      "category": "multiplicative_interval",
+      "description": "conversion_interval('daN', 'newton')",
+      "passed": true,
+      "float_used": false,
+      "detail": "1E+1"
+    },
+    {
+      "case_id": "ub-int-09",
+      "category": "multiplicative_interval",
+      "description": "conversion_interval('GPa', 'MPa')",
+      "passed": true,
+      "float_used": false,
+      "detail": "1E+3"
+    },
+    {
+      "case_id": "ub-int-10",
+      "category": "multiplicative_interval",
+      "description": "conversion_interval('kPa', 'pascal')",
+      "passed": true,
+      "float_used": false,
+      "detail": "1E+3"
+    },
+    {
+      "case_id": "ub-cmp-01",
+      "category": "compatibility_and_same_unit",
+      "description": "units_compatible('newton', 'pascal') == False",
+      "passed": true,
+      "float_used": false,
+      "detail": "compatible=False, same_unit=False"
+    },
+    {
+      "case_id": "ub-cmp-02",
+      "category": "compatibility_and_same_unit",
+      "description": "units_compatible('meter', 'second') == False",
+      "passed": true,
+      "float_used": false,
+      "detail": "compatible=False, same_unit=False"
+    },
+    {
+      "case_id": "ub-cmp-03",
+      "category": "compatibility_and_same_unit",
+      "description": "units_compatible('kilogram', 'meter') == False",
+      "passed": true,
+      "float_used": false,
+      "detail": "compatible=False, same_unit=False"
+    },
+    {
+      "case_id": "ub-cmp-04",
+      "category": "compatibility_and_same_unit",
+      "description": "units_compatible('MPa', 'psi') == True",
+      "passed": true,
+      "float_used": false,
+      "detail": "compatible=True, same_unit=False"
+    },
+    {
+      "case_id": "ub-cmp-05",
+      "category": "compatibility_and_same_unit",
+      "description": "units_compatible('knot', 'meter / second') == True",
+      "passed": true,
+      "float_used": false,
+      "detail": "compatible=True, same_unit=False"
+    },
+    {
+      "case_id": "ub-cmp-06",
+      "category": "compatibility_and_same_unit",
+      "description": "units_compatible('meter', 'm') == True",
+      "passed": true,
+      "float_used": false,
+      "detail": "compatible=True, same_unit=True"
+    },
+    {
+      "case_id": "ub-cmp-07",
+      "category": "compatibility_and_same_unit",
+      "description": "units_compatible('m/s2', 'meter / second ** 2') == True",
+      "passed": true,
+      "float_used": false,
+      "detail": "compatible=True, same_unit=True"
+    },
+    {
+      "case_id": "ub-cmp-08",
+      "category": "compatibility_and_same_unit",
+      "description": "units_compatible('meter', 'millimeter') == True",
+      "passed": true,
+      "float_used": false,
+      "detail": "compatible=True, same_unit=False"
+    },
+    {
+      "case_id": "ub-dim-01",
+      "category": "dimension_signature",
+      "description": "dimension_exponents('meter')",
+      "passed": true,
+      "float_used": false,
+      "detail": "{'L': 1}"
+    },
+    {
+      "case_id": "ub-dim-02",
+      "category": "dimension_signature",
+      "description": "dimension_exponents('newton')",
+      "passed": true,
+      "float_used": false,
+      "detail": "{'M': 1, 'L': 1, 'T': -2}"
+    },
+    {
+      "case_id": "ub-dim-03",
+      "category": "dimension_signature",
+      "description": "dimension_exponents('megapascal')",
+      "passed": true,
+      "float_used": false,
+      "detail": "{'M': 1, 'L': -1, 'T': -2}"
+    },
+    {
+      "case_id": "ub-dim-04",
+      "category": "dimension_signature",
+      "description": "dimension_exponents('dimensionless')",
+      "passed": true,
+      "float_used": false,
+      "detail": "{}"
+    },
+    {
+      "case_id": "ub-dim-05",
+      "category": "dimension_signature",
+      "description": "dimension_exponents('not_a_registered_unit')",
+      "passed": true,
+      "float_used": false,
+      "detail": "None"
+    },
+    {
+      "case_id": "ub-off-01",
+      "category": "offset_unit_refusal",
+      "description": "conversion_interval('\u00b0C', 'K') is None",
+      "passed": true,
+      "float_used": false,
+      "detail": "None"
+    },
+    {
+      "case_id": "ub-off-02",
+      "category": "offset_unit_refusal",
+      "description": "conversion_interval('degC', 'kelvin') is None",
+      "passed": true,
+      "float_used": false,
+      "detail": "None"
+    },
+    {
+      "case_id": "ub-off-03",
+      "category": "offset_unit_refusal",
+      "description": "conversion_interval('degF', 'K') is None",
+      "passed": true,
+      "float_used": false,
+      "detail": "None"
+    },
+    {
+      "case_id": "ub-card-01",
+      "category": "calc_card_unit_enforcement",
+      "description": "rigid_body_point_mass refuses _input_units={'mass_kg': 'meter'}",
+      "passed": true,
+      "float_used": false,
+      "detail": "abstain_reason=unit_mismatch"
+    },
+    {
+      "case_id": "ub-card-02",
+      "category": "calc_card_unit_enforcement",
+      "description": "rigid_body_point_mass refuses _input_units={'cg_x_m': 'second'}",
+      "passed": true,
+      "float_used": false,
+      "detail": "abstain_reason=unit_mismatch"
+    },
+    {
+      "case_id": "ub-card-03",
+      "category": "calc_card_unit_enforcement",
+      "description": "bolt_screen refuses _input_units={'shear_force_n': 'pascal'}",
+      "passed": true,
+      "float_used": false,
+      "detail": "abstain_reason=unit_mismatch"
+    },
+    {
+      "case_id": "ub-card-04",
+      "category": "calc_card_unit_enforcement",
+      "description": "bolt_screen refuses _input_units={'area_mm2': 'kilogram'}",
+      "passed": true,
+      "float_used": false,
+      "detail": "abstain_reason=unit_mismatch"
+    }
+  ]
+}

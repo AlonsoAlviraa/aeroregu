@@ -5,8 +5,10 @@ description = "Public-safe ledger, hashes, supervisor, and model gateway."
 requires-python = ">=3.12"
 dependencies = [
     "evidence-calc",
+    "httpx>=0.27.0",
     "jsonschema>=4.23.0",
     "pydantic>=2.10.0",
+    "z3-solver>=5.4.1.0",
 ]
 
 [tool.uv.sources]

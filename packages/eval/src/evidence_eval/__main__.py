@@ -193,7 +193,47 @@ def main(argv: list[str] | None = None) -> int:
     hash_file.add_argument("path")
     sub.add_parser("external-public")
     sub.add_parser("ood-bench")
+    sub.add_parser("agent-bench")
+    sub.add_parser("unit-bench")
     args = parser.parse_args(argv)
+    if args.command == "agent-bench":
+        from evidence_eval.agent_bench import render_agent_bench_markdown, run_agent_bench
+
+        report = run_agent_bench()
+        out_dir = repo_docs()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "agent_bench_latest.json").write_text(
+            json.dumps(report, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        (out_dir / "agent_bench_latest.md").write_text(
+            render_agent_bench_markdown(report),
+            encoding="utf-8",
+        )
+        print(json.dumps(report, indent=2))
+        ok = bool(
+            report["beats_no_agent"]
+            and report["beats_single_llm"]
+            and report["multi_agent"]["llm_numeric_violation"] == 0
+            and report["ledger_verified"]
+        )
+        return 0 if ok else 1
+    if args.command == "unit-bench":
+        from evidence_eval.unit_bench import render_unit_bench_markdown, run_unit_bench
+
+        report = run_unit_bench()
+        out_dir = repo_docs()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "unit_bench_latest.json").write_text(
+            json.dumps(report, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        (out_dir / "unit_bench_latest.md").write_text(
+            render_unit_bench_markdown(report),
+            encoding="utf-8",
+        )
+        print(json.dumps(report, indent=2))
+        return 0 if report["passed"] == report["total_cases"] else 1
     if args.command == "validate-b1":
         from evidence_eval.expert_validate import validate_b1
 

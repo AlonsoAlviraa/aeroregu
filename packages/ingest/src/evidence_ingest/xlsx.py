@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from io import BytesIO
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -9,9 +10,12 @@ from evidence_ingest.blocks import Block, blocks_from_text
 
 
 def ingest_xlsx(path: Path) -> list[Block]:
-    raw = Path(path).read_bytes()
+    return ingest_xlsx_bytes(Path(path).read_bytes())
+
+
+def ingest_xlsx_bytes(raw: bytes) -> list[Block]:
     source_hash = hashlib.sha256(raw).hexdigest()
-    workbook = load_workbook(path, data_only=True)
+    workbook = load_workbook(BytesIO(raw), data_only=True)
     lines: list[str] = []
     for sheet in workbook.worksheets:
         for row in sheet.iter_rows(values_only=True):

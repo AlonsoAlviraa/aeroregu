@@ -27,14 +27,19 @@ def _registry() -> Registry:
     return registry
 
 
+@lru_cache(maxsize=32)
 def load_schema(name: str) -> dict[str, Any]:
     path = schemas_dir() / name
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+@lru_cache(maxsize=32)
+def _validator(name: str) -> Draft202012Validator:
+    return Draft202012Validator(load_schema(name), registry=_registry())
+
+
 def validate_instance(name: str, instance: Any) -> None:
-    schema = load_schema(name)
-    validator = Draft202012Validator(schema, registry=_registry())
+    validator = _validator(name)
     errors = sorted(validator.iter_errors(instance), key=lambda item: list(item.path))
     if errors:
         rendered = "; ".join(_format_error(error) for error in errors)

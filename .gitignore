@@ -27,3 +27,11 @@ sbom.cdx.json
 *.pyc
 docs/demo/shorts/reference/*.mp4
 docs/demo/shorts/reference/*.png
+docs/demo/shorts/*.mp4
+docs/demo/shorts/*.wav
+docs/demo/shorts/film/
+docs/demo/shorts/voz/
+docs/demo/shorts/?[0-9].png
+docs/demo/shorts/?[0-9].html
+*.sqlite3-wal
+*.sqlite3-shm

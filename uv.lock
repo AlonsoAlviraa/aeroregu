@@ -12,6 +12,7 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "aeroregu",
     "evidence-api",
     "evidence-calc",
     "evidence-coverage",
@@ -19,7 +20,6 @@ members = [
     "evidence-eval",
     "evidence-ingest",
     "evidence-kernel",
-    "aeroregu",
 ]
 
 [[package]]
@@ -38,6 +38,51 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f5/b5/1d3ed029ac71d3f2961346829a268da923698e9fd63f218f78841f216bfd/accelerate-1.15.0.tar.gz", hash = "sha256:5654f8c5eaa0d4fa68b33e287a97765da6849bf6d51dcac874e73fbbddfb6134", size = 422615, upload-time = "2026-09-09T13:04:49.078Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8a/4c/34f0450479d01195027260da68d8a3880683f1640c3ca5adf64acb3185f1/accelerate-1.15.0-py3-none-any.whl", hash = "sha256:97eacca0b73e45cb867dbf8c5d5d4dc32219544300e0c8992c7334dc2ef33cec", size = 394295, upload-time = "2026-09-09T13:04:47.331Z" },
+]
+
+[[package]]
+name = "aeroregu"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "evidence-api" },
+    { name = "evidence-calc" },
+    { name = "evidence-coverage" },
+    { name = "evidence-domain" },
+    { name = "evidence-eval" },
+    { name = "evidence-ingest" },
+    { name = "evidence-kernel" },
+    { name = "z3-solver" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "httpx" },
+    { name = "hypothesis" },
+    { name = "pip-audit" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "evidence-api", editable = "apps/api" },
+    { name = "evidence-calc", editable = "packages/calc" },
+    { name = "evidence-coverage", editable = "packages/coverage" },
+    { name = "evidence-domain", editable = "packages/domain" },
+    { name = "evidence-eval", editable = "packages/eval" },
+    { name = "evidence-ingest", editable = "packages/ingest" },
+    { name = "evidence-kernel", editable = "packages/kernel" },
+    { name = "z3-solver", specifier = ">=5.4.1.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "hypothesis", specifier = ">=6.122.1" },
+    { name = "pip-audit", specifier = ">=2.7.3" },
+    { name = "pytest", specifier = ">=8.3.4" },
+    { name = "ruff", specifier = ">=0.8.4" },
 ]
 
 [[package]]
@@ -695,49 +740,6 @@ requires-dist = [
     { name = "evidence-calc", editable = "packages/calc" },
     { name = "jsonschema", specifier = ">=4.23.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
-]
-
-[[package]]
-name = "aeroregu"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "evidence-api" },
-    { name = "evidence-calc" },
-    { name = "evidence-coverage" },
-    { name = "evidence-domain" },
-    { name = "evidence-eval" },
-    { name = "evidence-ingest" },
-    { name = "evidence-kernel" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "httpx" },
-    { name = "hypothesis" },
-    { name = "pip-audit" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "evidence-api", editable = "apps/api" },
-    { name = "evidence-calc", editable = "packages/calc" },
-    { name = "evidence-coverage", editable = "packages/coverage" },
-    { name = "evidence-domain", editable = "packages/domain" },
-    { name = "evidence-eval", editable = "packages/eval" },
-    { name = "evidence-ingest", editable = "packages/ingest" },
-    { name = "evidence-kernel", editable = "packages/kernel" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "hypothesis", specifier = ">=6.122.1" },
-    { name = "pip-audit", specifier = ">=2.7.3" },
-    { name = "pytest", specifier = ">=8.3.4" },
-    { name = "ruff", specifier = ">=0.8.4" },
 ]
 
 [[package]]
@@ -3528,4 +3530,20 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/9c/fb/31bdbf3737222d92ef7d2db4d50089b2253dbbb63ceb6d20a4447f6b7ed0/xlsxwriter-3.3.1.tar.gz", hash = "sha256:0867761912cceac76f97ffa76eeda18c623ae9217f601be8512f55b1af4bdb6e", size = 223040, upload-time = "2026-10-28T22:52:46.592Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/88/eb/1e6af9959a567901a7e7c7cef2e75883e487df223ed67f9a8977ff863bd8/xlsxwriter-3.3.1-py3-none-any.whl", hash = "sha256:8e2c89e59d733fe59e112317218c64fbbc276d90a8c144ebd6f7fa15e7ab184a", size = 180583, upload-time = "2026-10-28T22:52:45.048Z" },
+]
+
+[[package]]
+name = "z3-solver"
+version = "5.4.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/27/8c/2cc9dd43c7a06dd3842a286ad92db7f5a03d3b3fbaf57a2ba9462272897a/z3_solver-5.4.1.0.tar.gz", hash = "sha256:f2c745d1623128400c208d875fba741ccd88f061cb89b5661a9f2169eb24b110", size = 6312662, upload-time = "2026-11-11T02:07:42.287Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9f/08/914c3cc898098af6b2d4af02e6b332c71c495be21d0519f57d15b142ad01/z3_solver-5.4.1.0-py3-none-macosx_13_0_arm64.whl", hash = "sha256:9518a4cb03f49a38d4b1895b80910a12e0b0d144300472b95562426657396e01", size = 45530917, upload-time = "2026-11-11T02:07:13.549Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/5b/6c3df7dd87febe396eb04cc0702dc5378cc368cde210a1211da548ef155a/z3_solver-5.4.1.0-py3-none-macosx_13_0_x86_64.whl", hash = "sha256:c9f20b69171ea0cf0d693b91bf6a13ec595a3aed107dd9d8c55e8e08b7125ebc", size = 49228856, upload-time = "2026-11-11T02:07:17.972Z" },
+    { url = "https://files.pythonhosted.org/packages/04/bd/0f7c575074092d7606751245a1e3577cf5ab922c2a59389f39c4f037c749/z3_solver-5.4.1.0-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:e680ce083683abca5d07c3e55c2f620ff9a29cb91c548eeeea27ae29e8060522", size = 38626444, upload-time = "2026-11-11T02:07:21.817Z" },
+    { url = "https://files.pythonhosted.org/packages/bc/74/b35af120d12a6a6d9f63bb607e0251b15f86f08843e6728c801973925055/z3_solver-5.4.1.0-py3-none-manylinux_2_38_aarch64.whl", hash = "sha256:f056cb9714bb7c56ad7d25d86786b5a42c8a3c80e68b11f39af5f469b5366395", size = 32553427, upload-time = "2026-11-11T02:07:25.981Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/98/fe60aecb1dff7bd5ce9eb36ae15fe1e6407ba74b43abeaabbe084aa6b380/z3_solver-5.4.1.0-py3-none-manylinux_2_38_riscv64.whl", hash = "sha256:cfa234d71f3166840790143aae77bb9ffeabff6791e3fb2a0aeeb25ae5b97cf4", size = 33463989, upload-time = "2026-11-11T02:07:29.819Z" },
+    { url = "https://files.pythonhosted.org/packages/30/02/b3ca9eca8d3c1db64b9a367ec76ad2e9629325190a4c155b604eb7025c9e/z3_solver-5.4.1.0-py3-none-win32.whl", hash = "sha256:87cdfa6a6c3605431720c533985a60c6914c973f52efcaa590ceed089550d624", size = 15357942, upload-time = "2026-11-11T02:07:33.287Z" },
+    { url = "https://files.pythonhosted.org/packages/35/c5/15dc3a4cdeca489187e71664c5f0459fb1264777aa878d03dd8b2fb127da/z3_solver-5.4.1.0-py3-none-win_amd64.whl", hash = "sha256:4e32027ebc2077d1bb518113e370a1798746c1e7e2719144712ddd39c4e87ea6", size = 17113449, upload-time = "2026-11-11T02:07:36.188Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/e2/e3dc7340e35332a853c36359cca64fe505d0de2999e31df902b06b814eae/z3_solver-5.4.1.0-py3-none-win_arm64.whl", hash = "sha256:e7598a770d67f416c8d69de4c2e2f2898e849a2252c99fc8117598eb7370efff", size = 17689320, upload-time = "2026-11-11T02:07:39.596Z" },
 ]

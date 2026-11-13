@@ -1,0 +1,605 @@
+{
+  "benchmark": "agent_bench",
+  "disclaimer": "This tool assists a human reviewer. It does not determine compliance.",
+  "label": "ESTIMATE",
+  "provenance": "Synthetic fixture benchmark across 24 deterministic cases (6 categories x 4 cases). Not an expert held-out set.",
+  "total_cases": 24,
+  "clean_cases": 4,
+  "adversarial_cases": 20,
+  "categories": [
+    "clean_verified",
+    "corrupted_span",
+    "label_disagreement",
+    "refuter_contradiction",
+    "stray_number_injection",
+    "decision_gate_low_confidence"
+  ],
+  "no_agent": {
+    "clean_accept_recall": "4/4",
+    "clean_accept_ci95": {
+      "low": "0.510",
+      "high": "1.000",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "adversarial_catch_recall": "0/20",
+    "adversarial_catch_ci95": {
+      "low": "0.000",
+      "high": "0.161",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "overall_correct": "4/24",
+    "overall_ci95": {
+      "low": "0.067",
+      "high": "0.359",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "false_alarms": "0/4",
+    "false_alarm_ci95": {
+      "low": "0.000",
+      "high": "0.490",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "per_category_recall": {
+      "clean_verified": {
+        "hits": 4,
+        "total": 4,
+        "recall": "4/4",
+        "rate": "1.000",
+        "ci95": {
+          "low": "0.510",
+          "high": "1.000",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      },
+      "corrupted_span": {
+        "hits": 0,
+        "total": 4,
+        "recall": "0/4",
+        "rate": "0.000",
+        "ci95": {
+          "low": "0.000",
+          "high": "0.490",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      },
+      "label_disagreement": {
+        "hits": 0,
+        "total": 4,
+        "recall": "0/4",
+        "rate": "0.000",
+        "ci95": {
+          "low": "0.000",
+          "high": "0.490",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      },
+      "refuter_contradiction": {
+        "hits": 0,
+        "total": 4,
+        "recall": "0/4",
+        "rate": "0.000",
+        "ci95": {
+          "low": "0.000",
+          "high": "0.490",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      },
+      "stray_number_injection": {
+        "hits": 0,
+        "total": 4,
+        "recall": "0/4",
+        "rate": "0.000",
+        "ci95": {
+          "low": "0.000",
+          "high": "0.490",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      },
+      "decision_gate_low_confidence": {
+        "hits": 0,
+        "total": 4,
+        "recall": "0/4",
+        "rate": "0.000",
+        "ci95": {
+          "low": "0.000",
+          "high": "0.490",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      }
+    },
+    "llm_numeric_violation": 0,
+    "label": "ESTIMATE"
+  },
+  "single_llm": {
+    "clean_accept_recall": "4/4",
+    "clean_accept_ci95": {
+      "low": "0.510",
+      "high": "1.000",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "adversarial_catch_recall": "0/20",
+    "adversarial_catch_ci95": {
+      "low": "0.000",
+      "high": "0.161",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "overall_correct": "4/24",
+    "overall_ci95": {
+      "low": "0.067",
+      "high": "0.359",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "false_alarms": "0/4",
+    "false_alarm_ci95": {
+      "low": "0.000",
+      "high": "0.490",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "per_category_recall": {
+      "clean_verified": {
+        "hits": 4,
+        "total": 4,
+        "recall": "4/4",
+        "rate": "1.000",
+        "ci95": {
+          "low": "0.510",
+          "high": "1.000",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      },
+      "corrupted_span": {
+        "hits": 0,
+        "total": 4,
+        "recall": "0/4",
+        "rate": "0.000",
+        "ci95": {
+          "low": "0.000",
+          "high": "0.490",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      },
+      "label_disagreement": {
+        "hits": 0,
+        "total": 4,
+        "recall": "0/4",
+        "rate": "0.000",
+        "ci95": {
+          "low": "0.000",
+          "high": "0.490",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      },
+      "refuter_contradiction": {
+        "hits": 0,
+        "total": 4,
+        "recall": "0/4",
+        "rate": "0.000",
+        "ci95": {
+          "low": "0.000",
+          "high": "0.490",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      },
+      "stray_number_injection": {
+        "hits": 0,
+        "total": 4,
+        "recall": "0/4",
+        "rate": "0.000",
+        "ci95": {
+          "low": "0.000",
+          "high": "0.490",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      },
+      "decision_gate_low_confidence": {
+        "hits": 0,
+        "total": 4,
+        "recall": "0/4",
+        "rate": "0.000",
+        "ci95": {
+          "low": "0.000",
+          "high": "0.490",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      }
+    },
+    "llm_numeric_violation": 6,
+    "label": "ESTIMATE"
+  },
+  "multi_agent": {
+    "clean_accept_recall": "4/4",
+    "clean_accept_ci95": {
+      "low": "0.510",
+      "high": "1.000",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "adversarial_catch_recall": "20/20",
+    "adversarial_catch_ci95": {
+      "low": "0.839",
+      "high": "1.000",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "overall_correct": "24/24",
+    "overall_ci95": {
+      "low": "0.862",
+      "high": "1.000",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "false_alarms": "0/4",
+    "false_alarm_ci95": {
+      "low": "0.000",
+      "high": "0.490",
+      "method": "wilson",
+      "z": "1.96"
+    },
+    "per_category_recall": {
+      "clean_verified": {
+        "hits": 4,
+        "total": 4,
+        "recall": "4/4",
+        "rate": "1.000",
+        "ci95": {
+          "low": "0.510",
+          "high": "1.000",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      },
+      "corrupted_span": {
+        "hits": 4,
+        "total": 4,
+        "recall": "4/4",
+        "rate": "1.000",
+        "ci95": {
+          "low": "0.510",
+          "high": "1.000",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      },
+      "label_disagreement": {
+        "hits": 4,
+        "total": 4,
+        "recall": "4/4",
+        "rate": "1.000",
+        "ci95": {
+          "low": "0.510",
+          "high": "1.000",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      },
+      "refuter_contradiction": {
+        "hits": 4,
+        "total": 4,
+        "recall": "4/4",
+        "rate": "1.000",
+        "ci95": {
+          "low": "0.510",
+          "high": "1.000",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      },
+      "stray_number_injection": {
+        "hits": 4,
+        "total": 4,
+        "recall": "4/4",
+        "rate": "1.000",
+        "ci95": {
+          "low": "0.510",
+          "high": "1.000",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      },
+      "decision_gate_low_confidence": {
+        "hits": 4,
+        "total": 4,
+        "recall": "4/4",
+        "rate": "1.000",
+        "ci95": {
+          "low": "0.510",
+          "high": "1.000",
+          "method": "wilson",
+          "z": "1.96"
+        }
+      }
+    },
+    "llm_numeric_violation": 0,
+    "label": "ESTIMATE"
+  },
+  "beats_no_agent": true,
+  "beats_single_llm": true,
+  "ledger_verified": true,
+  "ledger_events_count": 44,
+  "cases": [
+    {
+      "case_id": "ab-clean-01",
+      "category": "clean_verified",
+      "heading": "VTOL.2210",
+      "method_id": "rigid_body_point_mass",
+      "expected": "accept",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "accept",
+      "multi_agent_abstain_reason": null
+    },
+    {
+      "case_id": "ab-span-01",
+      "category": "corrupted_span",
+      "heading": "VTOL.2210",
+      "method_id": "rigid_body_point_mass",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "agent_disagreement"
+    },
+    {
+      "case_id": "ab-disagree-01",
+      "category": "label_disagreement",
+      "heading": "VTOL.2210",
+      "method_id": "rigid_body_point_mass",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "agent_disagreement"
+    },
+    {
+      "case_id": "ab-refuter-01",
+      "category": "refuter_contradiction",
+      "heading": "VTOL.2210",
+      "method_id": "rigid_body_point_mass",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "refuter_hit"
+    },
+    {
+      "case_id": "ab-stray-01",
+      "category": "stray_number_injection",
+      "heading": "VTOL.2210",
+      "method_id": "rigid_body_point_mass",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "stray_number"
+    },
+    {
+      "case_id": "ab-gate-01",
+      "category": "decision_gate_low_confidence",
+      "heading": "VTOL.2210",
+      "method_id": "rigid_body_point_mass",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "decision_gate"
+    },
+    {
+      "case_id": "ab-clean-02",
+      "category": "clean_verified",
+      "heading": "VTOL.2215",
+      "method_id": "bolt_screen",
+      "expected": "accept",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "accept",
+      "multi_agent_abstain_reason": null
+    },
+    {
+      "case_id": "ab-span-02",
+      "category": "corrupted_span",
+      "heading": "VTOL.2215",
+      "method_id": "bolt_screen",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "agent_disagreement"
+    },
+    {
+      "case_id": "ab-disagree-02",
+      "category": "label_disagreement",
+      "heading": "VTOL.2215",
+      "method_id": "bolt_screen",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "agent_disagreement"
+    },
+    {
+      "case_id": "ab-refuter-02",
+      "category": "refuter_contradiction",
+      "heading": "VTOL.2215",
+      "method_id": "bolt_screen",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "refuter_hit"
+    },
+    {
+      "case_id": "ab-stray-02",
+      "category": "stray_number_injection",
+      "heading": "VTOL.2215",
+      "method_id": "bolt_screen",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "stray_number"
+    },
+    {
+      "case_id": "ab-gate-02",
+      "category": "decision_gate_low_confidence",
+      "heading": "VTOL.2215",
+      "method_id": "bolt_screen",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "decision_gate"
+    },
+    {
+      "case_id": "ab-clean-03",
+      "category": "clean_verified",
+      "heading": "CS-27.301",
+      "method_id": "rigid_body_point_mass",
+      "expected": "accept",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "accept",
+      "multi_agent_abstain_reason": null
+    },
+    {
+      "case_id": "ab-span-03",
+      "category": "corrupted_span",
+      "heading": "CS-27.301",
+      "method_id": "rigid_body_point_mass",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "agent_disagreement"
+    },
+    {
+      "case_id": "ab-disagree-03",
+      "category": "label_disagreement",
+      "heading": "CS-27.301",
+      "method_id": "rigid_body_point_mass",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "agent_disagreement"
+    },
+    {
+      "case_id": "ab-refuter-03",
+      "category": "refuter_contradiction",
+      "heading": "CS-27.301",
+      "method_id": "rigid_body_point_mass",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "refuter_hit"
+    },
+    {
+      "case_id": "ab-stray-03",
+      "category": "stray_number_injection",
+      "heading": "CS-27.301",
+      "method_id": "rigid_body_point_mass",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "unrecomputed_integer"
+    },
+    {
+      "case_id": "ab-gate-03",
+      "category": "decision_gate_low_confidence",
+      "heading": "CS-27.301",
+      "method_id": "rigid_body_point_mass",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "decision_gate"
+    },
+    {
+      "case_id": "ab-clean-04",
+      "category": "clean_verified",
+      "heading": "CS-29.301",
+      "method_id": "bolt_screen",
+      "expected": "accept",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "accept",
+      "multi_agent_abstain_reason": null
+    },
+    {
+      "case_id": "ab-span-04",
+      "category": "corrupted_span",
+      "heading": "CS-29.301",
+      "method_id": "bolt_screen",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "agent_disagreement"
+    },
+    {
+      "case_id": "ab-disagree-04",
+      "category": "label_disagreement",
+      "heading": "CS-29.301",
+      "method_id": "bolt_screen",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "agent_disagreement"
+    },
+    {
+      "case_id": "ab-refuter-04",
+      "category": "refuter_contradiction",
+      "heading": "CS-29.301",
+      "method_id": "bolt_screen",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "refuter_hit"
+    },
+    {
+      "case_id": "ab-stray-04",
+      "category": "stray_number_injection",
+      "heading": "CS-29.301",
+      "method_id": "bolt_screen",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "unrecomputed_integer"
+    },
+    {
+      "case_id": "ab-gate-04",
+      "category": "decision_gate_low_confidence",
+      "heading": "CS-29.301",
+      "method_id": "bolt_screen",
+      "expected": "abstain",
+      "no_agent": "accept",
+      "single_llm": "accept",
+      "multi_agent": "abstain",
+      "multi_agent_abstain_reason": "decision_gate"
+    }
+  ]
+}

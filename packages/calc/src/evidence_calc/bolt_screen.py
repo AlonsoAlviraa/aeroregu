@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Any
 
 from evidence_calc.errors import AbstainError
-from evidence_calc.quantize import as_decimal, format_quantum, quantize, reject_ambiguous
+from evidence_calc.quantize import format_quantum, parse_limited_decimal, quantize
 
 
 def run_bolt_screen(inputs: dict[str, Any], card: dict[str, Any]) -> dict[str, Any]:
@@ -14,13 +14,17 @@ def run_bolt_screen(inputs: dict[str, Any], card: dict[str, Any]) -> dict[str, A
             raise AbstainError("missing_input")
     quantum = Decimal(card["quantum"])
     limits = card["limits"]
-    area = _limited(inputs["area_mm2"], limits["area_mm2"], allow_zero_special=True)
+    area = parse_limited_decimal(inputs["area_mm2"], limits["area_mm2"], allow_zero_special=True)
     if area == 0:
         raise AbstainError("area_zero")
-    shear = _limited(inputs["shear_force_n"], limits["shear_force_n"])
-    tensile = _limited(inputs["tensile_force_n"], limits["tensile_force_n"])
-    shear_allow = _limited(inputs["shear_allowable_mpa"], limits["shear_allowable_mpa"])
-    tensile_allow = _limited(inputs["tensile_allowable_mpa"], limits["tensile_allowable_mpa"])
+    shear = parse_limited_decimal(inputs["shear_force_n"], limits["shear_force_n"])
+    tensile = parse_limited_decimal(inputs["tensile_force_n"], limits["tensile_force_n"])
+    shear_allow = parse_limited_decimal(
+        inputs["shear_allowable_mpa"], limits["shear_allowable_mpa"]
+    )
+    tensile_allow = parse_limited_decimal(
+        inputs["tensile_allowable_mpa"], limits["tensile_allowable_mpa"]
+    )
     if shear_allow <= 0 or tensile_allow <= 0:
         raise AbstainError("outside_validity")
     shear_stress = quantize(shear / area, quantum)
@@ -45,19 +49,3 @@ def run_bolt_screen(inputs: dict[str, Any], card: dict[str, Any]) -> dict[str, A
         "card_title": card["title"],
         "label": card["label"],
     }
-
-
-def _limited(text: str, limit: dict[str, str], allow_zero_special: bool = False) -> Decimal:
-    reject_ambiguous(text)
-    if not isinstance(text, str):
-        raise AbstainError("outside_validity")
-    value = as_decimal(text)
-    if allow_zero_special and value == 0:
-        return value
-    if "min" in limit and value < Decimal(limit["min"]):
-        raise AbstainError("outside_validity")
-    if "min_exclusive" in limit and value <= Decimal(limit["min_exclusive"]):
-        raise AbstainError("outside_validity")
-    if "max" in limit and value > Decimal(limit["max"]):
-        raise AbstainError("outside_validity")
-    return value

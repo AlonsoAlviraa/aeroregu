@@ -189,3 +189,20 @@ def test_timeout_abstains() -> None:
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_fixture_schema_invalid_abstains() -> None:
+    gateway = FixtureGateway("schema_invalid")
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["requirements"],
+        "properties": {"requirements": {"type": "array"}},
+    }
+    done = gateway.complete(
+        "reader",
+        [{"role": "user", "content": json.dumps({"quotation": "Alpha"})}],
+        schema,
+    )
+    assert done.output is None
+    assert done.abstain_reason == "schema_invalid"
