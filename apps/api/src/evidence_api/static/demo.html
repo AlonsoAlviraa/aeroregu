@@ -1058,6 +1058,10 @@ try {
                   <option value="hover_power_screen">hover_power_screen (Rotor / Hover)</option>
                   <option value="bolt_screen">bolt_screen (Tornillo Cortante/Traccion)</option>
                   <option value="rigid_body_point_mass">rigid_body_point_mass (Equilibrio 4 Motores)</option>
+                  <option value="margin_of_safety">margin_of_safety (CS-27.625 Fitting Factor)</option>
+                  <option value="column_plate_buckling">column_plate_buckling (Euler-Johnson / Pandeo)</option>
+                  <option value="palmgren_miner_fatigue">palmgren_miner_fatigue (CS-27.571 Fatiga Miner)</option>
+                  <option value="composite_failure_criteria">composite_failure_criteria (Tsai-Wu &amp; Hashin)</option>
                 </select>
               </div>
               <div class="field">
@@ -1214,6 +1218,66 @@ try {
                 </div>
               </div>
             </div>
+
+            <details style="margin-top:0.75rem;">
+              <summary>Studio de Plugins Declarativos (Tarjetas AST Decimal + Flint)</summary>
+              <div class="catia-box" style="margin-top:0.55rem;" aria-label="Registro de plugins de calculo">
+                <div class="row" style="justify-content:space-between;">
+                  <strong>Tarjetas Declarativas de Usuario (/calc/cards)</strong>
+                  <span class="status-pill" id="plugin-count-pill">7 metodos base</span>
+                </div>
+                <div class="sub-grid">
+                  <div class="field">
+                    <label for="plugin-id">ID Metodo Plugin</label>
+                    <input id="plugin-id" type="text" value="shear_lug_tearout" pattern="^[a-z][a-z0-9_]{2,47}$" autocomplete="off" autocorrect="off" spellcheck="false" data-error="err-plugin-id">
+                    <div id="err-plugin-id" class="error-msg">Minusculas, numeros y guion bajo (ej. shear_lug_tearout).</div>
+                  </div>
+                  <div class="field">
+                    <label for="plugin-version">Version</label>
+                    <input id="plugin-version" type="text" value="1.0.0" pattern="^\d+\.\d+\.\d+$" autocomplete="off" spellcheck="false" data-error="err-plugin-ver">
+                    <div id="err-plugin-ver" class="error-msg">Formato semver ej. 1.0.0</div>
+                  </div>
+                  <div class="field">
+                    <label for="plugin-summary">Descripcion Corta</label>
+                    <input id="plugin-summary" type="text" value="Corte directo en orejeta: tau = V / (n * b * t)" autocomplete="off">
+                  </div>
+                </div>
+                <div class="sub-grid">
+                  <div class="field">
+                    <label for="plugin-inputs-json">Esquema Inputs (required, limits, input_units)</label>
+                    <textarea id="plugin-inputs-json" rows="4" spellcheck="false">{
+  "load_n": {"default": "12000.000", "unit": "newton", "min": "0", "max": "500000"},
+  "area_mm2": {"default": "160.000", "unit": "millimeter ** 2", "min_exclusive": "0", "max": "50000"},
+  "allowable_mpa": {"default": "240.000", "unit": "megapascal", "min": "1", "max": "5000"}
+}</textarea>
+                  </div>
+                  <div class="field">
+                    <label for="plugin-formulas-json">Formulas Declarativas AST ([{output, expr}])</label>
+                    <textarea id="plugin-formulas-json" rows="4" spellcheck="false">[
+  {"output": "stress_mpa", "expr": "load_n / area_mm2"},
+  {"output": "margin_of_safety", "expr": "(allowable_mpa / stress_mpa) - 1"}
+]</textarea>
+                  </div>
+                </div>
+                <div class="row">
+                  <button type="button" id="register-plugin-btn" class="primary">Registrar Plugin Declarativo</button>
+                  <button type="button" id="load-cards-btn" class="subtle">Recargar Catalogo /calc/cards</button>
+                </div>
+                <div tabindex="0" role="region" aria-label="Catalogo tarjetas activas" class="table-wrapper" id="plugin-cards-wrap" hidden>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th scope="col">Metodo</th>
+                        <th scope="col">Origen</th>
+                        <th scope="col">Version</th>
+                        <th scope="col">Accion</th>
+                      </tr>
+                    </thead>
+                    <tbody id="plugin-cards-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </details>
 
             <details>
               <summary>JSON avanzado sincronizado (Inputs y Stated Outputs)</summary>
@@ -1418,18 +1482,83 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
               </table>
             </div>
           </section>
+
+          <section class="panel-card" style="margin-top:0.9rem;">
+            <div class="panel-head">
+              <h2>Enterprise SSO (OIDC / SAML 2.0), RBAC SoD, Webhooks CI/CD y PDF Firmado + QR</h2>
+              <span class="status-pill" id="rbac-role-pill">Rol: local</span>
+            </div>
+            <div class="row">
+              <label class="row" style="font-weight:500;">
+                <input id="enforce-distinct-chk" type="checkbox" checked>
+                Exigir Separacion de Funciones (CVE distinto de Author)
+              </label>
+              <button id="download-pdf-btn" class="primary" type="button">Descargar PDF Firmado (bbox + QR)</button>
+              <button id="verify-pdf-btn" type="button">Verificar Ultimo PDF Offline</button>
+              <button id="list-roles-btn" type="button">Listar Roles /admin/roles</button>
+              <button id="grant-cve-btn" type="button">Asignar Rol CVE a Reviewer</button>
+            </div>
+            <div class="sub-grid" style="margin-top:0.6rem;">
+              <div class="field">
+                <label for="webhook-url">URL Webhook CI/CD (HMAC-SHA256)</label>
+                <input id="webhook-url" type="url" placeholder="https://ci.corp.local/hooks/aeroregu" autocomplete="off" autocorrect="off" spellcheck="false" data-error="err-webhook-url">
+                <div id="err-webhook-url" class="error-msg">Introduce una URL http(s) valida no privada.</div>
+              </div>
+              <div class="field">
+                <label for="webhook-secret">Secreto HMAC (min 8 chars)</label>
+                <input id="webhook-secret" type="text" value="enterprise-ci-hmac-key" autocomplete="off" spellcheck="false">
+              </div>
+            </div>
+            <div class="row" style="margin-top:0.45rem;">
+              <button id="register-webhook-btn" class="primary" type="button">Registrar Webhook CI/CD</button>
+              <button id="list-webhooks-btn" type="button">Listar Webhooks &amp; Entregas</button>
+              <span class="status-pill" id="webhook-count-pill">0 webhooks</span>
+            </div>
+            <details style="margin-top:0.6rem;">
+              <summary>Probar Callback Corporativo OIDC (JWT RS256) / SAML 2.0 (Entra ID / Okta)</summary>
+              <div class="sub-grid" style="margin-top:0.5rem;">
+                <div class="field">
+                  <label for="sso-mode">Protocolo Corporativo</label>
+                  <select id="sso-mode">
+                    <option value="oidc">OIDC ID Token (/sso/oidc/callback)</option>
+                    <option value="saml">SAML 2.0 Response XML (/sso/saml/acs)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="sso-token-input">Token OIDC JWT o SAMLResponse Base64</label>
+                  <textarea id="sso-token-input" rows="2" placeholder="eyJ... o Base64 SAMLResponse" autocomplete="off" spellcheck="false"></textarea>
+                </div>
+              </div>
+              <div class="row" style="margin-top:0.4rem;">
+                <button id="sso-login-btn" class="primary" type="button">Autenticar via SSO Corporativo</button>
+              </div>
+            </details>
+            <div tabindex="0" role="region" aria-label="Webhooks activos" class="table-wrapper" id="webhook-table-wrap" hidden style="margin-top:0.6rem;">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">ID</th>
+                    <th scope="col">Endpoint URL</th>
+                    <th scope="col">Eventos</th>
+                    <th scope="col">Accion</th>
+                  </tr>
+                </thead>
+                <tbody id="webhook-table-body"></tbody>
+              </table>
+            </div>
+          </section>
         </div>
 
         <!-- TAB 5: MCP STUDIO & RED-TEAM -->
         <div role="tabpanel" aria-labelledby="tab-mcp" hidden="until-found">
           <section class="panel-card">
             <div class="panel-head">
-              <h2>MCP Playground (19 Tools) y Auditoria Red-Team</h2>
+              <h2>MCP Playground (23 Tools) y Auditoria Red-Team</h2>
               <span class="status-pill">POST /mcp JSON-RPC 2.0</span>
             </div>
 
             <div class="row">
-              <button id="mcp-list-tools" class="primary" type="button">Cargar 19 Tools MCP</button>
+              <button id="mcp-list-tools" class="primary" type="button">Cargar 23 Tools MCP</button>
               <button id="mcp-run-redteam" type="button">Correr Red-Team (46 Sondas)</button>
               <button id="mcp-run-b2" type="button">Comparativa B2 vs Baseline</button>
             </div>
@@ -1502,8 +1631,9 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
     <div class="field">
       <label for="actor-select">Rol de Sesion Activo</label>
       <select id="actor-select">
-        <option value="author">author (human)</option>
-        <option value="reviewer">reviewer (human)</option>
+        <option value="author">author (rol: author)</option>
+        <option value="reviewer">reviewer (rol: cve)</option>
+        <option value="admin">admin (rol: admin)</option>
       </select>
     </div>
     <div class="field">
@@ -1549,6 +1679,43 @@ const DEFAULT_INPUTS = {
     cg_x_m: "-0.200",
     unit_x_m: ["-1.000", "-0.300", "0.300", "1.000"],
     unit_operative: [true, true, true, true]
+  },
+  margin_of_safety: {
+    applied_load_n: "18000.000",
+    allowable_load_n: "42000.000",
+    reserve_factor: "1.500",
+    fitting_factor: "1.150"
+  },
+  column_plate_buckling: {
+    applied_compression_n: "28000.000",
+    column_length_mm: "420.000",
+    end_fixity_k: "1.000",
+    area_mm2: "240.000",
+    inertia_mm4: "34560.000",
+    youngs_modulus_mpa: "71700.000",
+    yield_strength_mpa: "460.000",
+    poissons_ratio: "0.330",
+    plate_width_b_mm: "60.000",
+    plate_thickness_t_mm: "3.200",
+    plate_buckling_coeff_kc: "4.000",
+    crippling_cutoff_mpa: "420.000"
+  },
+  palmgren_miner_fatigue: {
+    cycles_applied: ["45000", "8500", "450"],
+    cycles_to_failure: ["900000", "250000", "18000"],
+    scatter_factor: "4.000",
+    damage_limit: "1.000"
+  },
+  composite_failure_criteria: {
+    sigma_1_mpa: "420.000",
+    sigma_2_mpa: "18.000",
+    tau_12_mpa: "32.000",
+    xt_mpa: "1550.000",
+    xc_mpa: "1200.000",
+    yt_mpa: "55.000",
+    yc_mpa: "220.000",
+    s12_mpa: "85.000",
+    f12_star: "-0.500"
   }
 };
 
@@ -1574,6 +1741,43 @@ const STRESS_INPUTS = {
     cg_x_m: "0.180",
     unit_x_m: ["-1.000", "-0.300", "0.300", "1.000"],
     unit_operative: [true, false, true, true]
+  },
+  margin_of_safety: {
+    applied_load_n: "26000.000",
+    allowable_load_n: "42000.000",
+    reserve_factor: "1.500",
+    fitting_factor: "1.150"
+  },
+  column_plate_buckling: {
+    applied_compression_n: "72000.000",
+    column_length_mm: "540.000",
+    end_fixity_k: "1.000",
+    area_mm2: "240.000",
+    inertia_mm4: "34560.000",
+    youngs_modulus_mpa: "71700.000",
+    yield_strength_mpa: "460.000",
+    poissons_ratio: "0.330",
+    plate_width_b_mm: "60.000",
+    plate_thickness_t_mm: "2.400",
+    plate_buckling_coeff_kc: "4.000",
+    crippling_cutoff_mpa: "420.000"
+  },
+  palmgren_miner_fatigue: {
+    cycles_applied: ["180000", "42000", "4500"],
+    cycles_to_failure: ["900000", "250000", "18000"],
+    scatter_factor: "4.000",
+    damage_limit: "1.000"
+  },
+  composite_failure_criteria: {
+    sigma_1_mpa: "950.000",
+    sigma_2_mpa: "48.000",
+    tau_12_mpa: "68.000",
+    xt_mpa: "1550.000",
+    xc_mpa: "1200.000",
+    yt_mpa: "55.000",
+    yc_mpa: "220.000",
+    s12_mpa: "85.000",
+    f12_star: "-0.500"
   }
 };
 
@@ -1585,7 +1789,7 @@ const FIELD_META = {
   power_available_kw: { unit: "kW", hint: "Potencia disponible en eje" },
   shear_force_n: { unit: "N", hint: "Carga cortante en union" },
   tensile_force_n: { unit: "N", hint: "Carga axial traccion" },
-  area_mm2: { unit: "mm2", hint: "Seccion resistente tornillo" },
+  area_mm2: { unit: "mm2", hint: "Seccion resistente" },
   shear_allowable_mpa: { unit: "MPa", hint: "Admisible a cortante" },
   tensile_allowable_mpa: { unit: "MPa", hint: "Admisible a traccion" },
   mass_kg: { unit: "kg", hint: "Masa aeronave (1 .. 5000 kg)" },
@@ -1593,7 +1797,35 @@ const FIELD_META = {
   load_factor: { unit: "nz", hint: "Factor de carga (-2 .. 4)" },
   cg_x_m: { unit: "m", hint: "Centro de gravedad longitudinal" },
   unit_x_m: { unit: "m[]", hint: "4 estaciones separadas por coma" },
-  unit_operative: { unit: "bool[]", hint: "4 estados true/false por coma" }
+  unit_operative: { unit: "bool[]", hint: "4 estados true/false por coma" },
+  applied_load_n: { unit: "N", hint: "Carga limite aplicada al herraje" },
+  allowable_load_n: { unit: "N", hint: "Carga admisible ultima del herraje" },
+  reserve_factor: { unit: "-", hint: "RF requerido (ej. 1.500 ultimo)" },
+  fitting_factor: { unit: "-", hint: "CS-27.625 Fitting Factor >= 1.150" },
+  applied_compression_n: { unit: "N", hint: "Carga axial compresiva" },
+  column_length_mm: { unit: "mm", hint: "Longitud libre de columna L" },
+  end_fixity_k: { unit: "-", hint: "Empotramiento K (ej. 1.000 articulada)" },
+  inertia_mm4: { unit: "mm4", hint: "Segundo momento de area I" },
+  youngs_modulus_mpa: { unit: "MPa", hint: "Modulo de Young E (ej. 71700 Al)" },
+  yield_strength_mpa: { unit: "MPa", hint: "Limite elastico compresion Sy" },
+  plate_width_b_mm: { unit: "mm", hint: "Ancho placa soportada b" },
+  plate_thickness_t_mm: { unit: "mm", hint: "Espesor chapa t" },
+  plate_buckling_coeff_kc: { unit: "-", hint: "Coeficiente k borde placa (ej. 4.000)" },
+  crippling_cutoff_mpa: { unit: "MPa", hint: "Cutoff plastico/crippling" },
+  poissons_ratio: { unit: "-", hint: "Coeficiente de Poisson nu" },
+  cycles_applied: { unit: "cycles[]", hint: "Ciclos n_i por bloque separados por coma" },
+  cycles_to_failure: { unit: "cycles[]", hint: "Ciclos curva S-N N_i por bloque" },
+  scatter_factor: { unit: "-", hint: "CS-27.571 factor dispersion fatiga" },
+  damage_limit: { unit: "-", hint: "Limite dano acumulado Miner (1.000)" },
+  sigma_1_mpa: { unit: "MPa", hint: "Esfuerzo longitudinal fibra" },
+  sigma_2_mpa: { unit: "MPa", hint: "Esfuerzo transversal matriz" },
+  tau_12_mpa: { unit: "MPa", hint: "Cortante en el plano" },
+  xt_mpa: { unit: "MPa", hint: "Admisible traccion fibra Xt" },
+  xc_mpa: { unit: "MPa", hint: "Admisible compresion fibra Xc" },
+  yt_mpa: { unit: "MPa", hint: "Admisible traccion matriz Yt" },
+  yc_mpa: { unit: "MPa", hint: "Admisible compresion matriz Yc" },
+  s12_mpa: { unit: "MPa", hint: "Admisible cortante S12" },
+  f12_star: { unit: "-", hint: "Coeficiente interaccion Tsai-Wu (-0.500)" }
 };
 
 const DEFAULT_STATED = {
@@ -1617,6 +1849,28 @@ const DEFAULT_STATED = {
     unit_force_n: ["1962.000", "1962.000", "1962.000", "1962.000"],
     vertical_residual_n: "0.000",
     moment_about_cg_n_m: "392.400"
+  },
+  margin_of_safety: {
+    design_load_required_n: "31050.000",
+    margin_of_safety: "0.353",
+    reserve_factor_achieved: "2.029",
+    utilization_ratio: "0.739"
+  },
+  column_plate_buckling: {
+    governing_critical_stress_mpa: "380.000",
+    critical_buckling_load_n: "91200.000",
+    buckling_ms: "2.257"
+  },
+  palmgren_miner_fatigue: {
+    cumulative_damage_d: "0.109",
+    factored_damage_df: "0.436",
+    life_margin_of_safety: "1.294"
+  },
+  composite_failure_criteria: {
+    tsai_wu_index: "0.285",
+    tsai_wu_rf: "1.870",
+    hashin_max_index: "0.240",
+    governing_margin_of_safety: "0.870"
   }
 };
 
@@ -1928,6 +2182,24 @@ const SLIDER_SPECS = {
     { key: "mass_kg", label: "Masa M", unit: "kg", min: 400, max: 1600, step: 20 },
     { key: "load_factor", label: "Factor Carga nz", unit: "g", min: -1.5, max: 3.5, step: 0.1 },
     { key: "cg_x_m", label: "Posicion CG X", unit: "m", min: -0.6, max: 0.6, step: 0.02 }
+  ],
+  margin_of_safety: [
+    { key: "allowable_load_n", label: "Carga Admisible", unit: "N", min: 5000, max: 95000, step: 500 },
+    { key: "applied_load_n", label: "Carga Aplicada", unit: "N", min: 2000, max: 55000, step: 500 },
+    { key: "fitting_factor", label: "Fitting Factor", unit: "-", min: 1.15, max: 1.5, step: 0.05 }
+  ],
+  column_plate_buckling: [
+    { key: "applied_compression_n", label: "Carga Compresion", unit: "N", min: 5000, max: 95000, step: 500 },
+    { key: "column_length_mm", label: "Longitud Columna", unit: "mm", min: 150, max: 950, step: 10 },
+    { key: "plate_thickness_t_mm", label: "Espesor Chapa", unit: "mm", min: 1.2, max: 8.0, step: 0.2 }
+  ],
+  palmgren_miner_fatigue: [
+    { key: "scatter_factor", label: "Scatter CS-27.571", unit: "-", min: 2.0, max: 8.0, step: 0.5 }
+  ],
+  composite_failure_criteria: [
+    { key: "sigma_1_mpa", label: "Sigma 1 Fibra", unit: "MPa", min: -800, max: 1400, step: 20 },
+    { key: "sigma_2_mpa", label: "Sigma 2 Matriz", unit: "MPa", min: -180, max: 60, step: 5 },
+    { key: "tau_12_mpa", label: "Tau 12 Corte", unit: "MPa", min: 0, max: 90, step: 2 }
   ]
 };
 
@@ -2040,7 +2312,7 @@ function renderDynamicCalcForm(inputsObj) {
 
 function syncFormToJson() {
   const method = document.getElementById("calc-method").value;
-  const base = structuredClone(DEFAULT_INPUTS[method]);
+  const base = structuredClone(DEFAULT_INPUTS[method] || {});
   document.querySelectorAll("#dynamic-calc-form input[data-key]").forEach((inp) => {
     const key = inp.dataset.key;
     if (Array.isArray(base[key])) {
@@ -2058,9 +2330,9 @@ function syncFormToJson() {
 
 function syncMethodTemplates(presetMap = DEFAULT_INPUTS) {
   const m = document.getElementById("calc-method").value;
-  const inp = presetMap[m];
+  const inp = presetMap[m] || DEFAULT_INPUTS[m] || {};
   document.getElementById("calc-inputs-json").value = JSON.stringify(inp, null, 2);
-  document.getElementById("calc-stated-json").value = JSON.stringify(DEFAULT_STATED[m], null, 2);
+  document.getElementById("calc-stated-json").value = JSON.stringify(DEFAULT_STATED[m] || {}, null, 2);
   document.getElementById("compare-diff-box").hidden = true;
   renderCalcSliders(m, inp);
   renderDynamicCalcForm(inp);
@@ -2128,7 +2400,7 @@ function formatDisplayUnits(method, inputs, outputs) {
       chips.push(`N = ${nN.toFixed(1)} N`);
       chips.push(`A = ${aMm2.toFixed(1)} mm2`);
     }
-  } else {
+  } else if (method === "rigid_body_point_mass") {
     const mKg = parseFloat(inputs.mass_kg || "0") || 0;
     const nz = parseFloat(inputs.load_factor || "1") || 1;
     const cgM = parseFloat(inputs.cg_x_m || "0") || 0;
@@ -2144,6 +2416,15 @@ function formatDisplayUnits(method, inputs, outputs) {
       chips.push(`M = ${mKg.toFixed(1)} kg`);
       chips.push(`nz = ${nz.toFixed(2)} g`);
       chips.push(`CG_X = ${cgM.toFixed(3)} m`);
+    }
+  } else {
+    Object.entries(inputs || {}).slice(0, 3).forEach(([k, v]) => {
+      chips.push(`${k} = ${Array.isArray(v) ? v.join(";") : v}`);
+    });
+    if (outputs) {
+      Object.entries(outputs).filter(([, v]) => ["string", "number"].includes(typeof v)).slice(0, 2).forEach(([k, v]) => {
+        chips.push(`${k} = ${v}`);
+      });
     }
   }
   chips.forEach((txt) => {
@@ -2256,6 +2537,40 @@ function renderCadDiagram(method, inputs, outputs) {
     const lbl = svgEl("text", { x: 290, y: 66, fill: "currentColor", "font-size": 13, "font-family": "monospace" });
     lbl.textContent = `rs=${rs.toFixed(3)} | rt=${rt.toFixed(3)} | R=${inter.toFixed(3)}`;
     svg.appendChild(lbl);
+    return;
+  }
+
+  if (["margin_of_safety", "column_plate_buckling", "palmgren_miner_fatigue", "composite_failure_criteria"].includes(method)) {
+    const titles = {
+      margin_of_safety: "CS-27.625 Margin of Safety (MS = Allow / (RF*FF*Load) - 1)",
+      column_plate_buckling: "Euler-Johnson Column & Local Plate Crippling Envelope",
+      palmgren_miner_fatigue: "CS-27.571 Palmgren-Miner Cumulative Damage (D = Sum ni/Ni)",
+      composite_failure_criteria: "2D Composite Tsai-Wu & Hashin 4-Mode Envelope"
+    };
+    title.textContent = titles[method];
+    const msKey = method === "margin_of_safety" ? "margin_of_safety" : (method === "column_plate_buckling" ? "buckling_ms" : (method === "palmgren_miner_fatigue" ? "fatigue_ms" : "hashin_ms"));
+    const msVal = outputs ? parseFloat(outputs[msKey] ?? "0") : null;
+    const positive = msVal !== null ? msVal >= 0 : true;
+    const fillRatio = msVal !== null ? Math.max(0.08, Math.min(1.0, (msVal + 0.5) / 2.0)) : 0.65;
+    svg.appendChild(svgEl("rect", { x: 56, y: 74, width: 448, height: 42, rx: 8, fill: "none", stroke: "currentColor", opacity: 0.45 }));
+    svg.appendChild(svgEl("rect", { x: 58, y: 76, width: Math.round(fillRatio * 444), height: 38, rx: 6, fill: positive ? "#16a34a" : "#dc2626", opacity: 0.82 }));
+    svg.appendChild(svgEl("line", { x1: 170, y1: 64, x2: 170, y2: 126, stroke: "#d97706", "stroke-dasharray": "4 3", "stroke-width": 2 }));
+    const tMain = svgEl("text", { x: 56, y: 158, fill: "currentColor", "font-size": 13, "font-family": "monospace" });
+    tMain.textContent = outputs ? `${msKey} = ${outputs[msKey]}` : `Preview listo (${method}) - pulsa Calcular Exacto`;
+    svg.appendChild(tMain);
+    badge.textContent = outputs ? `MS = ${outputs[msKey]}` : "Preview listo";
+    badge.dataset.tone = outputs ? (positive ? "ok" : "err") : "warn";
+    return;
+  }
+
+  if (method !== "rigid_body_point_mass") {
+    title.textContent = `Plugin Declarativo AST Decimal: ${method}`;
+    const pairs = outputs ? Object.entries(outputs).filter(([, v]) => ["string", "number"].includes(typeof v)).slice(0, 3) : [];
+    const lbl = svgEl("text", { x: 56, y: 112, fill: "currentColor", "font-size": 14, "font-family": "monospace" });
+    lbl.textContent = pairs.length ? pairs.map(([k, v]) => `${k}=${v}`).join(" | ") : `Plugin ${method} listo para calcular en Decimal + Flint`;
+    svg.appendChild(lbl);
+    badge.textContent = pairs.length ? "Plugin Verificado" : "Plugin Declarativo";
+    badge.dataset.tone = pairs.length ? "ok" : "warn";
     return;
   }
 
@@ -2468,7 +2783,7 @@ function updateEngineeringSummary(data) {
     markWorkflowStep("wf-state-calc", "Verificado");
     return;
   }
-  if (res?.outputs || res?.exact_intervals || ["disk_loading_pa", "shear_stress_mpa", "weight_n"].some((k) => k in res)) {
+  if (res?.outputs || res?.exact_intervals || ["disk_loading_pa", "shear_stress_mpa", "weight_n", "margin_of_safety", "buckling_ms", "fatigue_ms", "hashin_ms"].some((k) => k in res)) {
     const out = res.outputs || res;
     const summaryPairs = Object.entries(out).filter(([, v]) => ["string", "number"].includes(typeof v)).slice(0, 3).map(([k, v]) => `${k}=${v}`);
     title.textContent = `Calculo Verificado (${conf})`;
@@ -2520,7 +2835,7 @@ function updateBadgesAndTables(data) {
     res.outputs ||
     res.recomputed ||
     res.exact_intervals ||
-    ["disk_loading_pa", "shear_stress_mpa", "weight_n"].some((k) => k in res)
+    ["disk_loading_pa", "shear_stress_mpa", "weight_n", "margin_of_safety", "buckling_ms", "fatigue_ms", "hashin_ms"].some((k) => k in res)
   );
   if (hasCalcVars && conf !== "abstain") {
     document.getElementById("kpi-calc").textContent = res.fault_kind ? `Compare: ${res.fault_kind}` : "Decimal Verificado";
@@ -2647,8 +2962,15 @@ async function ensureSession() {
       return null;
     }
     const st = document.getElementById("session-status");
-    st.textContent = `Session: ${actor} @ ${tenant_id}`;
+    const authPayload = await response.json().catch(() => null);
+    const role = authPayload?.result?.role || (actor === "reviewer" ? "cve" : (actor === "admin" ? "admin" : "author"));
+    st.textContent = `Session: ${actor} (${role}) @ ${tenant_id}`;
     st.dataset.tone = "ok";
+    const rp = document.getElementById("rbac-role-pill");
+    if (rp) {
+      rp.textContent = `Rol: ${role} (${actor})`;
+      rp.dataset.tone = role === "cve" || role === "admin" ? "ok" : "warn";
+    }
     return actor;
   } catch (err) {
     setOutput(`Error de red en /auth/login: ${err?.message || err}`, "err", "Offline");
@@ -2664,8 +2986,11 @@ async function ensureSession() {
       const info = data?.result;
       if (info?.actor_id) {
         const st = document.getElementById("session-status");
-        st.textContent = `Session: ${info.actor_id} @ ${info.tenant_id}`;
+        const role = info.role || "author";
+        st.textContent = `Session: ${info.actor_id} (${role}) @ ${info.tenant_id}`;
         st.dataset.tone = "ok";
+        const rp = document.getElementById("rbac-role-pill");
+        if (rp) rp.textContent = `Rol: ${role} (${info.actor_id})`;
       }
     }
   } catch {}
@@ -2949,7 +3274,10 @@ document.getElementById("run-sweep").onclick = async () => {
   const actor = await ensureSession();
   if (actor) post("/coverage/sweep", { actor_id: actor, tenant_id: currentTenant(), target_status: "gap", limit: 15 });
 };
-document.getElementById("show-gate").onclick = () => show(tenantUrl("/coverage/gate"));
+document.getElementById("show-gate").onclick = () => {
+  const enforceDistinct = document.getElementById("enforce-distinct-chk")?.checked ? "true" : "false";
+  show(tenantUrl(`/coverage/gate?enforce_distinct=${enforceDistinct}`));
+};
 document.getElementById("mass-shift").onclick = async () => {
   const actor = await ensureSession();
   if (actor) post("/coverage/mass-shift", { actor_id: actor, tenant_id: currentTenant() });
@@ -3119,7 +3447,25 @@ document.getElementById("export-zip").onclick = async () => {
 
 const MCP_DEFAULT_ARGS = {
   evidence_calc_list: {},
-  evidence_calc_run: { method_id: "bolt_screen", inputs: DEFAULT_INPUTS.bolt_screen },
+  evidence_calc_run: { method_id: "margin_of_safety", inputs: DEFAULT_INPUTS.margin_of_safety },
+  evidence_calc_register_plugin: {
+    card: {
+      method_id: "shear_lug_tearout",
+      title: "Corte directo en orejeta",
+      quantum: "0.001",
+      required: ["load_n", "area_mm2", "allowable_mpa"],
+      limits: {
+        load_n: { min: "0", max: "500000" },
+        area_mm2: { min_exclusive: "0", max: "50000" },
+        allowable_mpa: { min: "1", max: "5000" }
+      },
+      input_units: { load_n: "newton", area_mm2: "millimeter ** 2", allowable_mpa: "megapascal" },
+      formulas: [
+        { output: "stress_mpa", expr: "load_n / area_mm2" },
+        { output: "margin_of_safety", expr: "(allowable_mpa / stress_mpa) - 1" }
+      ]
+    }
+  },
   evidence_coverage_status: { tenant_id: "demo", action: "summary" },
   evidence_formal_prove: { kind: "hover_power" },
   evidence_notes_check: { example: "unit_scale" },
@@ -3128,6 +3474,9 @@ const MCP_DEFAULT_ARGS = {
   evidence_safety_scan: { text: "CS-27.301 nominal structural load verification.", mode: "both" },
   evidence_agents_runtime: { action: "status" },
   evidence_dossier_export: { tenant_id: "demo", format: "summary" },
+  evidence_dossier_pdf_export: { tenant_id: "demo", output_path: "dossier_signed.pdf" },
+  evidence_webhooks_list: { tenant_id: "demo" },
+  evidence_webhooks_register: { tenant_id: "demo", url: "https://ci.corp.local/hooks/aeroregu", secret: "enterprise-ci-hmac-key" },
   evidence_bundle_export: { tenant_id: "demo", output_path: "studio_export.zip" },
   evidence_bundle_verify: { bundle_path: "studio_export.zip" }
 };
@@ -3142,8 +3491,280 @@ const MCP_WRITE_TOOLS = new Set([
   "evidence_bundle_verify",
   "evidence_verify_case",
   "evidence_ledger_signoff",
-  "evidence_coverage_sweep"
+  "evidence_coverage_sweep",
+  "evidence_calc_register_plugin",
+  "evidence_dossier_pdf_export",
+  "evidence_webhooks_register"
 ]);
+
+// Plugin Studio + Enterprise SSO/RBAC/Webhooks/Signed PDF Handlers
+async function loadCalcCardsCatalog() {
+  try {
+    const resp = await fetch("/calc/cards", { credentials: "same-origin" });
+    const data = await resp.json();
+    const cards = data?.result?.methods || data?.result?.cards || [];
+    const sel = document.getElementById("calc-method");
+    const existing = new Set([...sel.options].map((o) => o.value));
+    cards.forEach((c) => {
+      if (!existing.has(c.method_id)) {
+        const opt = document.createElement("option");
+        opt.value = c.method_id;
+        opt.textContent = `${c.method_id} (${c.method_version || "plugin"})`;
+        sel.appendChild(opt);
+      }
+      if (!DEFAULT_INPUTS[c.method_id] && Array.isArray(c.required)) {
+        const sample = {};
+        c.required.forEach((k) => {
+          const lim = (c.limits || {})[k] || {};
+          sample[k] = String(lim.min || "10.000");
+        });
+        DEFAULT_INPUTS[c.method_id] = sample;
+        DEFAULT_STATED[c.method_id] = {};
+      }
+    });
+    const countPill = document.getElementById("plugin-count-pill");
+    if (countPill) countPill.textContent = `${cards.length} tarjetas activas`;
+    const wrap = document.getElementById("plugin-cards-wrap");
+    const tbody = document.getElementById("plugin-cards-body");
+    if (wrap && tbody) {
+      tbody.replaceChildren();
+      cards.forEach((c) => {
+        const tr = document.createElement("tr");
+        const th = document.createElement("th");
+        th.textContent = c.method_id;
+        const tdKind = document.createElement("td");
+        tdKind.textContent = c.plugin ? "Plugin Declarativo" : "Core Certificado";
+        const tdVer = document.createElement("td");
+        tdVer.textContent = c.method_version || "-";
+        const tdAct = document.createElement("td");
+        const useBtn = document.createElement("button");
+        useBtn.type = "button";
+        useBtn.className = "subtle";
+        useBtn.textContent = "Usar";
+        useBtn.onclick = () => {
+          sel.value = c.method_id;
+          syncMethodTemplates(DEFAULT_INPUTS);
+          showToast(`Metodo ${c.method_id} cargado.`, "ok");
+        };
+        tdAct.appendChild(useBtn);
+        if (c.plugin) {
+          const delBtn = document.createElement("button");
+          delBtn.type = "button";
+          delBtn.className = "subtle";
+          delBtn.textContent = "Eliminar";
+          delBtn.style.marginInlineStart = "0.35rem";
+          delBtn.onclick = async () => {
+            if (!(await ensureSession())) return;
+            await fetch(`/calc/cards/${encodeURIComponent(c.method_id)}`, { method: "DELETE", credentials: "same-origin" });
+            await loadCalcCardsCatalog();
+            showToast(`Plugin ${c.method_id} eliminado.`, "warn");
+          };
+          tdAct.appendChild(delBtn);
+        }
+        tr.append(th, tdKind, tdVer, tdAct);
+        tbody.appendChild(tr);
+      });
+      wrap.hidden = false;
+    }
+    return data;
+  } catch (err) {
+    setOutput(`Error cargando catalogo: ${err?.message || err}`, "err", "Offline");
+    return null;
+  }
+}
+
+document.getElementById("load-cards-btn")?.addEventListener("click", loadCalcCardsCatalog);
+
+document.getElementById("register-plugin-btn")?.addEventListener("click", async () => {
+  if (!(await ensureSession())) return;
+  const methodIdEl = document.getElementById("plugin-id");
+  const verEl = document.getElementById("plugin-version");
+  const title = document.getElementById("plugin-summary").value.trim() || "Declarative card";
+  let inputsSpec;
+  let formulasSpec;
+  try {
+    inputsSpec = JSON.parse(document.getElementById("plugin-inputs-json").value || "{}");
+    formulasSpec = JSON.parse(document.getElementById("plugin-formulas-json").value || "[]");
+  } catch (err) {
+    setOutput(`JSON invalido en Plugin Studio: ${err.message}`, "err", "JSON Error");
+    return;
+  }
+  const required = Object.keys(inputsSpec);
+  const limits = {};
+  const input_units = {};
+  const defaultVals = {};
+  required.forEach((k) => {
+    const spec = typeof inputsSpec[k] === "object" && inputsSpec[k] !== null ? inputsSpec[k] : { default: String(inputsSpec[k]) };
+    const lim = {};
+    ["min", "min_exclusive", "max", "max_exclusive"].forEach((b) => {
+      if (spec[b] !== undefined) lim[b] = String(spec[b]);
+    });
+    if (!Object.keys(lim).length) {
+      lim.min = "0";
+      lim.max = "999999";
+    }
+    limits[k] = lim;
+    input_units[k] = String(spec.unit || "dimensionless");
+    defaultVals[k] = String(spec.default ?? "10.000");
+  });
+  const formulas = Array.isArray(formulasSpec)
+    ? formulasSpec
+    : Object.entries(formulasSpec).map(([output, expr]) => ({ output, expr: String(expr) }));
+  const mId = methodIdEl.value.trim();
+  const ver = verEl.value.trim() || "1.0.0";
+  const payload = {
+    method_id: mId,
+    method_version: `${mId}@${ver}`,
+    title,
+    quantum: "0.001",
+    required,
+    limits,
+    input_units,
+    formulas
+  };
+  await post("/calc/cards", payload);
+  DEFAULT_INPUTS[mId] = defaultVals;
+  DEFAULT_STATED[mId] = {};
+  await loadCalcCardsCatalog();
+  document.getElementById("calc-method").value = mId;
+  syncMethodTemplates(DEFAULT_INPUTS);
+  showToast(`Plugin ${mId} registrado y listo para calcular.`, "ok");
+});
+
+window.lastSignedPdfBase64 = null;
+
+function uint8ToBase64(bytes) {
+  let bin = "";
+  const chunk = 8192;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(bin);
+}
+
+document.getElementById("download-pdf-btn")?.addEventListener("click", async () => {
+  const enforceDistinct = document.getElementById("enforce-distinct-chk")?.checked ? "true" : "false";
+  try {
+    const resp = await fetch(tenantUrl(`/dossier/pdf?enforce_distinct=${enforceDistinct}`), { credentials: "same-origin" });
+    if (!resp.ok) {
+      setOutput(await resp.text(), "err", `HTTP ${resp.status}`);
+      return;
+    }
+    const buf = new Uint8Array(await resp.arrayBuffer());
+    window.lastSignedPdfBase64 = uint8ToBase64(buf);
+    const blob = new Blob([buf], { type: "application/pdf" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `aeroregu_dossier_${currentTenant()}.pdf`;
+    a.click();
+    setOutput(`PDF firmado generado (${buf.length} bytes) con miniaturas bbox y QR verificable off-line.`, "ok", "PDF+QR");
+    showToast("Informe PDF firmado descargado (bbox + QR + DSSE Ed25519).", "ok");
+  } catch (err) {
+    setOutput(`Error generando PDF: ${err?.message || err}`, "err", "Offline");
+  }
+});
+
+document.getElementById("verify-pdf-btn")?.addEventListener("click", async () => {
+  if (!window.lastSignedPdfBase64) {
+    setOutput("Descarga primero un PDF firmado con 'Descargar PDF Firmado (bbox + QR)'.", "warn", "No PDF");
+    return;
+  }
+  await post("/dossier/pdf/verify", { content_base64: window.lastSignedPdfBase64 });
+});
+
+document.getElementById("list-roles-btn")?.addEventListener("click", () => show(tenantUrl("/admin/roles")));
+
+document.getElementById("grant-cve-btn")?.addEventListener("click", async () => {
+  const sel = document.getElementById("actor-select");
+  if (sel) sel.value = "admin";
+  if (!(await ensureSession())) return;
+  await post(tenantUrl("/admin/roles"), { target_actor_id: "reviewer", role: "cve", tenant_id: currentTenant() });
+});
+
+async function refreshWebhooksTable() {
+  try {
+    const resp = await fetch(tenantUrl("/webhooks"), { credentials: "same-origin" });
+    const data = await resp.json();
+    const hooks = data?.result?.webhooks || [];
+    const pill = document.getElementById("webhook-count-pill");
+    if (pill) pill.textContent = `${hooks.length} webhooks`;
+    const wrap = document.getElementById("webhook-table-wrap");
+    const tbody = document.getElementById("webhook-table-body");
+    if (wrap && tbody) {
+      tbody.replaceChildren();
+      hooks.forEach((h) => {
+        const tr = document.createElement("tr");
+        const th = document.createElement("th");
+        th.textContent = h.webhook_id;
+        const tdUrl = document.createElement("td");
+        tdUrl.textContent = h.url;
+        const tdEv = document.createElement("td");
+        tdEv.textContent = Array.isArray(h.events) ? h.events.join(", ") : "-";
+        const tdAct = document.createElement("td");
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "subtle";
+        del.textContent = "Eliminar";
+        del.onclick = async () => {
+          await fetch(tenantUrl(`/webhooks/${encodeURIComponent(h.webhook_id)}`), { method: "DELETE", credentials: "same-origin" });
+          await refreshWebhooksTable();
+        };
+        tdAct.appendChild(del);
+        tr.append(th, tdUrl, tdEv, tdAct);
+        tbody.appendChild(tr);
+      });
+      wrap.hidden = hooks.length === 0;
+    }
+    setOutput(JSON.stringify(data, null, 2), resp.ok ? "ok" : "err", resp.ok ? "Webhooks" : `HTTP ${resp.status}`);
+  } catch (err) {
+    setOutput(`Error consultando webhooks: ${err?.message || err}`, "err", "Offline");
+  }
+}
+
+document.getElementById("list-webhooks-btn")?.addEventListener("click", refreshWebhooksTable);
+
+document.getElementById("register-webhook-btn")?.addEventListener("click", async () => {
+  if (!(await ensureSession())) return;
+  const urlEl = document.getElementById("webhook-url");
+  const secretEl = document.getElementById("webhook-secret");
+  const urlVal = (urlEl?.value || "").trim();
+  if (!urlVal) {
+    if (urlEl) {
+      urlEl.classList.add("user-invalid-fallback");
+      syncAriaField(urlEl);
+      urlEl.focus();
+    }
+    return;
+  }
+  await post(tenantUrl("/webhooks"), {
+    url: urlVal,
+    secret: secretEl?.value || "enterprise-ci-hmac-key",
+    events: ["envelope_invalidated"],
+    tenant_id: currentTenant()
+  });
+  await refreshWebhooksTable();
+});
+
+document.getElementById("sso-login-btn")?.addEventListener("click", async () => {
+  const mode = document.getElementById("sso-mode")?.value || "oidc";
+  const token = (document.getElementById("sso-token-input")?.value || "").trim();
+  if (!token) {
+    setOutput("Introduce un ID Token JWT (OIDC) o SAMLResponse Base64.", "warn", "SSO");
+    return;
+  }
+  if (mode === "oidc") {
+    await post("/sso/oidc/callback", { id_token: token, tenant_id: currentTenant() });
+  } else {
+    await post("/sso/saml/acs", { saml_response: token, tenant_id: currentTenant() });
+  }
+  const me = await fetch(tenantUrl("/auth/me"), { credentials: "same-origin" }).then((r) => r.json()).catch(() => null);
+  const info = me?.result;
+  if (info?.actor_id) {
+    document.getElementById("session-status").textContent = `Session: ${info.actor_id} (${info.role || "author"}) @ ${info.tenant_id}`;
+    const rp = document.getElementById("rbac-role-pill");
+    if (rp) rp.textContent = `Rol: ${info.role || "author"} (${info.actor_id})`;
+  }
+});
 
 // MCP Studio interactive calls against POST /mcp
 async function callMcpRpc(method, params = {}) {

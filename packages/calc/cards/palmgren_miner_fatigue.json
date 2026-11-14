@@ -1,0 +1,34 @@
+{
+  "method_id": "palmgren_miner_fatigue",
+  "method_version": "palmgren_miner_fatigue@1.0.0",
+  "title": "Palmgren-Miner Cumulative Fatigue Damage (CS-27.571)",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "damage_raw = sum(n_i / N_i); damage_factored = scatter_factor * damage_raw; life_factor = damage_limit / damage_factored; fatigue_ms = (damage_limit / damage_factored) - 1.",
+  "note": "CS-27.571 / AC 27-1B linear cumulative fatigue damage rule across load spectra with scatter factor.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "scatter_factor": "dimensionless",
+    "damage_limit": "dimensionless"
+  },
+  "required": [
+    "cycles_applied",
+    "cycles_to_failure",
+    "scatter_factor",
+    "damage_limit"
+  ],
+  "limits": {
+    "cycles_applied": {"min": "0", "max": "100000000000", "max_count": 1000},
+    "cycles_to_failure": {"min_exclusive": "0", "max": "1000000000000", "max_count": 1000},
+    "scatter_factor": {"min": "1.000", "max": "20.000"},
+    "damage_limit": {"min": "0.100", "max": "1.000"}
+  },
+  "sources": [
+    {
+      "source_id": "cs-27-571-palmgren-miner",
+      "uri": "https://aeroregu.local/cards/palmgren_miner_fatigue",
+      "content_hash": "00d523d3de1ade698c04cd6e5e635bfdc55f0f46d2a6cab6315ef2e9839d2146",
+      "label": "VERIFIED"
+    }
+  ]
+}

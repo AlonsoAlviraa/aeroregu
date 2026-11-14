@@ -1,0 +1,36 @@
+{
+  "method_id": "margin_of_safety",
+  "method_version": "margin_of_safety@1.0.0",
+  "title": "Classical Margin of Safety with Fitting Factor (CS-27.625)",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "design_load_n = quantize(applied_load_n * reserve_factor * fitting_factor, 0.001); margin_of_safety = quantize((allowable_load_n / (reserve_factor * fitting_factor * applied_load_n)) - 1, 0.001); reserve_factor_achieved = quantize(allowable_load_n / (fitting_factor * applied_load_n), 0.001); utilization_ratio = quantize((reserve_factor * fitting_factor * applied_load_n) / allowable_load_n, 0.001).",
+  "note": "CS-27.625 Fitting Factor sizing (FF >= 1.15 on critical fittings unless structural tests substantiate lower strength variance). Assists human engineer review; never determines regulatory compliance.",
+  "quantum": "0.001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "applied_load_n": "newton",
+    "allowable_load_n": "newton",
+    "reserve_factor": "dimensionless",
+    "fitting_factor": "dimensionless"
+  },
+  "required": [
+    "applied_load_n",
+    "allowable_load_n",
+    "reserve_factor",
+    "fitting_factor"
+  ],
+  "limits": {
+    "applied_load_n": {"min_exclusive": "0", "max": "50000000"},
+    "allowable_load_n": {"min_exclusive": "0", "max": "100000000"},
+    "reserve_factor": {"min": "1.000", "max": "10.000"},
+    "fitting_factor": {"min": "1.150", "max": "5.000"}
+  },
+  "sources": [
+    {
+      "source_id": "cs-27-625-fitting-factor",
+      "uri": "https://aeroregu.local/cards/margin_of_safety",
+      "content_hash": "2317bc2f63eed6dae7e73a5df3f05b96a93d8c027bfb1ed627eebba983868481",
+      "label": "VERIFIED"
+    }
+  ]
+}

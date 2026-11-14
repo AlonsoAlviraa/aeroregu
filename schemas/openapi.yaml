@@ -817,6 +817,208 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Envelope"
+  /calc/cards:
+    get:
+      operationId: calcCardsList
+      responses:
+        "200":
+          description: List built-in and custom declarative calculation method cards.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+    post:
+      operationId: calcCardsRegister
+      responses:
+        "200":
+          description: Register or update a declarative calculation plugin card.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /calc/cards/{method_id}:
+    delete:
+      operationId: calcCardsDelete
+      parameters:
+        - in: path
+          name: method_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Delete a custom declarative calculation plugin card.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /sso/oidc/callback:
+    post:
+      operationId: ssoOidcCallback
+      responses:
+        "200":
+          description: Verify corporate OIDC ID token (Entra ID / Okta) and issue a signed session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /sso/saml/acs:
+    post:
+      operationId: ssoSamlAcs
+      responses:
+        "200":
+          description: Verify corporate SAML 2.0 assertion (X.509 signed) and issue a signed session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /admin/roles:
+    get:
+      operationId: adminRolesList
+      parameters:
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List actors and RBAC roles (author, cve, admin) for a tenant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+    post:
+      operationId: adminRolesSet
+      responses:
+        "200":
+          description: Assign an RBAC role (author, cve, admin, human) to a tenant actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /blobs:
+    get:
+      operationId: blobsList
+      parameters:
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+        - in: query
+          name: prefix
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List large CAD/specification blobs stored in Object Storage.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+    post:
+      operationId: blobsPut
+      responses:
+        "200":
+          description: Upload a CAD/specification binary blob (base64) to S3 or filesystem Object Storage.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /blobs/{sha256_hex}:
+    get:
+      operationId: blobsGet
+      parameters:
+        - in: path
+          name: sha256_hex
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Download stored binary blob by SHA-256 digest.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /webhooks:
+    get:
+      operationId: webhooksList
+      parameters:
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List CI/CD webhooks and recent HMAC delivery telemetry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+    post:
+      operationId: webhooksRegister
+      responses:
+        "200":
+          description: Register an SSRF-validated CI/CD webhook subscription.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /webhooks/{webhook_id}:
+    delete:
+      operationId: webhooksDelete
+      parameters:
+        - in: path
+          name: webhook_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Delete a CI/CD webhook subscription.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /dossier/pdf:
+    get:
+      operationId: dossierPdfDownload
+      parameters:
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+        - in: query
+          name: enforce_distinct
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Signed PDF audit dossier with visual bbox evidence thumbnails and offline QR code.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  /dossier/pdf/verify:
+    post:
+      operationId: dossierPdfVerify
+      responses:
+        "200":
+          description: Offline-verify embedded Ed25519 DSSE signature inside a signed PDF dossier.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
   /static/viewer3d.js:
     get:
       operationId: viewer3dScript

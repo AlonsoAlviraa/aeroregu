@@ -196,6 +196,33 @@ class Ledger:
             ON events(prev_hash)
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS webhooks (
+                webhook_id TEXT PRIMARY KEY,
+                url TEXT NOT NULL,
+                events_json TEXT NOT NULL,
+                secret TEXT NOT NULL,
+                description TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS webhook_deliveries (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                webhook_id TEXT NOT NULL,
+                delivery_id TEXT NOT NULL,
+                event_name TEXT NOT NULL,
+                status_code INTEGER NOT NULL,
+                ok INTEGER NOT NULL,
+                error TEXT,
+                delivered_at TEXT NOT NULL
+            )
+            """
+        )
 
     def head_hash(self) -> str:
         with self._connect() as conn:
@@ -552,6 +579,129 @@ class Ledger:
                 (token_hash,),
             ).fetchone()
         return row is not None
+
+    def set_actor_role(self, actor_id: str, role: str) -> bool:
+        """Assign or update an existing or SSO actor's RBAC role."""
+        clean_role = str(role or "").strip().lower()
+        if clean_role not in {"author", "cve", "admin", "human"}:
+            raise LedgerError("invalid_role")
+        with self._connect(immediate=True) as conn:
+            row = conn.execute("SELECT 1 FROM actors WHERE actor_id = ?", (actor_id,)).fetchone()
+            if row is not None:
+                conn.execute(
+                    "UPDATE actors SET role = ? WHERE actor_id = ?",
+                    (clean_role, actor_id),
+                )
+            else:
+                salt = secrets.token_hex(16)
+                digest = _password_digest(secrets.token_urlsafe(32), salt)
+                conn.execute(
+                    """
+                    INSERT INTO actors (actor_id, role, password_hash, password_salt)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (actor_id, clean_role, digest, salt),
+                )
+        return True
+
+    def ensure_sso_actor(self, actor_id: str, role: str) -> str:
+        """Provision or update an external SSO-authenticated actor without password overwrite."""
+        clean_role = str(role or "author").strip().lower()
+        if clean_role not in {"author", "cve", "admin", "human"}:
+            clean_role = "author"
+        self.set_actor_role(actor_id, clean_role)
+        return clean_role
+
+    def list_actors(self) -> list[dict[str, str]]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT actor_id, role FROM actors ORDER BY actor_id").fetchall()
+        return [{"actor_id": str(r["actor_id"]), "role": str(r["role"])} for r in rows]
+
+    def register_webhook(self, record: dict[str, Any]) -> dict[str, Any]:
+        with self._connect(immediate=True) as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO webhooks
+                (webhook_id, url, events_json, secret, description, created_at, active)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(record["webhook_id"]),
+                    str(record["url"]),
+                    json.dumps(list(record.get("events") or ["envelope_invalidated"])),
+                    str(record["secret"]),
+                    str(record.get("description") or ""),
+                    str(record["created_at"]),
+                    1 if record.get("active", True) else 0,
+                ),
+            )
+        return record
+
+    def list_webhooks(self, *, include_secret: bool = False) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT webhook_id, url, events_json, secret, description, created_at, active "
+                "FROM webhooks WHERE active = 1 ORDER BY created_at"
+            ).fetchall()
+        items: list[dict[str, Any]] = []
+        for r in rows:
+            entry: dict[str, Any] = {
+                "webhook_id": str(r["webhook_id"]),
+                "url": str(r["url"]),
+                "events": json.loads(r["events_json"]),
+                "description": str(r["description"]),
+                "created_at": str(r["created_at"]),
+                "active": bool(r["active"]),
+            }
+            if include_secret:
+                entry["secret"] = str(r["secret"])
+            items.append(entry)
+        return items
+
+    def delete_webhook(self, webhook_id: str) -> bool:
+        with self._connect(immediate=True) as conn:
+            cur = conn.execute("DELETE FROM webhooks WHERE webhook_id = ?", (webhook_id,))
+        return cur.rowcount > 0
+
+    def record_webhook_delivery(self, delivery: dict[str, Any]) -> None:
+        with self._connect(immediate=True) as conn:
+            conn.execute(
+                """
+                INSERT INTO webhook_deliveries
+                (webhook_id, delivery_id, event_name, status_code, ok, error, delivered_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(delivery["webhook_id"]),
+                    str(delivery["delivery_id"]),
+                    str(delivery["event"]),
+                    int(delivery.get("status_code") or 0),
+                    1 if delivery.get("ok") else 0,
+                    delivery.get("error"),
+                    str(delivery["delivered_at"]),
+                ),
+            )
+
+    def list_webhook_deliveries(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        capped = max(1, min(limit, 500))
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT webhook_id, delivery_id, event_name, status_code, ok, error, delivered_at "
+                "FROM webhook_deliveries ORDER BY seq DESC LIMIT ?",
+                (capped,),
+            ).fetchall()
+        return [
+            {
+                "webhook_id": str(r["webhook_id"]),
+                "delivery_id": str(r["delivery_id"]),
+                "event": str(r["event_name"]),
+                "status_code": int(r["status_code"]),
+                "ok": bool(r["ok"]),
+                "error": r["error"],
+                "delivered_at": str(r["delivered_at"]),
+            }
+            for r in rows
+        ]
 
 
 _DUMMY_HASH: str | None = None

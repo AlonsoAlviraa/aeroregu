@@ -1,0 +1,51 @@
+{
+  "method_id": "composite_failure_criteria",
+  "method_version": "composite_failure_criteria@1.0.0",
+  "title": "2D Orthotropic Composite Ply Failure Criteria (Tsai-Wu & Hashin)",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "FI_tw = F1*s1 + F2*s2 + F11*s1^2 + F22*s2^2 + F66*t12^2 + 2*F12*s1*s2; RF_tw solved from A*RF^2 + B*RF - 1 = 0; Hashin 4-mode indices (FT, FC, MT, MC) with exact RF_hashin & MS.",
+  "note": "CMH-17 / Tsai-Wu quadratic polynomial and Hashin 1980 directional failure criteria for unidirectional / fabric FRP plies.",
+  "quantum": "0.001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "sigma_1_mpa": "megapascal",
+    "sigma_2_mpa": "megapascal",
+    "tau_12_mpa": "megapascal",
+    "xt_mpa": "megapascal",
+    "xc_mpa": "megapascal",
+    "yt_mpa": "megapascal",
+    "yc_mpa": "megapascal",
+    "s12_mpa": "megapascal",
+    "f12_star": "dimensionless"
+  },
+  "required": [
+    "sigma_1_mpa",
+    "sigma_2_mpa",
+    "tau_12_mpa",
+    "xt_mpa",
+    "xc_mpa",
+    "yt_mpa",
+    "yc_mpa",
+    "s12_mpa",
+    "f12_star"
+  ],
+  "limits": {
+    "sigma_1_mpa": {"min": "-5000", "max": "5000"},
+    "sigma_2_mpa": {"min": "-2000", "max": "2000"},
+    "tau_12_mpa": {"min": "-1000", "max": "1000"},
+    "xt_mpa": {"min_exclusive": "0", "max": "5000"},
+    "xc_mpa": {"min_exclusive": "0", "max": "5000"},
+    "yt_mpa": {"min_exclusive": "0", "max": "2000"},
+    "yc_mpa": {"min_exclusive": "0", "max": "2000"},
+    "s12_mpa": {"min_exclusive": "0", "max": "1000"},
+    "f12_star": {"min_exclusive": "-1.000", "max_exclusive": "1.000"}
+  },
+  "sources": [
+    {
+      "source_id": "cmh17-tsai-wu-hashin",
+      "uri": "https://aeroregu.local/cards/composite_failure_criteria",
+      "content_hash": "87261a1c153a5a7ac30d7418875e9adc2696a92f011a5c30405aefe5f5d21c53",
+      "label": "VERIFIED"
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "method_id": "column_plate_buckling",
+  "method_version": "column_plate_buckling@1.0.0",
+  "title": "Column & Plate Buckling (Euler-Johnson / Local Crippling)",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "rho = sqrt(I / A); lambda = (K * L) / rho; lambda_c = sqrt(2 * pi^2 * E / sigma_y); sigma_col = euler if lambda >= lambda_c else johnson; sigma_local = min(kc * pi^2 * E * (t/b)^2 / (12 * (1 - nu^2)), crippling_cutoff); sigma_cr = min(sigma_col, sigma_local); P_cr = sigma_cr * A; MS = P_cr / P_applied - 1.",
+  "note": "Bruhn / MMPDS combined global column buckling (Euler slender vs Johnson parabolic transition) and local plate buckling / crippling cutoff. Units in N, mm, MPa.",
+  "quantum": "0.001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "applied_compression_n": "newton",
+    "column_length_mm": "millimeter",
+    "end_fixity_k": "dimensionless",
+    "area_mm2": "millimeter ** 2",
+    "inertia_mm4": "millimeter ** 4",
+    "youngs_modulus_mpa": "megapascal",
+    "yield_strength_mpa": "megapascal",
+    "poissons_ratio": "dimensionless",
+    "plate_width_b_mm": "millimeter",
+    "plate_thickness_t_mm": "millimeter",
+    "plate_buckling_coeff_kc": "dimensionless",
+    "crippling_cutoff_mpa": "megapascal"
+  },
+  "required": [
+    "applied_compression_n",
+    "column_length_mm",
+    "end_fixity_k",
+    "area_mm2",
+    "inertia_mm4",
+    "youngs_modulus_mpa",
+    "yield_strength_mpa",
+    "poissons_ratio",
+    "plate_width_b_mm",
+    "plate_thickness_t_mm",
+    "plate_buckling_coeff_kc",
+    "crippling_cutoff_mpa"
+  ],
+  "limits": {
+    "applied_compression_n": {"min_exclusive": "0", "max": "50000000"},
+    "column_length_mm": {"min_exclusive": "0", "max": "50000"},
+    "end_fixity_k": {"min": "0.500", "max": "2.500"},
+    "area_mm2": {"min_exclusive": "0", "max": "1000000"},
+    "inertia_mm4": {"min_exclusive": "0", "max": "100000000000"},
+    "youngs_modulus_mpa": {"min": "1000", "max": "1000000"},
+    "yield_strength_mpa": {"min": "10", "max": "5000"},
+    "poissons_ratio": {"min": "0.100", "max": "0.490"},
+    "plate_width_b_mm": {"min_exclusive": "0", "max": "10000"},
+    "plate_thickness_t_mm": {"min_exclusive": "0", "max": "500"},
+    "plate_buckling_coeff_kc": {"min": "0.400", "max": "10.000"},
+    "crippling_cutoff_mpa": {"min": "10", "max": "5000"}
+  },
+  "sources": [
+    {
+      "source_id": "bruhn-euler-johnson-crippling",
+      "uri": "https://aeroregu.local/cards/column_plate_buckling",
+      "content_hash": "d2f7a8988cfff02ffc891dd303b92c987c642b544162bd27dc731771f146ccbe",
+      "label": "VERIFIED"
+    }
+  ]
+}

@@ -208,7 +208,7 @@ def test_mcp_stdio_and_http_protocol_roundtrip(tmp_path: Path, monkeypatch) -> N
 
     http_tools = client.post("/mcp", json={"jsonrpc": "2.0", "id": 10, "method": "tools/list"})
     assert http_tools.status_code == 200
-    assert len(http_tools.json()["result"]["tools"]) == 19
+    assert len(http_tools.json()["result"]["tools"]) == 23
 
     unauth_export = client.post(
         "/mcp",

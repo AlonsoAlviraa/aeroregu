@@ -156,16 +156,256 @@ def evaluate_rigid_body_intervals(
     }
 
 
+def evaluate_margin_of_safety_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Evaluate margin_of_safety without intermediate rounding using Arb balls."""
+    ctx.dps = _BALL_DPS
+    applied = _arb_from_decimal_text(str(inputs["applied_load_n"]))
+    allowable = _arb_from_decimal_text(str(inputs["allowable_load_n"]))
+    rf = _arb_from_decimal_text(str(inputs["reserve_factor"]))
+    ff = _arb_from_decimal_text(str(inputs["fitting_factor"]))
+
+    design_load = applied * rf * ff
+    ms = (allowable / design_load) - arb(1)
+    rf_achieved = allowable / (ff * applied)
+    utilization = design_load / allowable
+
+    return {
+        "design_load_required_n": _drift_entry(
+            design_load, str(staged_outputs["design_load_required_n"])
+        ),
+        "margin_of_safety": _drift_entry(ms, str(staged_outputs["margin_of_safety"])),
+        "reserve_factor_achieved": _drift_entry(
+            rf_achieved, str(staged_outputs["reserve_factor_achieved"])
+        ),
+        "utilization_ratio": _drift_entry(utilization, str(staged_outputs["utilization_ratio"])),
+    }
+
+
+def evaluate_column_buckling_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Evaluate column_plate_buckling without intermediate rounding using Arb balls."""
+    ctx.dps = _BALL_DPS
+    p_app = _arb_from_decimal_text(str(inputs["applied_compression_n"]))
+    length = _arb_from_decimal_text(str(inputs["column_length_mm"]))
+    fixity = _arb_from_decimal_text(str(inputs["end_fixity_k"]))
+    area = _arb_from_decimal_text(str(inputs["area_mm2"]))
+    inertia = _arb_from_decimal_text(str(inputs["inertia_mm4"]))
+    modulus = _arb_from_decimal_text(str(inputs["youngs_modulus_mpa"]))
+    sigma_y = _arb_from_decimal_text(str(inputs["yield_strength_mpa"]))
+    nu = _arb_from_decimal_text(str(inputs["poissons_ratio"]))
+    b_mm = _arb_from_decimal_text(str(inputs["plate_width_b_mm"]))
+    t_mm = _arb_from_decimal_text(str(inputs["plate_thickness_t_mm"]))
+    kc = _arb_from_decimal_text(str(inputs["plate_buckling_coeff_kc"]))
+    sigma_cc = _arb_from_decimal_text(str(inputs["crippling_cutoff_mpa"]))
+
+    rho = (inertia / area).sqrt()
+    leff = fixity * length
+    slenderness = leff / rho
+    pi_sq = arb.pi() ** 2
+    lambda_c = ((arb(2) * pi_sq * modulus) / sigma_y).sqrt()
+
+    if Decimal(str(staged_outputs["slenderness_ratio"])) >= Decimal(
+        str(staged_outputs["transition_slenderness"])
+    ):
+        sigma_col = (pi_sq * modulus) / (slenderness * slenderness)
+    else:
+        sigma_col = sigma_y * (
+            arb(1) - (sigma_y * slenderness * slenderness) / (arb(4) * pi_sq * modulus)
+        )
+    if Decimal(str(staged_outputs["column_buckling_stress_mpa"])) == Decimal("0"):
+        sigma_col = arb(0)
+
+    t_over_b = t_mm / b_mm
+    sigma_plate_elastic = (kc * pi_sq * modulus * t_over_b * t_over_b) / (
+        arb(12) * (arb(1) - nu * nu)
+    )
+    if Decimal(str(staged_outputs["plate_buckling_stress_mpa"])) >= Decimal(
+        str(inputs["crippling_cutoff_mpa"])
+    ):
+        sigma_plate = sigma_cc
+    else:
+        sigma_plate = sigma_plate_elastic
+
+    if Decimal(str(staged_outputs["plate_buckling_stress_mpa"])) < Decimal(
+        str(staged_outputs["column_buckling_stress_mpa"])
+    ):
+        sigma_crit = sigma_plate
+    else:
+        sigma_crit = sigma_col
+    p_crit = sigma_crit * area
+    ms = (p_crit / p_app) - arb(1)
+
+    return {
+        "radius_of_gyration_mm": _drift_entry(rho, str(staged_outputs["radius_of_gyration_mm"])),
+        "slenderness_ratio": _drift_entry(slenderness, str(staged_outputs["slenderness_ratio"])),
+        "transition_slenderness": _drift_entry(
+            lambda_c, str(staged_outputs["transition_slenderness"])
+        ),
+        "column_buckling_stress_mpa": _drift_entry(
+            sigma_col, str(staged_outputs["column_buckling_stress_mpa"])
+        ),
+        "plate_buckling_stress_mpa": _drift_entry(
+            sigma_plate, str(staged_outputs["plate_buckling_stress_mpa"])
+        ),
+        "governing_critical_stress_mpa": _drift_entry(
+            sigma_crit, str(staged_outputs["governing_critical_stress_mpa"])
+        ),
+        "critical_buckling_load_n": _drift_entry(
+            p_crit, str(staged_outputs["critical_buckling_load_n"])
+        ),
+        "buckling_ms": _drift_entry(ms, str(staged_outputs["buckling_ms"])),
+    }
+
+
+def evaluate_palmgren_miner_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Evaluate palmgren_miner_fatigue without intermediate rounding using Arb balls."""
+    ctx.dps = _BALL_DPS
+    raw_damage = arb(0)
+    for n_val, cap_val in zip(inputs["cycles_applied"], inputs["cycles_to_failure"], strict=True):
+        raw_damage += _arb_from_decimal_text(str(n_val)) / _arb_from_decimal_text(str(cap_val))
+    scatter = _arb_from_decimal_text(str(inputs["scatter_factor"]))
+    limit = _arb_from_decimal_text(str(inputs["damage_limit"]))
+    factored = scatter * raw_damage
+    life_factor = limit / factored
+    ms = life_factor - arb(1)
+    return {
+        "cumulative_damage_raw": _drift_entry(
+            raw_damage, str(staged_outputs["cumulative_damage_raw"])
+        ),
+        "factored_damage": _drift_entry(factored, str(staged_outputs["factored_damage"])),
+        "life_factor": _drift_entry(life_factor, str(staged_outputs["life_factor"])),
+        "fatigue_ms": _drift_entry(ms, str(staged_outputs["fatigue_ms"])),
+    }
+
+
+def evaluate_composite_failure_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Evaluate composite_failure_criteria without intermediate rounding using Arb balls."""
+    ctx.dps = _BALL_DPS
+    s1 = _arb_from_decimal_text(str(inputs["sigma_1_mpa"]))
+    s2 = _arb_from_decimal_text(str(inputs["sigma_2_mpa"]))
+    t12 = _arb_from_decimal_text(str(inputs["tau_12_mpa"]))
+    xt = _arb_from_decimal_text(str(inputs["xt_mpa"]))
+    xc = _arb_from_decimal_text(str(inputs["xc_mpa"]))
+    yt = _arb_from_decimal_text(str(inputs["yt_mpa"]))
+    yc = _arb_from_decimal_text(str(inputs["yc_mpa"]))
+    s12 = _arb_from_decimal_text(str(inputs["s12_mpa"]))
+    f12_star = _arb_from_decimal_text(str(inputs["f12_star"]))
+
+    f1 = (arb(1) / xt) - (arb(1) / xc)
+    f2 = (arb(1) / yt) - (arb(1) / yc)
+    f11 = arb(1) / (xt * xc)
+    f22 = arb(1) / (yt * yc)
+    f66 = arb(1) / (s12 * s12)
+    f12 = f12_star * (f11 * f22).sqrt()
+
+    tw_b = f1 * s1 + f2 * s2
+    tw_a = (f11 * s1 * s1) + (f22 * s2 * s2) + (f66 * t12 * t12) + (arb(2) * f12 * s1 * s2)
+    fi_tw = tw_a + tw_b
+    if Decimal(str(tw_a.mid().str(20, radius=False))) > 0:
+        rf_tw = (-tw_b + (tw_b * tw_b + arb(4) * tw_a).sqrt()) / (arb(2) * tw_a)
+    else:
+        rf_tw = arb(1) / tw_b
+    ms_tw = rf_tw - arb(1)
+
+    s1_dec = Decimal(str(inputs["sigma_1_mpa"]))
+    s2_dec = Decimal(str(inputs["sigma_2_mpa"]))
+    fi_ft = ((s1 / xt) ** 2 + (t12 / s12) ** 2) if s1_dec >= 0 else arb(0)
+    fi_fc = ((-s1 / xc) ** 2) if s1_dec < 0 else arb(0)
+    fi_mt = ((s2 / yt) ** 2 + (t12 / s12) ** 2) if s2_dec >= 0 else arb(0)
+    if s2_dec < 0:
+        two_s12 = arb(2) * s12
+        mc_a = (s2 / two_s12) ** 2 + (t12 / s12) ** 2
+        mc_b = (((yc / two_s12) ** 2) - arb(1)) * (s2 / yc)
+        fi_mc_raw = mc_a + mc_b
+        fi_mc = (
+            arb(0)
+            if Decimal(str(staged_outputs["hashin_matrix_compression_index"])) == 0
+            else fi_mc_raw
+        )
+        rf_mc = (-mc_b + (mc_b * mc_b + arb(4) * mc_a).sqrt()) / (arb(2) * mc_a)
+    else:
+        fi_mc = arb(0)
+        rf_mc = None
+
+    candidates: list[tuple[Decimal, arb, arb]] = []
+    if s1_dec >= 0 and Decimal(str(fi_ft.mid().str(20, radius=False))) > 0:
+        rf_ft = arb(1) / fi_ft.sqrt()
+        candidates.append((Decimal(str(rf_ft.mid().str(20, radius=False))), rf_ft, fi_ft))
+    if s1_dec < 0 and Decimal(str(fi_fc.mid().str(20, radius=False))) > 0:
+        rf_fc = arb(1) / fi_fc.sqrt()
+        candidates.append((Decimal(str(rf_fc.mid().str(20, radius=False))), rf_fc, fi_fc))
+    if s2_dec >= 0 and Decimal(str(fi_mt.mid().str(20, radius=False))) > 0:
+        rf_mt = arb(1) / fi_mt.sqrt()
+        candidates.append((Decimal(str(rf_mt.mid().str(20, radius=False))), rf_mt, fi_mt))
+    if rf_mc is not None:
+        candidates.append((Decimal(str(rf_mc.mid().str(20, radius=False))), rf_mc, fi_mc))
+
+    _, rf_hashin, fi_hashin = min(candidates, key=lambda item: item[0])
+    ms_hashin = rf_hashin - arb(1)
+
+    return {
+        "tsai_wu_failure_index": _drift_entry(fi_tw, str(staged_outputs["tsai_wu_failure_index"])),
+        "tsai_wu_reserve_factor": _drift_entry(
+            rf_tw, str(staged_outputs["tsai_wu_reserve_factor"])
+        ),
+        "tsai_wu_ms": _drift_entry(ms_tw, str(staged_outputs["tsai_wu_ms"])),
+        "hashin_fiber_tension_index": _drift_entry(
+            fi_ft, str(staged_outputs["hashin_fiber_tension_index"])
+        ),
+        "hashin_fiber_compression_index": _drift_entry(
+            fi_fc, str(staged_outputs["hashin_fiber_compression_index"])
+        ),
+        "hashin_matrix_tension_index": _drift_entry(
+            fi_mt, str(staged_outputs["hashin_matrix_tension_index"])
+        ),
+        "hashin_matrix_compression_index": _drift_entry(
+            fi_mc, str(staged_outputs["hashin_matrix_compression_index"])
+        ),
+        "hashin_governing_index": _drift_entry(
+            fi_hashin, str(staged_outputs["hashin_governing_index"])
+        ),
+        "hashin_reserve_factor": _drift_entry(
+            rf_hashin, str(staged_outputs["hashin_reserve_factor"])
+        ),
+        "hashin_ms": _drift_entry(ms_hashin, str(staged_outputs["hashin_ms"])),
+    }
+
+
 def evaluate_method_intervals(
     method_id: str,
     inputs: dict[str, Any],
     staged_outputs: dict[str, Any],
+    *,
+    card: dict[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Dispatch exact FLINT/Arb unrounded evaluation for a screening method."""
+    """Dispatch exact FLINT/Arb unrounded evaluation for built-in and plugin cards."""
     if method_id == "bolt_screen":
         return evaluate_bolt_screen_intervals(inputs, staged_outputs)
     if method_id == "hover_power_screen":
         return evaluate_hover_power_intervals(inputs, staged_outputs)
     if method_id == "rigid_body_point_mass":
         return evaluate_rigid_body_intervals(inputs, staged_outputs)
+    if method_id == "margin_of_safety":
+        return evaluate_margin_of_safety_intervals(inputs, staged_outputs)
+    if method_id == "column_plate_buckling":
+        return evaluate_column_buckling_intervals(inputs, staged_outputs)
+    if method_id == "palmgren_miner_fatigue":
+        return evaluate_palmgren_miner_intervals(inputs, staged_outputs)
+    if method_id == "composite_failure_criteria":
+        return evaluate_composite_failure_intervals(inputs, staged_outputs)
+    if card is not None and card.get("plugin") and card.get("formulas"):
+        from evidence_calc.plugins import evaluate_declarative_intervals
+
+        return evaluate_declarative_intervals(card, inputs, staged_outputs, _drift_entry)
     return {}

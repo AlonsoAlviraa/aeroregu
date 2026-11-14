@@ -22,7 +22,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from evidence_calc.cad_bindings import bind_parameters_to_cards
 from evidence_calc.diagnostics import classify_numeric_delta
 from evidence_calc.errors import AbstainError
-from evidence_calc.registry import load_card, run_method
+from evidence_calc.plugins import delete_plugin_card
+from evidence_calc.registry import list_cards, load_card, register_custom_card, run_method
 from evidence_coverage.dossier import (
     active_calc_records,
     build_enterprise_dossier,
@@ -33,6 +34,7 @@ from evidence_coverage.envelope_3d import build_vn_cg_envelope_3d
 from evidence_coverage.formal_bounds import prove_continuous_flight_envelope
 from evidence_coverage.gate import evaluate_traceability_gate
 from evidence_coverage.grid import calc_inputs_for, generate_cells
+from evidence_coverage.pdf_report import build_signed_pdf_report, verify_signed_pdf_report
 from evidence_coverage.status import (
     gap_report,
     invalidate_mass_shift,
@@ -74,6 +76,15 @@ from evidence_kernel.ledger import (
 )
 from evidence_kernel.numbers import collect_decimals
 from evidence_kernel.orchestrator import record
+from evidence_kernel.pg_ledger import open_ledger_backend
+from evidence_kernel.sso import (
+    OIDCConfig,
+    OIDCVerifier,
+    SAML2Verifier,
+    SAMLConfig,
+    SSOValidationError,
+)
+from evidence_kernel.storage import BlobStoreError, open_blob_store
 from evidence_kernel.supervisor import (
     CaseAbstain,
     CaseSpec,
@@ -81,6 +92,7 @@ from evidence_kernel.supervisor import (
     astream_case,
     invoke_single_agent,
 )
+from evidence_kernel.webhooks import WebhookError, dispatch_webhook_event, new_webhook_record
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -239,6 +251,13 @@ def create_app() -> FastAPI:
             return JSONResponse(
                 _abstain("ingest@1.0.0", {"filename": filename}, exc.reason),
             )
+        if raw.startswith(b"%PDF"):
+            try:
+                open_blob_store(evidence_home()).put_blob(
+                    raw, content_type="application/pdf", filename=filename
+                )
+            except Exception:
+                pass
         recorded_hashes: list[str] = []
         if records and parsed["requirements"]:
             ledger = open_ledger(tenant_id)
@@ -492,6 +511,7 @@ def create_app() -> FastAPI:
     @app.get("/coverage/gate")
     def coverage_gate(
         require_signoff: bool = False,
+        enforce_distinct: bool = False,
         tenant_id: str = DEMO_TENANT,
     ) -> JSONResponse:
         checked_tenant = _validate_tenant(tenant_id)
@@ -501,7 +521,7 @@ def create_app() -> FastAPI:
             )
         ledger = open_ledger(checked_tenant)
         head = ledger.head_hash()
-        cache_key = (checked_tenant, head, require_signoff)
+        cache_key = (checked_tenant, head, require_signoff, enforce_distinct)
         with _GATE_CACHE_LOCK:
             cached = _GATE_CACHE.get(cache_key)
             if cached is not None:
@@ -511,6 +531,7 @@ def create_app() -> FastAPI:
                         {
                             "tenant_id": checked_tenant,
                             "require_signoff": str(require_signoff).lower(),
+                            "enforce_distinct": str(enforce_distinct).lower(),
                         },
                         cached,
                     )
@@ -519,6 +540,7 @@ def create_app() -> FastAPI:
             ledger.events(),
             chain_verified=ledger.verify(),
             require_head_signoff=require_signoff,
+            enforce_distinct_reviewer=enforce_distinct,
         )
         with _GATE_CACHE_LOCK:
             if len(_GATE_CACHE) >= 64:
@@ -527,7 +549,11 @@ def create_app() -> FastAPI:
         return JSONResponse(
             _ok(
                 "traceability_gate@1.0.0",
-                {"tenant_id": checked_tenant, "require_signoff": str(require_signoff).lower()},
+                {
+                    "tenant_id": checked_tenant,
+                    "require_signoff": str(require_signoff).lower(),
+                    "enforce_distinct": str(enforce_distinct).lower(),
+                },
                 gate,
             )
         )
@@ -596,6 +622,19 @@ def create_app() -> FastAPI:
             created_at=created_at,
         )
         dossier = build_enterprise_dossier(ledger.events(), chain_verified=ledger.verify())
+        webhook_deliveries = _dispatch_registered_webhooks(
+            ledger,
+            event_name="envelope_invalidated",
+            payload={
+                "tenant_id": tenant_id,
+                "reason": "mass_shift",
+                "shift": "+5%",
+                "actor_id": actor_id,
+                "invalidated_cells": [row["cell_id"] for row in records],
+                "invalidated_event_hashes": invalidated_hashes,
+                "dossier_hash": dossier["dossier_hash"],
+            },
+        )
         return JSONResponse(
             _ok(
                 "coverage_grid@1.0.0",
@@ -605,6 +644,7 @@ def create_app() -> FastAPI:
                     "invalidated_event_hashes": invalidated_hashes,
                     "delta_reverification_manifest": dossier["delta_reverification_manifest"],
                     "dossier_hash": dossier["dossier_hash"],
+                    "webhook_deliveries": webhook_deliveries,
                 },
             )
         )
@@ -1293,7 +1333,18 @@ def create_app() -> FastAPI:
             )
         target_ev = known_events[target]
         target_author = target_ev["body"].get("actor_id")
-        if _is_production_mode() and target_author == actor_id:
+        actor_role = ledger.actor_role(actor_id)
+        if actor_role == "author":
+            return JSONResponse(
+                _abstain(
+                    "human_signoff@1.0.0",
+                    {"target_event_hash": target, "role": actor_role},
+                    "cve_role_required",
+                ),
+                status_code=403,
+            )
+        strict_distinct = _is_production_mode() or bool(body.get("enforce_distinct_reviewer"))
+        if strict_distinct and target_author == actor_id:
             return JSONResponse(
                 _abstain(
                     "human_signoff@1.0.0",
@@ -1363,6 +1414,8 @@ def create_app() -> FastAPI:
                 {
                     "event_hash": ev_hash,
                     "actor_id": actor_id,
+                    "role": actor_role,
+                    "distinct_reviewer": bool(target_author and target_author != actor_id),
                     "target_event_hash": target,
                     "statement": statement,
                     "review_duration_ms": review_duration_ms,
@@ -1684,6 +1737,429 @@ def create_app() -> FastAPI:
             )
         )
 
+    @app.get("/calc/cards")
+    def calc_cards_list() -> JSONResponse:
+        cards = list_cards()
+        return JSONResponse(_ok("calc_catalog@1.0.0", {}, {"methods": cards, "count": len(cards)}))
+
+    @app.post("/calc/cards")
+    def calc_cards_register(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(
+                _abstain("calc_catalog@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        if _is_production_mode():
+            actor = _actor_from_request(request, tenant_id=tenant_id)
+            if actor is None:
+                return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+            if open_ledger(tenant_id).actor_role(actor) not in {"admin", "cve", "human"}:
+                return JSONResponse(
+                    _abstain("auth@1.0.0", {}, "admin_or_cve_required"), status_code=403
+                )
+        card_payload = body.get("card") if isinstance(body.get("card"), dict) else body
+        try:
+            saved = register_custom_card(card_payload)
+        except AbstainError as exc:
+            return JSONResponse(_abstain("calc_catalog@1.0.0", {}, exc.reason), status_code=400)
+        return JSONResponse(
+            _ok("calc_catalog@1.0.0", {"method_id": saved["method_id"]}, {"card": saved})
+        )
+
+    @app.delete("/calc/cards/{method_id}")
+    def calc_cards_delete(
+        method_id: str, request: Request, tenant_id: str = DEMO_TENANT
+    ) -> JSONResponse:
+        checked_tenant = _validate_tenant(tenant_id)
+        if checked_tenant is None:
+            return JSONResponse(
+                _abstain("calc_catalog@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        if _is_production_mode() and _actor_from_request(request, tenant_id=checked_tenant) is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        removed = delete_plugin_card(method_id)
+        if not removed:
+            return JSONResponse(
+                _abstain(
+                    "calc_catalog@1.0.0", {"method_id": method_id}, "plugin_not_found_or_builtin"
+                ),
+                status_code=404,
+            )
+        return JSONResponse(_ok("calc_catalog@1.0.0", {"method_id": method_id}, {"deleted": True}))
+
+    @app.post("/sso/oidc/callback")
+    def sso_oidc_callback(body: dict[str, Any], request: Request) -> JSONResponse:
+        if _secret() is None:
+            return JSONResponse(
+                _abstain("sso_oidc@1.0.0", {}, "session_secret_missing"), status_code=401
+            )
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(_abstain("sso_oidc@1.0.0", {}, "invalid_tenant"), status_code=400)
+        id_token = str(body.get("id_token") or "")
+        if not id_token:
+            return JSONResponse(_abstain("sso_oidc@1.0.0", {}, "missing_id_token"), status_code=400)
+
+        env_jwks_raw = os.environ.get("EVIDENCE_OIDC_JWKS_JSON", "").strip()
+        env_jwks = json.loads(env_jwks_raw) if env_jwks_raw else None
+        req_jwks = (
+            body.get("jwks")
+            if (not _is_production_mode() and isinstance(body.get("jwks"), dict))
+            else None
+        )
+        jwks_obj = env_jwks or req_jwks
+        issuer = os.environ.get("EVIDENCE_OIDC_ISSUER", "").strip() or (
+            str(body.get("issuer") or "") if not _is_production_mode() else ""
+        )
+        audience = os.environ.get("EVIDENCE_OIDC_AUDIENCE", "").strip() or (
+            str(body.get("audience") or "") if not _is_production_mode() else ""
+        )
+        jwks_uri = os.environ.get("EVIDENCE_OIDC_JWKS_URI", "").strip() or None
+        if not issuer or not audience or (jwks_obj is None and not jwks_uri):
+            return JSONResponse(
+                _abstain("sso_oidc@1.0.0", {}, "oidc_provider_not_configured"), status_code=400
+            )
+
+        verifier = OIDCVerifier(
+            OIDCConfig(
+                provider_name=str(
+                    body.get("provider") or os.environ.get("EVIDENCE_OIDC_PROVIDER", "entra_id")
+                ),
+                issuer=issuer,
+                audience=audience,
+                jwks=jwks_obj,
+                jwks_uri=jwks_uri,
+            )
+        )
+        try:
+            identity = verifier.verify_id_token(id_token, expected_nonce=body.get("nonce"))
+        except SSOValidationError as exc:
+            return JSONResponse(_abstain("sso_oidc@1.0.0", {}, str(exc)), status_code=401)
+
+        ledger = open_ledger(tenant_id)
+        role = ledger.ensure_sso_actor(identity["actor_id"], identity["role"])
+        resp = JSONResponse(
+            _ok(
+                "sso_oidc@1.0.0",
+                {"tenant_id": tenant_id, "provider": identity["provider"]},
+                {
+                    "actor_id": identity["actor_id"],
+                    "role": role,
+                    "provider": identity["provider"],
+                    "tenant_id": tenant_id,
+                },
+            )
+        )
+        resp.set_cookie(
+            "el_session",
+            _token(identity["actor_id"], tenant_id),
+            httponly=True,
+            samesite="lax",
+            secure=_cookie_secure(request),
+        )
+        return resp
+
+    @app.post("/sso/saml/acs")
+    def sso_saml_acs(body: dict[str, Any], request: Request) -> JSONResponse:
+        if _secret() is None:
+            return JSONResponse(
+                _abstain("sso_saml@1.0.0", {}, "session_secret_missing"), status_code=401
+            )
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(_abstain("sso_saml@1.0.0", {}, "invalid_tenant"), status_code=400)
+        saml_b64 = str(body.get("saml_response") or "")
+        if not saml_b64:
+            return JSONResponse(
+                _abstain("sso_saml@1.0.0", {}, "missing_saml_response"), status_code=400
+            )
+
+        idp_entity = os.environ.get("EVIDENCE_SAML_IDP_ENTITY_ID", "").strip() or (
+            str(body.get("idp_entity_id") or "") if not _is_production_mode() else ""
+        )
+        sp_entity = os.environ.get("EVIDENCE_SAML_SP_ENTITY_ID", "").strip() or (
+            str(body.get("sp_entity_id") or "") if not _is_production_mode() else ""
+        )
+        cert_pem = os.environ.get("EVIDENCE_SAML_CERT_PEM", "").replace("\\n", "\n").strip() or (
+            str(body.get("idp_certificate_pem") or "") if not _is_production_mode() else ""
+        )
+        if not idp_entity or not sp_entity or not cert_pem:
+            return JSONResponse(
+                _abstain("sso_saml@1.0.0", {}, "saml_provider_not_configured"), status_code=400
+            )
+
+        try:
+            verifier = SAML2Verifier(
+                SAMLConfig(
+                    provider_name=str(body.get("provider") or "okta_saml"),
+                    idp_entity_id=idp_entity,
+                    sp_entity_id=sp_entity,
+                    idp_certificate_pem=cert_pem,
+                )
+            )
+            identity = verifier.verify_saml_response(saml_b64)
+        except (SSOValidationError, ValueError) as exc:
+            return JSONResponse(_abstain("sso_saml@1.0.0", {}, str(exc)), status_code=401)
+
+        ledger = open_ledger(tenant_id)
+        role = ledger.ensure_sso_actor(identity["actor_id"], identity["role"])
+        resp = JSONResponse(
+            _ok(
+                "sso_saml@1.0.0",
+                {"tenant_id": tenant_id, "provider": identity["provider"]},
+                {
+                    "actor_id": identity["actor_id"],
+                    "role": role,
+                    "provider": identity["provider"],
+                    "tenant_id": tenant_id,
+                },
+            )
+        )
+        resp.set_cookie(
+            "el_session",
+            _token(identity["actor_id"], tenant_id),
+            httponly=True,
+            samesite="lax",
+            secure=_cookie_secure(request),
+        )
+        return resp
+
+    @app.get("/admin/roles")
+    def admin_roles_list(request: Request, tenant_id: str = DEMO_TENANT) -> JSONResponse:
+        checked_tenant = _validate_tenant(tenant_id)
+        if checked_tenant is None:
+            return JSONResponse(_abstain("rbac@1.0.0", {}, "invalid_tenant"), status_code=400)
+        actor = _actor_from_request(request, tenant_id=checked_tenant)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        ledger = open_ledger(checked_tenant)
+        if ledger.actor_role(actor) not in {"admin", "human"}:
+            return JSONResponse(_abstain("rbac@1.0.0", {}, "admin_role_required"), status_code=403)
+        return JSONResponse(
+            _ok("rbac@1.0.0", {"tenant_id": checked_tenant}, {"actors": ledger.list_actors()})
+        )
+
+    @app.post("/admin/roles")
+    def admin_roles_set(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(_abstain("rbac@1.0.0", {}, "invalid_tenant"), status_code=400)
+        actor = _actor_from_request(request, tenant_id=tenant_id)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        ledger = open_ledger(tenant_id)
+        if ledger.actor_role(actor) != "admin":
+            return JSONResponse(_abstain("rbac@1.0.0", {}, "admin_role_required"), status_code=403)
+        target_actor = str(body.get("target_actor_id") or "").strip()
+        target_role = str(body.get("role") or "").strip().lower()
+        if not target_actor:
+            return JSONResponse(
+                _abstain("rbac@1.0.0", {}, "missing_target_actor_id"), status_code=400
+            )
+        try:
+            ledger.set_actor_role(target_actor, target_role)
+        except LedgerError as exc:
+            return JSONResponse(_abstain("rbac@1.0.0", {}, str(exc)), status_code=400)
+        return JSONResponse(
+            _ok(
+                "rbac@1.0.0",
+                {"tenant_id": tenant_id, "target_actor_id": target_actor},
+                {"actor_id": target_actor, "role": target_role},
+            )
+        )
+
+    @app.get("/blobs")
+    def blobs_list(request: Request, tenant_id: str = DEMO_TENANT) -> JSONResponse:
+        checked_tenant = _validate_tenant(tenant_id)
+        if checked_tenant is None:
+            return JSONResponse(_abstain("blob_store@1.0.0", {}, "invalid_tenant"), status_code=400)
+        if _is_production_mode() and _actor_from_request(request, tenant_id=checked_tenant) is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        store = open_blob_store(evidence_home())
+        return JSONResponse(
+            _ok(
+                "blob_store@1.0.0",
+                {"backend": store.backend_name},
+                {"backend": store.backend_name, "blobs": store.list_blobs()},
+            )
+        )
+
+    @app.post("/blobs")
+    def blobs_upload(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(_abstain("blob_store@1.0.0", {}, "invalid_tenant"), status_code=400)
+        actor = _actor_from_request(request, tenant_id=tenant_id)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        filename = str(body.get("filename") or "artifact.bin")
+        raw, err = _decode_body_bytes(body, "blob_store@1.0.0", filename)
+        if err is not None or raw is None:
+            return err or JSONResponse(
+                _abstain("blob_store@1.0.0", {}, "missing_content"), status_code=400
+            )
+        ctype = str(body.get("content_type") or "application/octet-stream")
+        meta = open_blob_store(evidence_home()).put_blob(raw, content_type=ctype, filename=filename)
+        return JSONResponse(_ok("blob_store@1.0.0", {"sha256": meta["sha256"]}, meta))
+
+    @app.get("/blobs/{sha256_hex}")
+    def blobs_download(sha256_hex: str, request: Request, tenant_id: str = DEMO_TENANT) -> Response:
+        checked_tenant = _validate_tenant(tenant_id)
+        if checked_tenant is None:
+            return JSONResponse(_abstain("blob_store@1.0.0", {}, "invalid_tenant"), status_code=400)
+        if _is_production_mode() and _actor_from_request(request, tenant_id=checked_tenant) is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        store = open_blob_store(evidence_home())
+        try:
+            data = store.get_blob(sha256_hex)
+            meta = store.head_blob(sha256_hex) or {}
+        except BlobStoreError as exc:
+            return JSONResponse(_abstain("blob_store@1.0.0", {}, str(exc)), status_code=400)
+        except FileNotFoundError:
+            return JSONResponse(_abstain("blob_store@1.0.0", {}, "blob_not_found"), status_code=404)
+        return Response(
+            content=data,
+            media_type=str(meta.get("content_type") or "application/octet-stream"),
+        )
+
+    @app.get("/webhooks")
+    def webhooks_list(request: Request, tenant_id: str = DEMO_TENANT) -> JSONResponse:
+        checked_tenant = _validate_tenant(tenant_id)
+        if checked_tenant is None:
+            return JSONResponse(_abstain("webhooks@1.0.0", {}, "invalid_tenant"), status_code=400)
+        actor = _actor_from_request(request, tenant_id=checked_tenant)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        ledger = open_ledger(checked_tenant)
+        return JSONResponse(
+            _ok(
+                "webhooks@1.0.0",
+                {"tenant_id": checked_tenant},
+                {
+                    "webhooks": ledger.list_webhooks(),
+                    "deliveries": ledger.list_webhook_deliveries(),
+                },
+            )
+        )
+
+    @app.post("/webhooks")
+    def webhooks_register(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(_abstain("webhooks@1.0.0", {}, "invalid_tenant"), status_code=400)
+        actor = _actor_from_request(request, tenant_id=tenant_id)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        ledger = open_ledger(tenant_id)
+        if ledger.actor_role(actor) not in {"admin", "cve", "human"}:
+            return JSONResponse(
+                _abstain("webhooks@1.0.0", {}, "admin_or_cve_required"), status_code=403
+            )
+        allow_private = (not _is_production_mode()) and bool(body.get("allow_private_targets"))
+        try:
+            record_obj = new_webhook_record(
+                url=str(body.get("url") or ""),
+                events=body.get("events"),
+                secret=body.get("secret"),
+                description=str(body.get("description") or ""),
+                allow_private_targets=allow_private,
+            )
+        except WebhookError as exc:
+            return JSONResponse(_abstain("webhooks@1.0.0", {}, str(exc)), status_code=400)
+        saved = ledger.register_webhook(record_obj)
+        return JSONResponse(_ok("webhooks@1.0.0", {"webhook_id": saved["webhook_id"]}, saved))
+
+    @app.delete("/webhooks/{webhook_id}")
+    def webhooks_delete(
+        webhook_id: str, request: Request, tenant_id: str = DEMO_TENANT
+    ) -> JSONResponse:
+        checked_tenant = _validate_tenant(tenant_id)
+        if checked_tenant is None:
+            return JSONResponse(_abstain("webhooks@1.0.0", {}, "invalid_tenant"), status_code=400)
+        actor = _actor_from_request(request, tenant_id=checked_tenant)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        ledger = open_ledger(checked_tenant)
+        if not ledger.delete_webhook(webhook_id):
+            return JSONResponse(
+                _abstain("webhooks@1.0.0", {}, "webhook_not_found"), status_code=404
+            )
+        return JSONResponse(_ok("webhooks@1.0.0", {"webhook_id": webhook_id}, {"deleted": True}))
+
+    @app.get("/dossier/pdf")
+    def dossier_pdf_download(
+        tenant_id: str = DEMO_TENANT,
+        enforce_distinct: bool = False,
+        require_signoff: bool = False,
+    ) -> Response:
+        checked_tenant = _validate_tenant(tenant_id)
+        if checked_tenant is None:
+            return JSONResponse(
+                _abstain("dossier_pdf@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        ledger = open_ledger(checked_tenant)
+        events = ledger.events()
+        priv_pem, pub_pem = _attestation_keypair()
+
+        # Gather any source PDFs stored in the object store matching hashes referenced in events
+        pdf_sources: dict[str, bytes] = {}
+        store = open_blob_store(evidence_home())
+        for ev in events:
+            payload = (ev.get("body") or {}).get("payload") or {}
+            hashes: set[str] = set()
+            if payload.get("source_hash"):
+                hashes.add(str(payload["source_hash"]))
+            if payload.get("source_file_hash"):
+                hashes.add(str(payload["source_file_hash"]))
+            for req in payload.get("requirements") or []:
+                if isinstance(req, dict) and (
+                    req.get("source_hash") or req.get("source_file_hash")
+                ):
+                    hashes.add(str(req.get("source_hash") or req.get("source_file_hash")))
+            for src in ((ev.get("body") or {}).get("envelope") or {}).get("sources") or []:
+                if isinstance(src, dict) and src.get("content_hash"):
+                    hashes.add(str(src["content_hash"]))
+            for h in hashes:
+                if h in pdf_sources or len(h) != 64:
+                    continue
+                try:
+                    blob = store.get_blob(h)
+                    if blob.startswith(b"%PDF"):
+                        pdf_sources[h] = blob
+                except Exception:
+                    continue
+
+        report = build_signed_pdf_report(
+            events,
+            tenant_id=checked_tenant,
+            chain_verified=ledger.verify(),
+            private_key_pem=priv_pem,
+            public_key_pem=pub_pem,
+            pdf_sources=pdf_sources or None,
+            enforce_distinct_reviewer=enforce_distinct,
+            require_head_signoff=require_signoff,
+        )
+        headers = {
+            "Content-Disposition": f'attachment; filename="aeroregu-dossier-{checked_tenant}.pdf"',
+            "X-Evidence-Merkle-Root": report["merkle_root"],
+            "X-Evidence-PDF-SHA256": report["pdf_sha256"],
+        }
+        return Response(content=report["pdf_bytes"], media_type="application/pdf", headers=headers)
+
+    @app.post("/dossier/pdf/verify")
+    def dossier_pdf_verify(body: dict[str, Any]) -> JSONResponse:
+        raw, err = _decode_body_bytes(body, "dossier_pdf_verify@1.0.0", "dossier.pdf")
+        if err is not None or raw is None:
+            return err or JSONResponse(
+                _abstain("dossier_pdf_verify@1.0.0", {}, "missing_pdf"), status_code=400
+            )
+        _, pub_pem = _attestation_keypair()
+        expected_pub = (
+            str(body["public_key_pem"]).encode("utf-8") if body.get("public_key_pem") else pub_pem
+        )
+        verdict = verify_signed_pdf_report(raw, expected_public_key_pem=expected_pub)
+        return JSONResponse(_ok("dossier_pdf_verify@1.0.0", {}, verdict))
+
     @app.get("/")
     def index() -> FileResponse:
         return FileResponse(Path(__file__).parent / "static" / "demo.html")
@@ -1778,7 +2254,9 @@ def evidence_home() -> Path:
             return _FALLBACK_TEMP_DIR
 
 
-def _sqlite_fingerprint(path: Path) -> tuple[tuple[int, int], ...] | None:
+def _sqlite_fingerprint(path: Path | None) -> tuple[tuple[int, int], ...] | None:
+    if path is None:
+        return None
     try:
         parts: list[tuple[int, int]] = []
         for candidate in (path, Path(f"{path}-wal")):
@@ -1790,10 +2268,11 @@ def _sqlite_fingerprint(path: Path) -> tuple[tuple[int, int], ...] | None:
         return None
 
 
-def _cached_dossier_bundle(ledger: Ledger) -> dict[str, Any]:
+def _cached_dossier_bundle(ledger: Any) -> dict[str, Any]:
     head = ledger.head_hash()
-    fp = _sqlite_fingerprint(ledger.path)
-    key = (str(ledger.path), head, fp)
+    l_path = getattr(ledger, "path", None)
+    fp = _sqlite_fingerprint(l_path)
+    key = (str(l_path or f"pg:{ledger.tenant_id}"), head, fp)
     with _DOSSIER_CACHE_LOCK:
         cached = _DOSSIER_CACHE.get(key)
         if cached is not None:
@@ -1812,12 +2291,49 @@ def _cached_dossier_bundle(ledger: Ledger) -> dict[str, Any]:
     return bundle
 
 
-def open_ledger(tenant_id: str = DEMO_TENANT) -> Ledger:
+def _dispatch_registered_webhooks(
+    ledger: Any,
+    *,
+    event_name: str,
+    payload: dict[str, Any],
+) -> list[dict[str, Any]]:
+    subs = ledger.list_webhooks(include_secret=True)
+    if not subs:
+        return []
+    deliveries = dispatch_webhook_event(subs, event_name=event_name, payload=payload)
+    for item in deliveries:
+        ledger.record_webhook_delivery(item)
+    return deliveries
+
+
+def _ensure_default_actors(ledger: Any) -> None:
+    author_pw = os.environ.get("EVIDENCE_AUTHOR_PASSWORD")
+    reviewer_pw = os.environ.get("EVIDENCE_REVIEWER_PASSWORD")
+    admin_pw = os.environ.get("EVIDENCE_ADMIN_PASSWORD")
+    if _is_production_mode():
+        if author_pw:
+            ledger.ensure_actor("author", "author", author_pw)
+        if reviewer_pw:
+            ledger.ensure_actor("reviewer", "cve", reviewer_pw)
+        if admin_pw:
+            ledger.ensure_actor("admin", "admin", admin_pw)
+    else:
+        ledger.ensure_actor("author", "author", author_pw or "author-local")
+        ledger.ensure_actor("reviewer", "cve", reviewer_pw or "reviewer-local")
+        ledger.ensure_actor("admin", "admin", admin_pw or "admin-local")
+
+
+def open_ledger(tenant_id: str = DEMO_TENANT) -> Any:
     checked = _validate_tenant(tenant_id)
     if checked is None:
         raise ValueError(f"invalid tenant_id: {tenant_id!r}")
     root = evidence_home()
     path = (root / "tenants" / f"{checked}.sqlite3").resolve()
+    pg_dsn = os.environ.get("EVIDENCE_PG_DSN", "").strip()
+    if pg_dsn:
+        ledger = open_ledger_backend(path, checked, pg_dsn=pg_dsn)
+        _ensure_default_actors(ledger)
+        return ledger
     with _LEDGER_CACHE_LOCK:
         try:
             st = path.stat()
@@ -1828,18 +2344,9 @@ def open_ledger(tenant_id: str = DEMO_TENANT) -> Ledger:
         if cached is not None and disk_id is not None and cached[1] == disk_id:
             return cached[0]
         existed = disk_id is not None
-        ledger = Ledger(path, checked)
+        ledger = open_ledger_backend(path, checked)
         if not existed or path not in _INITIALIZED_ACTOR_PATHS:
-            author_pw = os.environ.get("EVIDENCE_AUTHOR_PASSWORD")
-            reviewer_pw = os.environ.get("EVIDENCE_REVIEWER_PASSWORD")
-            if _is_production_mode():
-                if author_pw:
-                    ledger.ensure_actor("author", "human", author_pw)
-                if reviewer_pw:
-                    ledger.ensure_actor("reviewer", "human", reviewer_pw)
-            else:
-                ledger.ensure_actor("author", "human", author_pw or "author-local")
-                ledger.ensure_actor("reviewer", "human", reviewer_pw or "reviewer-local")
+            _ensure_default_actors(ledger)
             _INITIALIZED_ACTOR_PATHS.add(path)
         try:
             st_after = path.stat()

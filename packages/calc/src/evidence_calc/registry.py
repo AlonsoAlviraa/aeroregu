@@ -8,13 +8,29 @@ from evidence_calc.bolt_screen import run_bolt_screen
 from evidence_calc.errors import AbstainError
 from evidence_calc.hover_power_screen import run_hover_power_screen
 from evidence_calc.intervals import evaluate_method_intervals
+from evidence_calc.plugins import (
+    list_plugin_cards,
+    load_plugin_card,
+    register_plugin_card,
+    run_declarative_card,
+)
 from evidence_calc.rigid_body_point_mass import run_rigid_body_point_mass
+from evidence_calc.structural_sizing import (
+    run_column_plate_buckling,
+    run_composite_failure_criteria,
+    run_margin_of_safety,
+    run_palmgren_miner_fatigue,
+)
 from evidence_calc.units import check_declared_units, convert_inputs_to_card_units
 
 _RUNNERS = {
     "rigid_body_point_mass": run_rigid_body_point_mass,
     "bolt_screen": run_bolt_screen,
     "hover_power_screen": run_hover_power_screen,
+    "margin_of_safety": run_margin_of_safety,
+    "column_plate_buckling": run_column_plate_buckling,
+    "palmgren_miner_fatigue": run_palmgren_miner_fatigue,
+    "composite_failure_criteria": run_composite_failure_criteria,
 }
 _CARDS: dict[str, dict[str, Any]] = {}
 
@@ -23,18 +39,44 @@ def cards_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "cards"
 
 
+def list_method_ids(*, include_plugins: bool = True) -> list[str]:
+    """Return sorted built-in and declarative plugin method IDs."""
+    ids = [p.stem for p in sorted(cards_dir().glob("*.json"))]
+    if include_plugins:
+        for plugin in list_plugin_cards():
+            mid = str(plugin["method_id"])
+            if mid not in ids:
+                ids.append(mid)
+    return sorted(ids)
+
+
+def list_cards(*, include_plugins: bool = True) -> list[dict[str, Any]]:
+    """Return all built-in and declarative plugin calculation cards."""
+    return [load_card(method_id) for method_id in list_method_ids(include_plugins=include_plugins)]
+
+
 def load_card(method_id: str) -> dict[str, Any]:
-    cached = _CARDS.get(method_id)
-    if cached is not None:
-        return cached
     path = cards_dir() / f"{method_id}.json"
-    if not path.is_file():
-        raise AbstainError("unknown_method")
-    card = json.loads(path.read_text(encoding="utf-8"))
-    if card.get("method_id") != method_id:
-        raise AbstainError("unknown_method")
-    _CARDS[method_id] = card
-    return card
+    if path.is_file():
+        cached = _CARDS.get(method_id)
+        if cached is not None:
+            return cached
+        card = json.loads(path.read_text(encoding="utf-8"))
+        if card.get("method_id") != method_id:
+            raise AbstainError("unknown_method")
+        _CARDS[method_id] = card
+        return card
+    plugin_card = load_plugin_card(method_id)
+    if plugin_card is not None:
+        return plugin_card
+    raise AbstainError("unknown_method")
+
+
+def register_custom_card(
+    card: dict[str, Any], *, plugins_dir: Path | None = None
+) -> dict[str, Any]:
+    """Validate and register a user declarative plugin card."""
+    return register_plugin_card(card, plugins_dir=plugins_dir)
 
 
 def run_method(
@@ -44,10 +86,12 @@ def run_method(
     normalize_units: bool = False,
     include_intervals: bool = False,
 ) -> dict[str, Any]:
+    card = load_card(method_id)
     runner = _RUNNERS.get(method_id)
     if runner is None:
-        raise AbstainError("unknown_method")
-    card = load_card(method_id)
+        if not (card.get("plugin") and card.get("formulas")):
+            raise AbstainError("unknown_method")
+        runner = run_declarative_card
     check_declared_units(inputs, card)
     conversions: list[dict[str, str]] = []
     effective_inputs = inputs
@@ -58,7 +102,9 @@ def run_method(
     }
     outcome = runner(numeric_inputs, card)
     if include_intervals:
-        intervals = evaluate_method_intervals(method_id, numeric_inputs, outcome["outputs"])
+        intervals = evaluate_method_intervals(
+            method_id, numeric_inputs, outcome["outputs"], card=card
+        )
         outcome = {**outcome, "exact_intervals": intervals}
     if normalize_units:
         outcome = {

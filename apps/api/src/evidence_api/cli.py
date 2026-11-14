@@ -291,15 +291,15 @@ def ingest_cmd(
 def calc_list(
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
-    """List certified deterministic Decimal calculation method cards."""
-    from evidence_calc.registry import cards_dir, load_card
+    """List certified deterministic Decimal calculation method cards & user plugins."""
+    from evidence_calc.registry import list_cards
 
-    cards = [load_card(p.stem) for p in sorted(cards_dir().glob("*.json"))]
+    cards = list_cards()
     if _wants_json(json_out):
         _emit_json({"methods": cards})
         return
 
-    table = Table(title="Certified Calculation Methods", box=box.ROUNDED)
+    table = Table(title="Certified Calculation Methods & Plugins", box=box.ROUNDED)
     table.add_column("Method ID", style="bold cyan", no_wrap=True)
     table.add_column("Version")
     table.add_column("Required Inputs")
@@ -309,6 +309,30 @@ def calc_list(
         units = ", ".join(f"{k}={v}" for k, v in (card.get("input_units") or {}).items())
         table.add_row(str(card["method_id"]), str(card["method_version"]), req, units or "-")
     console.print(table)
+
+
+@calc_app.command("register")
+def calc_register_cmd(
+    card_file: Path = typer.Argument(..., help="Path to declarative method card JSON file."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Register a declarative AST-sandboxed Decimal user plugin card."""
+    from evidence_calc.errors import AbstainError
+    from evidence_calc.registry import register_custom_card
+
+    try:
+        raw = json.loads(card_file.expanduser().read_text(encoding="utf-8"))
+        saved = register_custom_card(raw)
+    except (OSError, json.JSONDecodeError, AbstainError) as exc:
+        err_console.print(f"[red]Failed to register card:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    if _wants_json(json_out):
+        _emit_json({"card": saved})
+        return
+    console.print(
+        f"[green]Registered plugin card[/green] [bold]{saved['method_id']}[/bold] "
+        f"(SHA-256 {saved['card_sha256'][:16]}...)"
+    )
 
 
 def _parse_kv_pairs(pairs: list[str] | None) -> dict[str, Any]:
@@ -1269,6 +1293,104 @@ def dossier_export_cmd(
         _emit_json(payload)
         return
     console.print(Panel(json.dumps(payload, indent=2)[:1800], title=f"Dossier ({checked})"))
+
+
+@dossier_app.command("pdf")
+def dossier_pdf_cmd(
+    tenant: str = typer.Option("demo", "--tenant", help="Tenant ledger ID."),
+    write: Path = typer.Option(
+        Path("aeroregu-dossier.pdf"), "--write", "-w", help="Output signed PDF path."
+    ),
+    enforce_distinct: bool = typer.Option(False, "--enforce-distinct"),
+    json_out: bool = typer.Option(False, "--json", help="Emit metadata JSON output."),
+) -> None:
+    """Export a DSSE Ed25519 signed PDF dossier with visual bbox thumbnails and offline QR."""
+    from evidence_coverage.pdf_report import build_signed_pdf_report
+    from evidence_kernel.storage import open_blob_store
+
+    from evidence_api.app import _attestation_keypair, evidence_home, open_ledger
+
+    checked = _tenant_or_exit(tenant)
+    ledger = open_ledger(checked)
+    events = ledger.events()
+    priv_pem, pub_pem = _attestation_keypair()
+    store = open_blob_store(evidence_home())
+    pdf_sources: dict[str, bytes] = {}
+    for ev in events:
+        p = (ev.get("body") or {}).get("payload") or {}
+        sh = str(p.get("source_hash") or p.get("source_file_hash") or "")
+        if len(sh) == 64 and sh not in pdf_sources:
+            try:
+                raw_b = store.get_blob(sh)
+                if raw_b.startswith(b"%PDF"):
+                    pdf_sources[sh] = raw_b
+            except Exception:
+                pass
+    report = build_signed_pdf_report(
+        events,
+        tenant_id=checked,
+        chain_verified=ledger.verify(),
+        private_key_pem=priv_pem,
+        public_key_pem=pub_pem,
+        pdf_sources=pdf_sources or None,
+        enforce_distinct_reviewer=enforce_distinct,
+    )
+    out = write.expanduser().resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(report["pdf_bytes"])
+    meta = {
+        "output": str(out),
+        "pdf_sha256": report["pdf_sha256"],
+        "merkle_root": report["merkle_root"],
+        "qr_payload": report["qr_payload"],
+        "bbox_thumbnails_count": report["bbox_thumbnails_count"],
+        "gate_status": report["gate_status"],
+    }
+    if _wants_json(json_out):
+        _emit_json(meta)
+        return
+    console.print(
+        f"[green]Signed PDF written to[/green] {out} "
+        f"(bbox_thumbs={meta['bbox_thumbnails_count']}, merkle={meta['merkle_root'][:16]}...)"
+    )
+
+
+@ledger_app.command("role-set")
+def ledger_role_set_cmd(
+    actor_id: str = typer.Argument(..., help="Actor ID to update/create."),
+    role: str = typer.Argument(..., help="Role: author | cve | admin | human"),
+    tenant: str = typer.Option("demo", "--tenant", help="Tenant ledger ID."),
+) -> None:
+    """Assign RBAC role (author / cve / admin) for separation of duties."""
+    from evidence_api.app import open_ledger
+
+    checked = _tenant_or_exit(tenant)
+    ledger = open_ledger(checked)
+    ledger.set_actor_role(actor_id, role)
+    console.print(f"[green]Updated role:[/green] {actor_id} -> {role} (tenant={checked})")
+
+
+@ledger_app.command("webhook-add")
+def ledger_webhook_add_cmd(
+    url: str = typer.Argument(..., help="HTTPS webhook callback URL."),
+    tenant: str = typer.Option("demo", "--tenant", help="Tenant ledger ID."),
+    events: str = typer.Option(
+        "envelope_invalidated", "--events", help="Comma-separated event names."
+    ),
+) -> None:
+    """Register an HMAC-SHA256 CI/CD webhook triggered on envelope invalidation."""
+    from evidence_kernel.webhooks import new_webhook_record
+
+    from evidence_api.app import open_ledger
+
+    checked = _tenant_or_exit(tenant)
+    ledger = open_ledger(checked)
+    rec = new_webhook_record(
+        url=url,
+        events=[e.strip() for e in events.split(",") if e.strip()],
+    )
+    saved = ledger.register_webhook(rec)
+    _emit_json(saved)
 
 
 @app.command("wizard")

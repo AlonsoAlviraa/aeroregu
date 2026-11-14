@@ -24,17 +24,13 @@ SERVER_INFO = {"name": "aeroregu-evidence-layer", "version": "0.1.0"}
 
 
 def _all_calc_cards() -> list[dict[str, Any]]:
-    from evidence_calc.registry import cards_dir, load_card
+    from evidence_calc.registry import list_cards
 
-    cards: list[dict[str, Any]] = []
-    for path in sorted(cards_dir().glob("*.json")):
-        method_id = path.stem
-        try:
-            cards.append(load_card(method_id))
-        except Exception as exc:
-            logger.warning("Failed to load calculation card %s: %s", path, exc)
-            continue
-    return cards
+    try:
+        return list_cards()
+    except Exception as exc:
+        logger.warning("Failed to load calculation cards: %s", exc)
+        return []
 
 
 def _pair_bounds(val: Any, fallback: tuple[str, str]) -> tuple[str, str]:
@@ -516,6 +512,70 @@ MCP_TOOLS: tuple[dict[str, Any], ...] = (
             },
         },
     },
+    {
+        "name": "evidence_calc_register_plugin",
+        "description": (
+            "Validate and persist a custom declarative user calculation method card evaluated "
+            "strictly via AST Decimal + Arb interval arithmetic (no float or code execution)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["card"],
+            "properties": {
+                "card": {
+                    "type": "object",
+                    "description": (
+                        "Declarative card JSON containing method_id, title, "
+                        "required, limits, and formulas."
+                    ),
+                }
+            },
+        },
+    },
+    {
+        "name": "evidence_dossier_pdf_export",
+        "description": (
+            "Generate a DSSE Ed25519 signed PDF certification dossier containing cropped visual "
+            "bbox page thumbnails from source PDFs and an offline verifiable ISO/IEC 18004 QR code."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tenant_id": {"type": "string", "default": "demo"},
+                "output_path": {
+                    "type": "string",
+                    "description": "Optional .pdf output path under workspace/EVIDENCE_HOME.",
+                },
+                "enforce_distinct_reviewer": {"type": "boolean", "default": False},
+            },
+        },
+    },
+    {
+        "name": "evidence_webhooks_list",
+        "description": (
+            "List registered CI/CD envelope-invalidation webhooks and recent delivery telemetry."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"tenant_id": {"type": "string", "default": "demo"}},
+        },
+    },
+    {
+        "name": "evidence_webhooks_register",
+        "description": (
+            "Register an SSRF-safe HMAC-SHA256 CI/CD webhook triggered on envelope invalidation."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+                "tenant_id": {"type": "string", "default": "demo"},
+                "url": {"type": "string"},
+                "events": {"type": "array", "items": {"type": "string"}},
+                "description": {"type": "string"},
+            },
+        },
+    },
 )
 
 MCP_RESOURCES: tuple[dict[str, Any], ...] = (
@@ -728,6 +788,9 @@ def _call_tool(
             "evidence_ledger_signoff",
             "evidence_coverage_sweep",
             "evidence_formal_prove",
+            "evidence_calc_register_plugin",
+            "evidence_webhooks_register",
+            "evidence_dossier_pdf_export",
         } or (
             name in {"evidence_calc_run", "evidence_ingest_document"}
             and bool(arguments.get("record"))
@@ -1353,6 +1416,110 @@ def _call_tool(
             nz_min=str(arguments.get("nz_min") or "-1.000"),
         )
         return False, payload
+
+    if name == "evidence_calc_register_plugin":
+        from evidence_calc.registry import register_custom_card
+
+        card_raw = (
+            arguments.get("card")
+            if isinstance(arguments.get("card"), dict)
+            else (arguments if isinstance(arguments, dict) and "method_id" in arguments else None)
+        )
+        if not isinstance(card_raw, dict):
+            return True, {"error": "card object is required"}
+        try:
+            saved = register_custom_card(card_raw)
+        except AbstainError as exc:
+            return True, {"error": exc.reason}
+        return False, {"card": saved, "card_sha256": saved["card_sha256"]}
+
+    if name == "evidence_dossier_pdf_export":
+        from evidence_coverage.pdf_report import build_signed_pdf_report
+        from evidence_kernel.storage import open_blob_store
+
+        from evidence_api.app import _attestation_keypair
+
+        tenant_id = _validate_tenant(arguments.get("tenant_id") or "demo")
+        if tenant_id is None:
+            return True, {"error": "invalid_tenant"}
+        ledger = open_ledger(tenant_id)
+        events = ledger.events()
+        priv_pem, pub_pem = _attestation_keypair()
+        store = open_blob_store(evidence_home())
+        pdf_sources: dict[str, bytes] = {}
+        for ev in events:
+            p = (ev.get("body") or {}).get("payload") or {}
+            sh = str(p.get("source_hash") or p.get("source_file_hash") or "")
+            if len(sh) == 64 and sh not in pdf_sources:
+                try:
+                    raw_b = store.get_blob(sh)
+                    if raw_b.startswith(b"%PDF"):
+                        pdf_sources[sh] = raw_b
+                except Exception:
+                    pass
+        report = build_signed_pdf_report(
+            events,
+            tenant_id=tenant_id,
+            chain_verified=ledger.verify(),
+            private_key_pem=priv_pem,
+            public_key_pem=pub_pem,
+            pdf_sources=pdf_sources or None,
+            enforce_distinct_reviewer=bool(arguments.get("enforce_distinct_reviewer")),
+        )
+        out_path_raw = arguments.get("output_path")
+        saved_path = None
+        if out_path_raw:
+            confined = _confine_path(
+                str(out_path_raw),
+                allowed_roots=(repo_root(), evidence_home()),
+                default_dir=evidence_home(),
+            )
+            if confined is None:
+                return True, {"error": "output_path_outside_workspace"}
+            confined.parent.mkdir(parents=True, exist_ok=True)
+            confined.write_bytes(report["pdf_bytes"])
+            saved_path = str(confined)
+        return False, {
+            "tenant_id": tenant_id,
+            "pdf_sha256": report["pdf_sha256"],
+            "merkle_root": report["merkle_root"],
+            "qr_payload": report["qr_payload"],
+            "bbox_thumbnails_count": report["bbox_thumbnails_count"],
+            "gate_status": report["gate_status"],
+            "output_path": saved_path,
+            "pdf_base64": base64.b64encode(report["pdf_bytes"]).decode("ascii")
+            if not saved_path
+            else None,
+        }
+
+    if name == "evidence_webhooks_list":
+        tenant_id = _validate_tenant(arguments.get("tenant_id") or "demo")
+        if tenant_id is None:
+            return True, {"error": "invalid_tenant"}
+        ledger = open_ledger(tenant_id)
+        return False, {
+            "tenant_id": tenant_id,
+            "webhooks": ledger.list_webhooks(),
+            "deliveries": ledger.list_webhook_deliveries(),
+        }
+
+    if name == "evidence_webhooks_register":
+        from evidence_kernel.webhooks import WebhookError, new_webhook_record
+
+        tenant_id = _validate_tenant(arguments.get("tenant_id") or "demo")
+        if tenant_id is None:
+            return True, {"error": "invalid_tenant"}
+        ledger = open_ledger(tenant_id)
+        try:
+            rec = new_webhook_record(
+                url=str(arguments.get("url") or ""),
+                events=arguments.get("events"),
+                description=str(arguments.get("description") or ""),
+            )
+        except WebhookError as exc:
+            return True, {"error": str(exc)}
+        saved = ledger.register_webhook(rec)
+        return False, saved
 
     return True, {"error": f"unknown_tool: {name}"}
 
