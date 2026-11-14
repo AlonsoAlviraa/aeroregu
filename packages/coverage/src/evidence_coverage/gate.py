@@ -19,6 +19,7 @@ def evaluate_traceability_gate(
     dossier: dict[str, Any] | None = None,
     cells: list[Cell] | None = None,
     require_head_signoff: bool = False,
+    enforce_distinct_reviewer: bool = False,
 ) -> dict[str, Any]:
     """Evaluate ledger integrity, coverage closure, SMT proof, and sign-off status.
 
@@ -29,7 +30,10 @@ def evaluate_traceability_gate(
         if dossier is not None
         else build_enterprise_dossier(events, chain_verified=chain_verified)
     )
-    coverage = gap_report(events, cells=cells)
+    if cells is None and "gap_report" in resolved_dossier:
+        coverage = resolved_dossier["gap_report"]
+    else:
+        coverage = gap_report(events, cells=cells)
 
     total_cells = int(coverage["cell_count"])
     calc_count = int(coverage["calc_count"])
@@ -53,15 +57,31 @@ def evaluate_traceability_gate(
     signoffs = list(resolved_dossier["human_signoffs"])
     active_signoffs = [s for s in signoffs if s.get("status") == "active"]
     head_hash = str(resolved_dossier["head_hash"])
-    non_signoff_hashes = [
-        str(event["event_hash"])
-        for event in events
-        if event.get("body", {}).get("event_type") != "human_signoff"
+    non_signoff_events = [
+        event for event in events if event.get("body", {}).get("event_type") != "human_signoff"
     ]
-    latest_reviewable_hash = non_signoff_hashes[-1] if non_signoff_hashes else ""
-    head_signed_off = bool(latest_reviewable_hash) and any(
-        s.get("target_event_hash") == latest_reviewable_hash for s in active_signoffs
+    latest_reviewable_event = non_signoff_events[-1] if non_signoff_events else None
+    latest_reviewable_hash = (
+        str(latest_reviewable_event["event_hash"]) if latest_reviewable_event else ""
     )
+    target_author = (
+        str(latest_reviewable_event.get("body", {}).get("actor_id", ""))
+        if latest_reviewable_event
+        else ""
+    )
+
+    matching_signoffs = [
+        s for s in active_signoffs if s.get("target_event_hash") == latest_reviewable_hash
+    ]
+    distinct_signoffs = [
+        s for s in matching_signoffs if str(s.get("actor_id", "")) != target_author
+    ]
+    self_signoff_detected = bool(matching_signoffs) and not bool(distinct_signoffs)
+
+    if enforce_distinct_reviewer:
+        head_signed_off = bool(latest_reviewable_hash) and bool(distinct_signoffs)
+    else:
+        head_signed_off = bool(latest_reviewable_hash) and bool(matching_signoffs)
 
     blockers: list[str] = []
     if not chain_verified:
@@ -77,13 +97,20 @@ def evaluate_traceability_gate(
     if not formal.get("envelope_proved"):
         blockers.append("formal_envelope_not_proved")
     if require_head_signoff and not head_signed_off:
-        blockers.append("head_event_missing_human_signoff")
+        if enforce_distinct_reviewer and self_signoff_detected:
+            blockers.append("distinct_reviewer_required")
+        else:
+            blockers.append("head_event_missing_human_signoff")
+    elif enforce_distinct_reviewer and self_signoff_detected:
+        blockers.append("distinct_reviewer_required")
 
     warnings: list[str] = []
     if abstentions:
         warnings.append("abstentions_recorded")
     if not head_signed_off and not require_head_signoff:
         warnings.append("head_event_pending_human_signoff")
+    if self_signoff_detected and not enforce_distinct_reviewer:
+        warnings.append("self_signoff_detected")
 
     traceability_items = [
         {
@@ -148,6 +175,7 @@ def evaluate_traceability_gate(
             "active_signoffs": len(active_signoffs),
         },
         "head_signed_off": head_signed_off,
+        "self_signoff_detected": self_signoff_detected,
         "blockers": blockers,
         "warnings": warnings,
         "traceability_items": traceability_items,

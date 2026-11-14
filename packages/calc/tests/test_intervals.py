@@ -83,3 +83,15 @@ def test_property_flint_arb_sound_enclosure(shear: int, tensile: int, area: int)
     res = run_method("bolt_screen", inputs, include_intervals=True)
     for entry in res["exact_intervals"].values():
         assert Decimal(entry["lower"]) <= Decimal(entry["mid"]) <= Decimal(entry["upper"])
+
+
+def test_arb_bounds_decimal_encloses_repeating_decimal_outwardly() -> None:
+    from evidence_calc.intervals import _arb_bounds_decimal
+    from flint import arb, ctx
+
+    ctx.dps = 50
+    one_third = arb(1) / arb(3)
+    bounds = _arb_bounds_decimal(one_third, Decimal("0.000001"))
+    assert Decimal(bounds["lower"]) == Decimal("0.333333")
+    assert Decimal(bounds["upper"]) == Decimal("0.333334")
+    assert Decimal(bounds["lower"]) < (Decimal(1) / Decimal(3)) < Decimal(bounds["upper"])

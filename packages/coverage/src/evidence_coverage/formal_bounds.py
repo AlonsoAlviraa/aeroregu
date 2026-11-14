@@ -37,7 +37,7 @@ def prove_continuous_flight_envelope(
     load_factor_range: tuple[str, str] = ("-1.000", "2.500"),
     station_positions_m: list[str] | None = None,
     max_station_thrust_n: str = "15000.000",
-    gravity_m_s2: str = "9.807",
+    gravity_m_s2: str = "9.810",
     min_active_units: int = 3,
     *,
     verified_at: str = "2026-11-11T14:00:00Z",
@@ -48,7 +48,7 @@ def prove_continuous_flight_envelope(
     no thrust saturation or cliff-edge control loss occurs under any single-unit failure.
     """
     if station_positions_m is None:
-        station_positions_m = ["-1.000", "-0.300", "0.300", "1.000"]
+        station_positions_m = ["-2.000", "-1.000", "1.000", "2.000"]
 
     bounds = {
         "mass_kg": mass_range_kg,

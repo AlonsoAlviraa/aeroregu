@@ -109,11 +109,13 @@ def resolve_block_location(
         )
         if resolved is not None:
             raw_bbox = block.get("bbox")
-            bbox_strings = (
-                [f"{float(v):.2f}" for v in raw_bbox]
-                if isinstance(raw_bbox, (list, tuple)) and len(raw_bbox) == 4
-                else None
-            )
+            bbox_strings = None
+            if isinstance(raw_bbox, (list, tuple)) and len(raw_bbox) == 4:
+                from decimal import Decimal
+
+                bbox_strings = [
+                    format(Decimal(str(v)).quantize(Decimal("0.01")), "f") for v in raw_bbox
+                ]
             return {
                 "span_start": str(resolved[0]),
                 "span_end": str(resolved[1]),

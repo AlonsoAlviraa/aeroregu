@@ -173,3 +173,53 @@ def _text_pdf(text: str) -> bytes:
         f"trailer << /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
     )
     return bytes(output)
+
+
+def test_docx_extracts_tables_joined_by_pipe(tmp_path: Path) -> None:
+    docx_path = tmp_path / "table_spec.docx"
+    doc = Document()
+    doc.add_paragraph("Introductory specification note.")
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "VTOL.2235"
+    table.cell(0, 1).text = "Rotor blade fatigue limit"
+    table.cell(1, 0).text = "Param"
+    table.cell(1, 1).text = "Value"
+    doc.save(docx_path)
+
+    blocks = ingest_docx(docx_path)
+    assert any("VTOL.2235 | Rotor blade fatigue limit" in b.text for b in blocks)
+    reqs = parse_requirements(blocks)
+    assert any(r["id"] == "VTOL.2235" for r in reqs)
+
+
+def test_docx_and_xlsx_reject_decompression_bomb() -> None:
+    import zipfile
+
+    from evidence_ingest.docx import ingest_docx_bytes
+    from evidence_ingest.xlsx import ingest_xlsx_bytes
+
+    # Compression ratio > 100 for entry > 65536 bytes
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("word/document.xml", b"0" * 200_000)
+    raw_bomb = buf.getvalue()
+
+    with pytest.raises((ValueError, IngestAbstain)) as exc_docx:
+        ingest_docx_bytes(raw_bomb)
+    assert "archive_decompression_limit_exceeded" in str(exc_docx.value)
+
+    with pytest.raises((ValueError, IngestAbstain)) as exc_xlsx:
+        ingest_xlsx_bytes(raw_bomb)
+    assert "archive_decompression_limit_exceeded" in str(exc_xlsx.value)
+
+
+def test_docx_and_xlsx_cleanly_reject_corrupt_zip() -> None:
+    from evidence_ingest.docx import ingest_docx_bytes
+    from evidence_ingest.xlsx import ingest_xlsx_bytes
+
+    corrupt = b"not a zip file header"
+    with pytest.raises((ValueError, IngestAbstain)):
+        ingest_docx_bytes(corrupt)
+
+    with pytest.raises((ValueError, IngestAbstain)):
+        ingest_xlsx_bytes(corrupt)

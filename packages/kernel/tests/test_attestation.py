@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from evidence_kernel.__main__ import verify_zip_bundle
 from evidence_kernel.attestation import build_pipeline_attestation
 from evidence_kernel.gateway import FixtureGateway
 from evidence_kernel.ledger import Ledger
@@ -39,3 +40,25 @@ def test_build_pipeline_attestation_in_toto_structure(tmp_path: Path) -> None:
     assert any(step["step_type"] == "agent_turn" for step in bundle["predicate"]["steps"])
     # Deterministic on identical events
     assert build_pipeline_attestation(events) == bundle
+
+
+def test_verify_zip_bundle_rejects_decompression_bomb(tmp_path: Path) -> None:
+    import zipfile
+
+    bomb_ratio_path = tmp_path / "bomb_ratio.zip"
+    with zipfile.ZipFile(bomb_ratio_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        # 200,000 bytes of zeros compresses to ~200 bytes -> ratio ~1000 > 100
+        zf.writestr("chain.json", b"0" * 200_000)
+
+    ok, report = verify_zip_bundle(bomb_ratio_path)
+    assert ok is False
+    assert report["error"] == "zip_bomb_detected"
+
+    bomb_size_path = tmp_path / "bomb_cumulative.zip"
+    with zipfile.ZipFile(bomb_size_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Cumulative size > 64 MB
+        zf.writestr("huge.dat", b"0" * (70 * 1024 * 1024))
+
+    ok2, report2 = verify_zip_bundle(bomb_size_path)
+    assert ok2 is False
+    assert report2["error"] == "zip_bomb_detected"

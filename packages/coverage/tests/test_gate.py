@@ -128,3 +128,104 @@ def test_traceability_gate_detects_stale_invalidations(tmp_path: Path) -> None:
     gate = evaluate_traceability_gate(ledger.events(), chain_verified=True, cells=[cell])
     assert gate["gate_status"] == "blocked"
     assert "stale_cells_require_reverification" in gate["blockers"]
+
+
+def test_traceability_gate_separation_of_duties_and_dossier_reuse(tmp_path: Path) -> None:
+    from evidence_coverage.dossier import build_enterprise_dossier
+
+    ledger = Ledger(tmp_path / "sod.db", "t1")
+    subset = generate_cells()[:1]
+    cell = subset[0]
+    set_cell_status(
+        ledger,
+        cell=cell,
+        status="calc",
+        actor_id="author-1",
+        actor_role="human",
+        created_at="2026-11-12T10:00:00Z",
+        evidence_event_hash="c" * 64,
+    )
+
+    # Author signs off own work (self-signoff)
+    record(
+        ledger,
+        {
+            "event_type": "human_signoff",
+            "tenant_id": "t1",
+            "actor_id": "author-1",
+            "created_at": "2026-11-12T10:01:00Z",
+            "payload": {
+                "actor_id": "author-1",
+                "target_event_hash": ledger.head_hash(),
+                "statement": "reviewed this event",
+            },
+            "envelope": make_envelope(
+                sources=[
+                    project_source("human-review", "https://aeroregu.local/review", "ASSUMPTION")
+                ],
+                method_version="human_signoff@1.0.0",
+                inputs={"target_event_hash": ledger.head_hash()},
+                confidence="deterministic",
+                result={"signed": "true"},
+            ),
+        },
+    )
+
+    # Default enforce_distinct_reviewer=False detects self-signoff in warnings without blocking
+    gate_default = evaluate_traceability_gate(
+        ledger.events(),
+        chain_verified=True,
+        cells=subset,
+        require_head_signoff=True,
+        enforce_distinct_reviewer=False,
+    )
+    assert gate_default["gate_status"] == "ready_for_human_review"
+    assert gate_default["self_signoff_detected"] is True
+    assert "self_signoff_detected" in gate_default["warnings"]
+
+    # When enforce_distinct_reviewer=True, self-signoff is blocked
+    gate_strict = evaluate_traceability_gate(
+        ledger.events(),
+        chain_verified=True,
+        cells=subset,
+        require_head_signoff=True,
+        enforce_distinct_reviewer=True,
+    )
+    assert gate_strict["gate_status"] == "blocked"
+    assert "distinct_reviewer_required" in gate_strict["blockers"]
+
+    # Now an independent reviewer signs off
+    record(
+        ledger,
+        {
+            "event_type": "human_signoff",
+            "tenant_id": "t1",
+            "actor_id": "independent-reviewer",
+            "created_at": "2026-11-12T10:02:00Z",
+            "payload": {
+                "actor_id": "independent-reviewer",
+                "target_event_hash": ledger.events()[0]["event_hash"],
+                "statement": "reviewed this event",
+            },
+            "envelope": make_envelope(
+                sources=[
+                    project_source("human-review", "https://aeroregu.local/review", "ASSUMPTION")
+                ],
+                method_version="human_signoff@1.0.0",
+                inputs={"target_event_hash": ledger.events()[0]["event_hash"]},
+                confidence="deterministic",
+                result={"signed": "true"},
+            ),
+        },
+    )
+
+    dossier = build_enterprise_dossier(ledger.events(), chain_verified=True)
+    assert "gap_report" in dossier
+    gate_reused = evaluate_traceability_gate(
+        ledger.events(),
+        chain_verified=True,
+        dossier=dossier,
+        require_head_signoff=True,
+        enforce_distinct_reviewer=True,
+    )
+    assert gate_reused["self_signoff_detected"] is False

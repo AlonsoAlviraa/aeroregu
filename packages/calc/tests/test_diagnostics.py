@@ -65,3 +65,12 @@ def test_classify_sign_wrong_input_arithmetic_and_unexplained() -> None:
         )
         == "unexplained"
     )
+
+
+def test_classify_daN_scale_and_integer_inputs() -> None:
+    int_inputs = dict(BOLT_INPUTS, shear_force_n="3000", area_mm2="80")
+    recomputed = run_method("bolt_screen", int_inputs)["outputs"]
+    # 10x error (e.g. N vs daN)
+    dan_inputs = dict(int_inputs, shear_force_n="300")
+    stated_dan = run_method("bolt_screen", dan_inputs)["outputs"]
+    assert classify_numeric_delta("bolt_screen", int_inputs, stated_dan, recomputed) == "unit_scale"

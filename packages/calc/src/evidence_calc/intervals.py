@@ -30,10 +30,13 @@ def _arb_from_decimal_text(text: str) -> arb:
 def _arb_bounds_decimal(ball: arb, scale: Decimal = _DISPLAY_QUANTUM) -> dict[str, str]:
     """Extract sound Decimal lower/upper bounds and midpoint string from an Arb ball."""
     ctx.dps = _BALL_DPS
-    mid_dec = Decimal(ball.mid().str(30, radius=False))
+    mid_dec = Decimal(ball.mid().str(40, radius=False))
     rad_dec = Decimal(ball.rad().str(15, radius=False))
-    lower_dec = (mid_dec - rad_dec).quantize(scale, rounding=ROUND_FLOOR)
-    upper_dec = (mid_dec + rad_dec).quantize(scale, rounding=ROUND_CEILING)
+    # Pad outward for base-10 formatting truncation at 40/15 sig digits so bounds never narrow.
+    sig_ulp = max(Decimal("1e-35"), abs(mid_dec) * Decimal("1e-35"))
+    outward_rad = rad_dec * Decimal("1.000001") + sig_ulp
+    lower_dec = (mid_dec - outward_rad).quantize(scale, rounding=ROUND_FLOOR)
+    upper_dec = (mid_dec + outward_rad).quantize(scale, rounding=ROUND_CEILING)
     mid_quant = mid_dec.quantize(scale, rounding=ROUND_HALF_EVEN)
     return {
         "mid": format(mid_quant, "f"),

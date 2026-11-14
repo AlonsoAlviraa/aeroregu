@@ -3,7 +3,7 @@ from decimal import ROUND_HALF_EVEN, Decimal
 
 from evidence_calc.errors import AbstainError
 
-_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+_NUMBER = re.compile(r"(?<![A-Za-z_])[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?")
 
 
 def quantize(value: Decimal, quantum: Decimal) -> Decimal:
@@ -50,5 +50,7 @@ def parse_limited_decimal(
     if "min_exclusive" in limit and value <= Decimal(limit["min_exclusive"]):
         raise AbstainError("outside_validity")
     if "max" in limit and value > Decimal(limit["max"]):
+        raise AbstainError("outside_validity")
+    if "max_exclusive" in limit and value >= Decimal(limit["max_exclusive"]):
         raise AbstainError("outside_validity")
     return value

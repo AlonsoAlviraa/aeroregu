@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from evidence_calc.registry import run_method
-from evidence_kernel.canonical import inputs_hash
+from evidence_kernel.canonical import event_hash, inputs_hash
 from evidence_kernel.envelope import make_envelope, project_source
 from evidence_kernel.ledger import Ledger
-from evidence_kernel.orchestrator import record
+from evidence_kernel.orchestrator import record, record_many
 
 from evidence_coverage.grid import Cell, calc_inputs_for, generate_cells, plus_five_percent
 
@@ -215,6 +215,9 @@ def run_coverage_sweep(
     selected = candidates[: max(0, min(limit, len(chosen)))]
     processed_ids: list[str] = []
     calc_hashes: list[str] = []
+    bodies_to_append: list[dict[str, Any]] = []
+
+    current_prev = ledger.head_hash()
 
     for item in selected:
         cell = cells_by_id[item["cell_id"]]
@@ -227,32 +230,60 @@ def run_coverage_sweep(
             confidence="deterministic",
             result=ran["outputs"],
         )
-        calc_hash = record(
-            ledger,
-            {
-                "event_type": "calc",
-                "tenant_id": ledger.tenant_id,
-                "actor_id": actor_id,
-                "created_at": created_at,
-                "payload": {
-                    "method_id": "rigid_body_point_mass",
-                    "inputs": calc_inputs,
-                    "outputs": ran["outputs"],
-                },
-                "envelope": envelope,
+        calc_body = {
+            "event_type": "calc",
+            "tenant_id": ledger.tenant_id,
+            "actor_id": actor_id,
+            "created_at": created_at,
+            "payload": {
+                "method_id": "rigid_body_point_mass",
+                "inputs": calc_inputs,
+                "outputs": ran["outputs"],
             },
+            "envelope": envelope,
+        }
+        calc_hash = event_hash(current_prev, calc_body)
+        bodies_to_append.append(calc_body)
+
+        digest = inputs_hash(calc_inputs)
+        payload_status = {
+            "cell_id": cell.cell_id,
+            "status": "calc",
+            "inputs_hash": digest,
+            "actor_role": "human",
+            "evidence_event_hash": calc_hash,
+            "axes": cell.axes,
+        }
+        envelope_status = make_envelope(
+            sources=[
+                project_source(
+                    "coverage",
+                    "https://aeroregu.local/coverage",
+                    "ASSUMPTION",
+                )
+            ],
+            method_version="coverage_grid@1.0.0",
+            inputs=calc_inputs,
+            confidence="deterministic",
+            result={"cell_id": cell.cell_id, "status": "calc", "inputs_hash": digest},
         )
-        set_cell_status(
-            ledger,
-            cell=cell,
-            status="calc",
-            actor_id=actor_id,
-            actor_role="human",
-            created_at=created_at,
-            evidence_event_hash=calc_hash,
-        )
+        status_body = {
+            "event_type": "cell_status_set",
+            "tenant_id": ledger.tenant_id,
+            "actor_id": actor_id,
+            "created_at": created_at,
+            "payload": payload_status,
+            "envelope": envelope_status,
+        }
+        status_hash = event_hash(calc_hash, status_body)
+        bodies_to_append.append(status_body)
+
+        current_prev = status_hash
         processed_ids.append(cell.cell_id)
         calc_hashes.append(calc_hash)
+
+    if bodies_to_append:
+        record_many(ledger, bodies_to_append)
 
     return {
         "processed_count": str(len(processed_ids)),

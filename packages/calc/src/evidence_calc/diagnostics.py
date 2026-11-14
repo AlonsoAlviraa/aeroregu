@@ -8,7 +8,18 @@ from evidence_calc.errors import AbstainError
 from evidence_calc.quantize import format_quantum
 from evidence_calc.registry import load_card, run_method
 
-_DECIMAL_RE = re.compile(r"^-?\d+\.\d+$")
+_DECIMAL_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
+_UNIT_SCALE_FACTORS = (
+    Decimal("1000"),
+    Decimal("0.001"),
+    Decimal("100"),
+    Decimal("0.01"),
+    Decimal("10"),
+    Decimal("0.1"),
+    Decimal("1000000"),
+    Decimal("0.000001"),
+    Decimal("60"),
+)
 
 
 def classify_numeric_delta(
@@ -25,10 +36,9 @@ def classify_numeric_delta(
         quantum = Decimal(str(card.get("quantum", "0.001")))
     except AbstainError:
         quantum = Decimal("0.001")
-    if _matches_scaled_input(method_id, inputs, stated, Decimal("1000"), quantum):
-        return "unit_scale"
-    if _matches_scaled_input(method_id, inputs, stated, Decimal("0.001"), quantum):
-        return "unit_scale"
+    for factor in _UNIT_SCALE_FACTORS:
+        if _matches_scaled_input(method_id, inputs, stated, factor, quantum):
+            return "unit_scale"
     if _matches_sign(method_id, inputs, stated, quantum):
         return "sign"
     if _matches_replaced_field(method_id, inputs, stated):

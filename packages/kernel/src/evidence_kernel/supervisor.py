@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections.abc import AsyncIterator
@@ -616,7 +617,9 @@ async def _acomplete(
     if hasattr(gateway, "acomplete"):
         completion = await gateway.acomplete(agent_id, messages, SCHEMAS[agent_id], client=client)
     else:
-        completion = gateway.complete(agent_id, messages, SCHEMAS[agent_id])
+        completion = await asyncio.to_thread(
+            gateway.complete, agent_id, messages, SCHEMAS[agent_id]
+        )
     entry = _telemetry_entry(agent_id, completion)
     if telemetry is not None:
         telemetry.append(entry)
@@ -697,7 +700,9 @@ async def astream_case(
                 "data": {"agent_id": "reader", "telemetry": telemetry[-1]},
             }
 
-            calc_outputs, method_version, allowed, fault_kind, ran = _run_deterministic_calc(case)
+            calc_outputs, method_version, allowed, fault_kind, ran = await asyncio.to_thread(
+                _run_deterministic_calc, case
+            )
             yield {
                 "event": "calc",
                 "data": {
@@ -731,7 +736,7 @@ async def astream_case(
                 "data": {"agent_id": "checker", "telemetry": telemetry[-1]},
             }
 
-            formal_proof_dict = _run_formal_proof(case)
+            formal_proof_dict = await asyncio.to_thread(_run_formal_proof, case)
             if formal_proof_dict is not None:
                 yield {"event": "formal_proof", "data": formal_proof_dict}
 
@@ -784,7 +789,8 @@ async def astream_case(
                 "data": {"agent_id": "scribe", "telemetry": telemetry[-1]},
             }
 
-        outcome = _finalize_and_record(
+        outcome = await asyncio.to_thread(
+            _finalize_and_record,
             ledger,
             case,
             reader=reader,
@@ -814,7 +820,7 @@ async def astream_case(
             },
         }
     except CaseAbstain as exc:
-        abstained = _record_abstain_outcome(ledger, case, exc.reason)
+        abstained = await asyncio.to_thread(_record_abstain_outcome, ledger, case, exc.reason)
         yield {
             "event": "abstain",
             "data": {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import threading
 from dataclasses import asdict, dataclass
 from decimal import Decimal
@@ -371,6 +372,8 @@ class SMTSolverProofEngine:
         max_station_force_n: str,
         gravity_m_s2: str = "9.807",
         active_stations_min: int = 3,
+        *,
+        enforce_moment_equilibrium: bool = False,
     ) -> SMTProofResult:
         """Prove continuous combinations of mass, load factor, and cg_x
 
@@ -397,6 +400,7 @@ class SMTSolverProofEngine:
                 "max_station_force_n": max_station_force_n,
                 "gravity_m_s2": gravity_m_s2,
                 "active_stations_min": active_stations_min,
+                "enforce_moment_equilibrium": enforce_moment_equilibrium,
                 "timeout_ms": self.timeout_ms,
                 "cross_check": self.cross_check,
             }
@@ -411,9 +415,11 @@ class SMTSolverProofEngine:
         load_factor = z3.Real("load_factor")
         cg_x = z3.Real("cg_x_m")
 
-        station_decimals = [Decimal(s) for s in stations]
-        min_station_str = str(min(station_decimals))
-        max_station_str = str(max(station_decimals))
+        station_decimals = sorted(Decimal(s) for s in stations)
+        eff_active = min(active_stations_min, len(station_decimals))
+        dropped = len(station_decimals) - eff_active
+        min_station_str = str(station_decimals[dropped])
+        max_station_str = str(station_decimals[eff_active - 1])
 
         solver.add(
             mass >= _to_z3_real(bounds["mass_kg"][0]),
@@ -429,7 +435,23 @@ class SMTSolverProofEngine:
             cg_x < _to_z3_real(min_station_str),
             cg_x > _to_z3_real(max_station_str),
         )
-        solver.add(z3.Or(req_force > total_capacity, cg_out_of_span))
+        z3_failures: list[Any] = [
+            req_force > total_capacity,
+            req_force < -total_capacity,
+            cg_out_of_span,
+        ]
+        max_force_dec = Decimal(max_station_force_n)
+        moment_checks: list[tuple[Decimal, Decimal]] = []
+        if enforce_moment_equilibrium:
+            for subset in itertools.combinations(station_decimals, eff_active):
+                for pivot in subset:
+                    cap_moment = max_force_dec * sum(abs(x - pivot) for x in subset)
+                    moment_checks.append((pivot, cap_moment))
+                    moment_term = req_force * (cg_x - _to_z3_real(str(pivot)))
+                    cap_z3 = _to_z3_real(str(cap_moment))
+                    z3_failures.append(moment_term > cap_z3)
+                    z3_failures.append(moment_term < -cap_z3)
+        solver.add(z3.Or(*z3_failures))
 
         z3_check = solver.check()
         z3_status_str = (
@@ -464,12 +486,25 @@ class SMTSolverProofEngine:
                 _to_cvc5_real(cs, str(active_stations_min)),
                 _to_cvc5_real(cs, max_station_force_n),
             )
+            c_neg_cap = cs.mkTerm(Kind.NEG, c_cap)
             c_cg_out = cs.mkTerm(
                 Kind.OR,
                 cs.mkTerm(Kind.LT, c_cg, _to_cvc5_real(cs, min_station_str)),
                 cs.mkTerm(Kind.GT, c_cg, _to_cvc5_real(cs, max_station_str)),
             )
-            cs.assertFormula(cs.mkTerm(Kind.OR, cs.mkTerm(Kind.GT, c_req, c_cap), c_cg_out))
+            c_failures: list[Any] = [
+                cs.mkTerm(Kind.GT, c_req, c_cap),
+                cs.mkTerm(Kind.LT, c_req, c_neg_cap),
+                c_cg_out,
+            ]
+            for pivot, cap_moment in moment_checks:
+                arm = cs.mkTerm(Kind.SUB, c_cg, _to_cvc5_real(cs, str(pivot)))
+                c_moment = cs.mkTerm(Kind.MULT, c_req, arm)
+                c_m_cap = _to_cvc5_real(cs, str(cap_moment))
+                c_m_neg_cap = cs.mkTerm(Kind.NEG, c_m_cap)
+                c_failures.append(cs.mkTerm(Kind.GT, c_moment, c_m_cap))
+                c_failures.append(cs.mkTerm(Kind.LT, c_moment, c_m_neg_cap))
+            cs.assertFormula(cs.mkTerm(Kind.OR, *c_failures))
             c_res = cs.checkSat()
             cvc5_status_str = _cvc5_status_str(c_res)
             if cvc5_status_str == "sat":
@@ -485,8 +520,11 @@ class SMTSolverProofEngine:
             "max_station_force_n": max_station_force_n,
             "gravity_m_s2": gravity_m_s2,
             "active_stations_min": active_stations_min,
+            "enforce_moment_equilibrium": enforce_moment_equilibrium,
         }
-        assertion = "forall (mass, nz, cg) in bounds: req_force <= capacity and cg in station span"
+        assertion = "forall (mass, nz, cg) in bounds: |req_force| <= capacity and cg in active span"
+        if enforce_moment_equilibrium:
+            assertion += " and moment equilibrium feasible"
         return _cached_smt_store(
             cache_key,
             self._reconcile_verdicts(

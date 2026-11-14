@@ -39,3 +39,18 @@ def test_assess_routes_an_ambiguous_field_to_abstain() -> None:
     assert result["verdict"] == "abstain"
     assert result["envelope"]["abstain"]["reason"] == "ambiguous_input"
     assert "result" not in result["envelope"]
+
+
+def test_scientific_notation_and_max_exclusive_limits() -> None:
+    from decimal import Decimal
+
+    from evidence_calc.quantize import parse_limited_decimal, reject_ambiguous
+
+    reject_ambiguous("1e-5")
+    reject_ambiguous("-2.5E+3")
+    with pytest.raises(AbstainError):
+        reject_ambiguous("100-200")
+    assert parse_limited_decimal("2.5e1", {"min": "0", "max_exclusive": "30"}) == Decimal("25")
+    with pytest.raises(AbstainError) as caught:
+        parse_limited_decimal("30", {"min": "0", "max_exclusive": "30"})
+    assert caught.value.reason == "outside_validity"

@@ -32,6 +32,20 @@ def verify_zip_bundle(
     }
     try:
         with zipfile.ZipFile(zip_path, "r") as archive:
+            total_uncompressed = 0
+            for info in archive.infolist():
+                if info.file_size > 32 * 1024 * 1024:
+                    report["error"] = "zip_bomb_detected"
+                    return False, report
+                total_uncompressed += info.file_size
+                if total_uncompressed > 64 * 1024 * 1024:
+                    report["error"] = "zip_bomb_detected"
+                    return False, report
+                if info.file_size > 65536:
+                    if info.compress_size <= 0 or (info.file_size / info.compress_size) > 100:
+                        report["error"] = "zip_bomb_detected"
+                        return False, report
+
             names = set(archive.namelist())
             if "chain.json" not in names:
                 report["error"] = "missing_chain_json"

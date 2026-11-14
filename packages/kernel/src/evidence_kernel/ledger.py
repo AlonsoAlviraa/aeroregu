@@ -9,6 +9,7 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ ISO_TIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 SIGN_OFF_STATEMENT = "reviewed this event"
 PBKDF2_ITERATIONS = 600_000
 LEGACY_PBKDF2_ITERATIONS = 20_000
+_DUMMY_SALT = "0" * 32
 
 
 class LedgerError(ValueError):
@@ -79,10 +81,25 @@ class Ledger:
         with self._connect(immediate=True) as conn:
             self._migrate(conn)
 
+    def _open_connection(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.path, timeout=10.0, isolation_level=None)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA busy_timeout = 5000")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA temp_store = MEMORY")
+        return conn
+
+    def close(self) -> None:
+        return None
+
     def _enable_wal(self) -> None:
         for attempt in range(5):
-            conn = sqlite3.connect(self.path, timeout=10.0, isolation_level=None)
+            conn = self._open_connection()
             try:
+                row = conn.execute("PRAGMA journal_mode").fetchone()
+                if row and str(row[0]).lower() == "wal":
+                    return
                 conn.execute("PRAGMA busy_timeout = 5000")
                 conn.execute("PRAGMA journal_mode = WAL")
                 return
@@ -96,12 +113,7 @@ class Ledger:
 
     @contextmanager
     def _connect(self, *, immediate: bool = False):
-        conn = sqlite3.connect(self.path, timeout=10.0, isolation_level=None)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA busy_timeout = 5000")
-        conn.execute("PRAGMA synchronous = NORMAL")
-        conn.execute("PRAGMA temp_store = MEMORY")
+        conn = self._open_connection()
         if immediate:
             for attempt in range(6):
                 try:
@@ -149,10 +161,17 @@ class Ledger:
             """
             CREATE TABLE IF NOT EXISTS revoked_tokens (
                 token_hash TEXT PRIMARY KEY,
-                revoked_at TEXT NOT NULL
+                revoked_at TEXT NOT NULL,
+                expires_at TEXT
             )
             """
         )
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(revoked_tokens)").fetchall()]
+        if "expires_at" not in cols:
+            try:
+                conn.execute("ALTER TABLE revoked_tokens ADD COLUMN expires_at TEXT")
+            except sqlite3.OperationalError:
+                pass
         conn.execute(
             """
             CREATE TRIGGER IF NOT EXISTS events_no_update
@@ -373,6 +392,51 @@ class Ledger:
         bounded_limit = max(1, min(int(limit), 200))
         bounded_offset = max(0, int(offset))
         with self._lock:
+            if actor_id is None:
+                with self._connect() as conn:
+                    if event_type:
+                        cnt_row = conn.execute(
+                            (
+                                "SELECT COUNT(*) AS cnt FROM events "
+                                "WHERE json_extract(body_json, '$.event_type') = ?"
+                            ),
+                            (event_type,),
+                        ).fetchone()
+                        total = int(cnt_row["cnt"]) if cnt_row else 0
+                        rows = conn.execute(
+                            (
+                                "SELECT seq, event_hash, prev_hash, body_json "
+                                "FROM events WHERE json_extract(body_json, '$.event_type') = ? "
+                                "ORDER BY seq LIMIT ? OFFSET ?"
+                            ),
+                            (event_type, bounded_limit, bounded_offset),
+                        ).fetchall()
+                    else:
+                        cnt_row = conn.execute("SELECT COUNT(*) AS cnt FROM events").fetchone()
+                        total = int(cnt_row["cnt"]) if cnt_row else 0
+                        rows = conn.execute(
+                            (
+                                "SELECT seq, event_hash, prev_hash, body_json "
+                                "FROM events ORDER BY seq LIMIT ? OFFSET ?"
+                            ),
+                            (bounded_limit, bounded_offset),
+                        ).fetchall()
+                page = [
+                    {
+                        "seq": int(r["seq"]),
+                        "event_hash": str(r["event_hash"]),
+                        "prev_hash": str(r["prev_hash"]),
+                        "body": json.loads(r["body_json"]),
+                    }
+                    for r in rows
+                ]
+                return {
+                    "tenant_id": self.tenant_id,
+                    "total": total,
+                    "limit": bounded_limit,
+                    "offset": bounded_offset,
+                    "events": page,
+                }
             self._sync_cache_locked()
             filtered: list[dict[str, Any]] = []
             for seq, event in zip(self._cached_seqs, self._cached_events, strict=True):
@@ -436,6 +500,7 @@ class Ledger:
                 (actor_id,),
             ).fetchone()
         if row is None:
+            _verify_password_digest(password, _DUMMY_SALT, _get_dummy_hash())
             return False
         stored_hash = str(row["password_hash"])
         salt = str(row["password_salt"])
@@ -452,11 +517,32 @@ class Ledger:
                 )
         return True
 
-    def revoke_token(self, token_hash: str, revoked_at: str) -> None:
+    def revoke_token(
+        self,
+        token_hash: str,
+        revoked_at: str,
+        expires_at: str | None = None,
+        max_age_seconds: int = 86400,
+    ) -> None:
+        if expires_at is None:
+            try:
+                t = datetime.fromisoformat(revoked_at.replace("Z", "+00:00"))
+                exp_t = t.timestamp() + max_age_seconds
+                expires_at = datetime.fromtimestamp(exp_t, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            except Exception:
+                expires_at = revoked_at
         with self._connect(immediate=True) as conn:
             conn.execute(
-                "INSERT OR IGNORE INTO revoked_tokens (token_hash, revoked_at) VALUES (?, ?)",
-                (token_hash, revoked_at),
+                (
+                    "INSERT OR REPLACE INTO revoked_tokens "
+                    "(token_hash, revoked_at, expires_at) VALUES (?, ?, ?)"
+                ),
+                (token_hash, revoked_at, expires_at),
+            )
+            now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            conn.execute(
+                "DELETE FROM revoked_tokens WHERE expires_at IS NOT NULL AND expires_at < ?",
+                (now_iso,),
             )
 
     def is_token_revoked(self, token_hash: str) -> bool:
@@ -466,6 +552,16 @@ class Ledger:
                 (token_hash,),
             ).fetchone()
         return row is not None
+
+
+_DUMMY_HASH: str | None = None
+
+
+def _get_dummy_hash() -> str:
+    global _DUMMY_HASH
+    if _DUMMY_HASH is None:
+        _DUMMY_HASH = _password_digest("dummy_password_timing_safe", _DUMMY_SALT, PBKDF2_ITERATIONS)
+    return _DUMMY_HASH
 
 
 def _password_digest(password: str, salt: str, iterations: int = PBKDF2_ITERATIONS) -> str:

@@ -235,6 +235,7 @@ def test_ledger_releases_the_sqlite_file(tmp_path: Path) -> None:
     folder = Path(tempfile.mkdtemp())
     ledger = Ledger(folder / "quotes.sqlite3", "bench")
     assert ledger.events() == []
+    ledger.close()
     shutil.rmtree(folder)
 
 

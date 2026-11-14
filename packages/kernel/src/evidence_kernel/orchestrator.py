@@ -13,3 +13,7 @@ from evidence_kernel.ledger import Ledger
 
 def record(ledger: Ledger, body: dict[str, Any]) -> str:
     return ledger.append(body)
+
+
+def record_many(ledger: Ledger, bodies: list[dict[str, Any]]) -> list[str]:
+    return ledger.append_many(bodies)

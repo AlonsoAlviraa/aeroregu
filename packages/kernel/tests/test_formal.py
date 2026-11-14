@@ -169,3 +169,65 @@ def test_hover_power_envelope_unsat_and_counterexample() -> None:
             thrust_bounds_n=("5000.000", "2000.000"),
             disk_area_m2="10.000",
         )
+
+
+def test_station_equilibrium_catches_negative_load_cg_failure_and_moment_trim() -> None:
+    engine = SMTSolverProofEngine()
+    # Negative load factor magnitude exceeding downward station thrust capacity
+    neg_res = engine.prove_station_equilibrium(
+        bounds={
+            "mass_kg": ("1000.000", "1200.000"),
+            "load_factor": ("-5.000", "1.000"),
+            "cg_x_m": ("-0.200", "0.200"),
+        },
+        stations=["-2.000", "-1.000", "1.000", "2.000"],
+        max_station_force_n="15000.000",
+        gravity_m_s2="9.810",
+        active_stations_min=3,
+    )
+    assert neg_res.proved is False
+    assert neg_res.status == "COUNTEREXAMPLE_FOUND"
+
+    # CG inside [-1, 1] outer hull, but single rightmost failure narrows active hull to [-1.0, 0.3]
+    span_res = engine.prove_station_equilibrium(
+        bounds={
+            "mass_kg": ("800.000", "900.000"),
+            "load_factor": ("0.500", "1.500"),
+            "cg_x_m": ("-0.500", "0.500"),
+        },
+        stations=["-1.000", "-0.300", "0.300", "1.000"],
+        max_station_force_n="15000.000",
+        gravity_m_s2="9.810",
+        active_stations_min=3,
+    )
+    assert span_res.proved is False
+
+    # Moment-trim check detects pitch-trim loss when high CG offset exceeds remaining moment arm
+    moment_fail = engine.prove_station_equilibrium(
+        bounds={
+            "mass_kg": ("800.000", "1200.000"),
+            "load_factor": ("-1.000", "2.500"),
+            "cg_x_m": ("-0.200", "0.200"),
+        },
+        stations=["-1.000", "-0.300", "0.300", "1.000"],
+        max_station_force_n="15000.000",
+        gravity_m_s2="9.810",
+        active_stations_min=3,
+        enforce_moment_equilibrium=True,
+    )
+    assert moment_fail.proved is False
+
+    # Centered CG with ample symmetric thrust proves both force AND moment equilibrium
+    moment_ok = engine.prove_station_equilibrium(
+        bounds={
+            "mass_kg": ("600.000", "800.000"),
+            "load_factor": ("-1.000", "1.500"),
+            "cg_x_m": ("-0.100", "0.100"),
+        },
+        stations=["-2.000", "-1.000", "1.000", "2.000"],
+        max_station_force_n="15000.000",
+        gravity_m_s2="9.810",
+        active_stations_min=3,
+        enforce_moment_equilibrium=True,
+    )
+    assert moment_ok.proved is True

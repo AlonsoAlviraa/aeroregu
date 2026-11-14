@@ -256,3 +256,91 @@ def test_list_cells_sweep_and_recorded_requirements_in_dossier(tmp_path: Path) -
     sdoc = export_strictdoc(dossier)
     assert "Ingested Document Requirement Spans" in sdoc
     assert "INGEST-001-VTOL.2210" in sdoc
+
+
+def test_export_strictdoc_sanitizes_injection_and_newlines(tmp_path: Path) -> None:
+    ledger = Ledger(tmp_path / "sanitize.sqlite3", "demo")
+    cell = generate_cells()[0]
+    ev_hash = set_cell_status(
+        ledger,
+        cell=cell,
+        status="calc",
+        actor_id="author",
+        actor_role="human",
+        created_at="2026-11-03T18:00:00Z",
+        evidence_event_hash="e" * 64,
+    )
+
+    # Injected signoff with directives and newlines
+    signoff_env = make_envelope(
+        sources=[project_source("reviewer", "https://aeroregu.local/reviewer", "ASSUMPTION")],
+        method_version="human_signoff@1.0.0",
+        inputs={"target_event_hash": ev_hash},
+        confidence="quoted",
+        result={"statement": "ok"},
+    )
+    record(
+        ledger,
+        {
+            "event_type": "human_signoff",
+            "tenant_id": "demo",
+            "actor_id": "reviewer\nINJECTED_HEADER: True",
+            "created_at": "2026-11-03T18:01:00Z",
+            "payload": {
+                "actor_id": "reviewer\nINJECTED_HEADER: True",
+                "statement": "reviewed this event",
+                "target_event_hash": ev_hash,
+            },
+            "envelope": signoff_env,
+        },
+    )
+
+    # Injected requirement with directive tags and control newlines
+    req_env = make_envelope(
+        sources=[project_source("doc-1", "https://aeroregu.local/doc", "ASSUMPTION")],
+        method_version="ingest@1.0.0",
+        inputs={"span_start": 0, "span_end": 20},
+        confidence="deterministic",
+        result={"id": "VTOL.2299", "title_label": "VERIFIED"},
+    )
+    record(
+        ledger,
+        {
+            "event_type": "requirement_recorded",
+            "tenant_id": "demo",
+            "actor_id": "author",
+            "created_at": "2026-11-03T18:02:00Z",
+            "payload": {
+                "id": "VTOL.2299\nTITLE: InjectedTitle",
+                "title": "Design limits",
+                "title_label": "VERIFIED",
+                "span_start": 0,
+                "span_end": 20,
+                "quotation": (
+                    "Text [SECTION]\nTITLE: Malicious Section\n[/SECTION] and "
+                    "[REQUIREMENT]\nUID: FORGED-01\n[/REQUIREMENT] and [RELATIONS]"
+                ),
+                "source_hash": "b" * 64,
+            },
+            "envelope": req_env,
+        },
+    )
+
+    dossier = build_enterprise_dossier(ledger.events(), chain_verified=ledger.verify())
+    sdoc = export_strictdoc(dossier)
+
+    # Directives in untrusted values must be escaped
+    assert "\\[REQUIREMENT\\]" in sdoc
+    assert "\\[/REQUIREMENT\\]" in sdoc
+    assert "\\[SECTION\\]" in sdoc
+    assert "\\[/SECTION\\]" in sdoc
+    assert "\\[RELATIONS\\]" in sdoc
+
+    # No unescaped forged requirement from the payload
+    assert "[REQUIREMENT]\nUID: FORGED-01" not in sdoc
+
+    # Check that headers do not have uncollapsed newlines
+    for line in sdoc.splitlines():
+        if line.startswith(("UID:", "TITLE:", "COMMENT:")):
+            assert "\n" not in line
+            assert "\r" not in line

@@ -53,3 +53,18 @@ def test_convert_inputs_rejects_incompatible_dimension() -> None:
     with pytest.raises(AbstainError) as exc:
         convert_inputs_to_card_units(bad_inputs, card)
     assert exc.value.reason == "unit_mismatch"
+
+
+def test_aerospace_unit_aliases_convert_cleanly() -> None:
+    from decimal import Decimal
+
+    from evidence_calc.units import conversion_interval, units_compatible
+
+    assert units_compatible("kt", "m/s")
+    assert units_compatible("km/h", "knot")
+    assert units_compatible("fpm", "m/s")
+    assert units_compatible("kgf", "lbf")
+    assert units_compatible("ft*lbf", "N·m")
+    assert units_compatible("nmi", "ft")
+    factor = conversion_interval("daN", "N")
+    assert factor == Decimal("10")

@@ -47,6 +47,7 @@ def build_enterprise_dossier(
     cells_by_id = {cell.cell_id: cell for cell in generate_cells()}
     lineage: dict[str, dict[str, Any]] = {}
     event_to_cell: dict[str, str] = {}
+    cell_to_hashes: dict[str, set[str]] = {}
     invalidated_targets: set[str] = set()
 
     turn_counts: dict[str, int] = {}
@@ -82,8 +83,10 @@ def build_enterprise_dossier(
             entry["evidence_event_hash"] = evidence_hash
             entry["inputs_hash"] = str(payload.get("inputs_hash") or "")
             event_to_cell[ev_hash] = cell_id
+            cell_to_hashes.setdefault(cell_id, set()).add(ev_hash)
             if evidence_hash:
                 event_to_cell[evidence_hash] = cell_id
+                cell_to_hashes.setdefault(cell_id, set()).add(evidence_hash)
 
         elif event_type == "invalidated":
             cell_id = str(payload["cell_id"])
@@ -102,9 +105,8 @@ def build_enterprise_dossier(
             superseded_evidence = str(entry.get("evidence_event_hash") or "")
             if superseded_evidence:
                 invalidated_targets.add(superseded_evidence)
-            for mapped_hash, mapped_cell in list(event_to_cell.items()):
-                if mapped_cell == cell_id:
-                    invalidated_targets.add(mapped_hash)
+            if cell_id in cell_to_hashes:
+                invalidated_targets.update(cell_to_hashes[cell_id])
             entry["invalidated_history"].append(
                 {
                     "event_hash": ev_hash,
@@ -215,7 +217,27 @@ def build_enterprise_dossier(
         "human_signoffs": human_signoffs,
     }
     dossier_hash = inputs_hash(core)
-    return {"dossier_hash": dossier_hash, **core}
+    return {"dossier_hash": dossier_hash, "gap_report": coverage, **core}
+
+
+def _escape_strictdoc_directives(text: str) -> str:
+    """Escape StrictDOC directive brackets to prevent forged requirements or sections."""
+
+    def _repl(match: re.Match[str]) -> str:
+        return f"\\[{match.group(1)}\\]"
+
+    return re.sub(
+        r"\[(/?(?:REQUIREMENT|SECTION|RELATIONS|DOCUMENT|TEXT|STATEMENT)[^\]]*)\]",
+        _repl,
+        text,
+        flags=re.IGNORECASE,
+    )
+
+
+def _sanitize_single_line(val: Any) -> str:
+    """Collapse control newlines in single-line headers and escape directive brackets."""
+    collapsed = re.sub(r"[\r\n\x00-\x1f]+", " ", str(val)).strip()
+    return _escape_strictdoc_directives(collapsed)
 
 
 def export_strictdoc(dossier: dict[str, Any]) -> str:
@@ -253,8 +275,9 @@ def export_strictdoc(dossier: dict[str, Any]) -> str:
 
     stale_set = set(dossier["delta_reverification_manifest"]["stale_cells_requiring_rerun"])
     for cell in dossier["cell_lineage"]:
-        cell_id = cell["cell_id"]
-        safe_uid = "CELL-" + re.sub(r"[^A-Za-z0-9_.-]", "_", cell_id)
+        cell_id = str(cell["cell_id"])
+        clean_cell_id = _sanitize_single_line(cell_id)
+        safe_uid = "CELL-" + re.sub(r"[^A-Za-z0-9_.-]", "_", clean_cell_id)
         current_status = cell["current_status"]
         if cell_id in stale_set:
             status_tag = "Stale"
@@ -287,10 +310,10 @@ def export_strictdoc(dossier: dict[str, Any]) -> str:
                 "[REQUIREMENT]",
                 f"UID: {safe_uid}",
                 f"STATUS: {status_tag}",
-                f"TITLE: Flight Envelope Station {cell_id}",
-                f"STATEMENT: {statement}",
+                f"TITLE: {_sanitize_single_line(f'Flight Envelope Station {clean_cell_id}')}",
+                f"STATEMENT: {_escape_strictdoc_directives(statement)}",
                 "RATIONALE: Structural loads and flight envelope equilibrium bounds.",
-                f"COMMENT: {comment}",
+                f"COMMENT: {_sanitize_single_line(comment)}",
                 "[RELATIONS]",
                 "- TYPE: Parent",
                 "  VALUE: CS-27.301",
@@ -325,10 +348,12 @@ def export_strictdoc(dossier: dict[str, Any]) -> str:
     for idx, signoff in enumerate(dossier["human_signoffs"]):
         uid = f"SIGNOFF-{idx + 1:03d}"
         status_tag = "Active" if signoff.get("status") == "active" else "Superseded"
-        actor = signoff.get("actor_id", "cve")
-        target = signoff.get("target_event_hash", "")
-        ev_hash = signoff.get("event_hash", "")
-        stmt = signoff.get("statement", "")
+        raw_actor = signoff.get("actor_id", "cve")
+        actor = _sanitize_single_line(raw_actor)
+        target = _sanitize_single_line(signoff.get("target_event_hash", ""))
+        ev_hash = _sanitize_single_line(signoff.get("event_hash", ""))
+        raw_stmt = signoff.get("statement", "")
+        stmt = _sanitize_single_line(raw_stmt)
         signoff_comment = (
             f"Actor: {actor}; Target: {target}; Signoff: {ev_hash}; Status: {status_tag}."
         )
@@ -337,10 +362,10 @@ def export_strictdoc(dossier: dict[str, Any]) -> str:
                 "[REQUIREMENT]",
                 f"UID: {uid}",
                 f"STATUS: {status_tag}",
-                f"TITLE: Human Sign-off by {actor}",
+                f"TITLE: {_sanitize_single_line(f'Human Sign-off by {actor}')}",
                 f"STATEMENT: The compliance verification engineer ({actor}) acknowledged: {stmt}.",
                 "RATIONALE: EASA Part 21.A.243 / AMC 20-115D Human Oversight.",
-                f"COMMENT: {signoff_comment}",
+                f"COMMENT: {_sanitize_single_line(signoff_comment)}",
                 "[RELATIONS]",
                 "- TYPE: Parent",
                 "  VALUE: EASA-PART-21",
@@ -361,17 +386,25 @@ def export_strictdoc(dossier: dict[str, Any]) -> str:
             ]
         )
         for idx, req in enumerate(recorded_reqs):
-            uid = f"INGEST-{idx + 1:03d}-{req.get('id', 'REQ')}"
+            raw_id = str(req.get("id", "REQ"))
+            clean_id = _sanitize_single_line(raw_id)
+            safe_id_for_uid = re.sub(r"[^A-Za-z0-9_.-]", "_", clean_id)
+            uid = f"INGEST-{idx + 1:03d}-{safe_id_for_uid}"
+            raw_quotation = str(req.get("quotation", ""))
+            clean_quotation = _sanitize_single_line(raw_quotation)
+            comment_str = (
+                f"Source Hash: {req.get('source_file_hash', '')}; "
+                f"Span: {req.get('span_start', '0')}..{req.get('span_end', '0')}; "
+                f"Event: {req.get('event_hash', '')}."
+            )
             lines.extend(
                 [
                     "[REQUIREMENT]",
                     f"UID: {uid}",
                     f"STATUS: {'Validated' if req.get('title_label') == 'VERIFIED' else 'Draft'}",
-                    f"TITLE: {req.get('id', 'REQ')}",
-                    f"STATEMENT: {req.get('quotation', '')}",
-                    f"COMMENT: Source Hash: {req.get('source_file_hash', '')}; "
-                    f"Span: {req.get('span_start', '0')}..{req.get('span_end', '0')}; "
-                    f"Event: {req.get('event_hash', '')}.",
+                    f"TITLE: {clean_id}",
+                    f"STATEMENT: {clean_quotation}",
+                    f"COMMENT: {_sanitize_single_line(comment_str)}",
                     "",
                 ]
             )
@@ -380,7 +413,7 @@ def export_strictdoc(dossier: dict[str, Any]) -> str:
     formal_proof = dossier.get("formal_envelope_proof") or {}
     status_formal = "Validated" if formal_proof.get("envelope_proved") else "Draft"
     p_hash = formal_proof.get("proof_hash", "none")
-    p_summary = formal_proof.get("summary", "Continuous SMT proof verified.")
+    p_summary = _sanitize_single_line(formal_proof.get("summary", "Continuous SMT proof verified."))
     lines.extend(
         [
             "[SECTION]",
