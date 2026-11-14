@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 from typing import Any
 
@@ -751,6 +752,218 @@ def parse_abaqus_inp(raw: bytes, source_hash: str) -> dict[str, Any]:
         },
         "masses": masses,
         "cg_points": cg_points,
+        "parameters": parameters,
+        "blocks": blocks,
+    }
+
+
+_F06_FLOAT_RE = re.compile(r"[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[EeDd][-+]?\d+)?")
+_F06_RESULTANT_ROW_RE = re.compile(
+    r"^\s*(?:0\s+)?(\d+)\s+([-+]?\d\.\d+E[-+]\d+|[-+]?\d+(?:\.\d+)?)\s+"
+    r"([-+]?\d\.\d+E[-+]\d+|[-+]?\d+(?:\.\d+)?)\s+"
+    r"([-+]?\d\.\d+E[-+]\d+|[-+]?\d+(?:\.\d+)?)\s+"
+    r"([-+]?\d\.\d+E[-+]\d+|[-+]?\d+(?:\.\d+)?)\s+"
+    r"([-+]?\d\.\d+E[-+]\d+|[-+]?\d+(?:\.\d+)?)\s+"
+    r"([-+]?\d\.\d+E[-+]\d+|[-+]?\d+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
+
+
+def _extract_resultant_vectors(lines: list[str], section_marker: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    compact_marker = re.sub(r"\s+", "", section_marker.upper())
+    i = 0
+    while i < len(lines):
+        if compact_marker in re.sub(r"\s+", "", lines[i].upper()):
+            for j in range(i + 1, min(i + 10, len(lines))):
+                if "SUBCASE" in lines[j].upper() or "TOTAL" in lines[j].upper():
+                    continue
+                m = _F06_RESULTANT_ROW_RE.match(lines[j])
+                if m:
+                    vecs = [Decimal(m.group(k).replace("D", "E")) for k in range(2, 8)]
+                    rows.append(
+                        {
+                            "subcase": m.group(1),
+                            "force_n": [
+                                decimal_str(vecs[0]),
+                                decimal_str(vecs[1]),
+                                decimal_str(vecs[2]),
+                            ],
+                            "resultant_force_n": decimal_str(
+                                _decimal_hypot3(vecs[0], vecs[1], vecs[2])
+                            ),
+                            "moment_n_m": [
+                                decimal_str(vecs[3]),
+                                decimal_str(vecs[4]),
+                                decimal_str(vecs[5]),
+                            ],
+                        }
+                    )
+                    break
+        i += 1
+    return rows
+
+
+def parse_nastran_f06(raw: bytes, source_hash: str) -> dict[str, Any]:
+    """Deterministically extract OLOAD/SPCFORCE resultants and GPWG mass/CG from .f06."""
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1")
+
+    lines = text.splitlines()
+    if not lines:
+        raise IngestAbstain("empty_f06_file")
+
+    oloads = _extract_resultant_vectors(lines, "OLOAD")
+    spcforces = _extract_resultant_vectors(lines, "SPCFORCE")
+
+    gpwg_mass: Decimal | None = None
+    gpwg_cg: list[str] | None = None
+    epsilon_values: list[str] = []
+    fatal_messages: list[str] = []
+    warning_messages: list[str] = []
+
+    for idx, line in enumerate(lines):
+        upper = line.upper()
+        if "USER FATAL MESSAGE" in upper or "SYSTEM FATAL MESSAGE" in upper:
+            fatal_messages.append(line.strip()[:200])
+        elif "USER WARNING MESSAGE" in upper:
+            warning_messages.append(line.strip()[:200])
+        elif "EPSILON" in upper:
+            nums = _F06_FLOAT_RE.findall(line)
+            if nums:
+                epsilon_values.append(nums[-1].replace("D", "E"))
+        elif "MASS AXIS SYSTEM" in upper or "DIRECTION" in upper and "MASS" in upper:
+            # Parse X, Y, Z mass rows right below GPWG header if present
+            coords: list[str] = []
+            masses_found: list[Decimal] = []
+            for j in range(idx + 1, min(idx + 6, len(lines))):
+                row_u = lines[j].strip().upper()
+                if row_u.startswith(("X ", "Y ", "Z ")):
+                    nums = _F06_FLOAT_RE.findall(lines[j])
+                    if len(nums) >= 4:
+                        masses_found.append(Decimal(nums[0].replace("D", "E")))
+                        axis_idx = {"X": 1, "Y": 2, "Z": 3}[row_u[0]]
+                        if axis_idx < len(nums):
+                            coords.append(decimal_str(Decimal(nums[axis_idx].replace("D", "E"))))
+            if masses_found and gpwg_mass is None:
+                gpwg_mass = masses_found[0]
+            if len(coords) == 3 and gpwg_cg is None:
+                gpwg_cg = coords
+        elif "TOTAL MASS" in upper and gpwg_mass is None:
+            nums = _F06_FLOAT_RE.findall(line)
+            if nums:
+                gpwg_mass = Decimal(nums[-1].replace("D", "E"))
+
+    if not oloads and not spcforces and gpwg_mass is None and not fatal_messages:
+        raise IngestAbstain("no_f06_engineering_results_found")
+
+    equilibrium_checks: list[dict[str, Any]] = []
+    if oloads and spcforces:
+        for oload in oloads:
+            match = next((s for s in spcforces if s["subcase"] == oload["subcase"]), spcforces[0])
+            res_x = Decimal(oload["force_n"][0]) + Decimal(match["force_n"][0])
+            res_y = Decimal(oload["force_n"][1]) + Decimal(match["force_n"][1])
+            res_z = Decimal(oload["force_n"][2]) + Decimal(match["force_n"][2])
+            imbalance = _decimal_hypot3(res_x, res_y, res_z)
+            equilibrium_checks.append(
+                {
+                    "subcase": oload["subcase"],
+                    "oload_resultant_n": oload["resultant_force_n"],
+                    "spcforce_resultant_n": match["resultant_force_n"],
+                    "residual_sum_n": decimal_str(imbalance),
+                }
+            )
+
+    parameters: list[dict[str, Any]] = []
+    cg_points: list[dict[str, Any]] = []
+    if gpwg_mass is not None:
+        parameters.append(
+            make_param_entry(
+                path="NASTRAN_F06\\GPWG\\mass_kg",
+                name="mass_kg",
+                value=decimal_str(gpwg_mass),
+                unit="kg",
+                source_kind="nastran_f06",
+            )
+        )
+    if gpwg_cg is not None:
+        cg_points.append(
+            {
+                "label": "NASTRAN_F06_GPWG_CG",
+                "coords": gpwg_cg,
+                "unit": "m",
+                "source_kind": "nastran_f06",
+            }
+        )
+        parameters.append(
+            make_param_entry(
+                path="NASTRAN_F06\\GPWG\\cg_x_m",
+                name="cg_x_m",
+                value=gpwg_cg[0],
+                unit="m",
+                source_kind="nastran_f06",
+            )
+        )
+    if oloads:
+        parameters.append(
+            make_param_entry(
+                path=f"NASTRAN_F06\\SUBCASE_{oloads[0]['subcase']}\\oload_resultant_n",
+                name="thrust_n",
+                value=oloads[0]["resultant_force_n"],
+                unit="N",
+                source_kind="nastran_f06",
+            )
+        )
+    if spcforces:
+        parameters.append(
+            make_param_entry(
+                path=f"NASTRAN_F06\\SUBCASE_{spcforces[0]['subcase']}\\spcforce_resultant_n",
+                name="spc_reaction_n",
+                value=spcforces[0]["resultant_force_n"],
+                unit="N",
+                source_kind="nastran_f06",
+            )
+        )
+
+    block_lines = [
+        f"NASTRAN F06 Output | OLOAD={len(oloads)}, SPCFORCE={len(spcforces)}, "
+        f"FATAL={len(fatal_messages)}, WARNING={len(warning_messages)}"
+    ]
+    if gpwg_mass is not None:
+        block_lines.append(f"GPWG Total Mass: {decimal_str(gpwg_mass)} kg")
+    if equilibrium_checks:
+        eq0 = equilibrium_checks[0]
+        block_lines.append(
+            f"Subcase {eq0['subcase']} OLOAD={eq0['oload_resultant_n']} N, "
+            f"SPCFORCE={eq0['spcforce_resultant_n']} N, Residual={eq0['residual_sum_n']} N"
+        )
+
+    blocks: list[Block] = []
+    offset = 0
+    for ln in block_lines:
+        blocks.append(
+            Block(
+                text=ln,
+                span_start=offset,
+                span_end=offset + len(ln),
+                source_hash=source_hash,
+                block_kind="nastran_f06",
+            )
+        )
+        offset += len(ln) + 1
+
+    return {
+        "format": "nastran_f06",
+        "oload_resultants": oloads,
+        "spcforce_resultants": spcforces,
+        "equilibrium_checks": equilibrium_checks,
+        "gpwg_mass_kg": decimal_str(gpwg_mass) if gpwg_mass is not None else None,
+        "cg_points": cg_points,
+        "epsilon_values": epsilon_values,
+        "fatal_errors": fatal_messages,
+        "warnings": warning_messages,
         "parameters": parameters,
         "blocks": blocks,
     }

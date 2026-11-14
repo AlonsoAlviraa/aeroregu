@@ -949,6 +949,86 @@ try {
   @media (prefers-reduced-motion: reduce) {
     .toast-item[popover="manual"] { transition: none; }
   }
+
+  .briefing-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+    gap: 0.7rem;
+    margin-block-end: 0.9rem;
+  }
+
+  .briefing-kpi {
+    padding: 0.65rem 0.8rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+
+  .briefing-kpi .bk-label {
+    display: block;
+    font-size: 0.73rem;
+    color: var(--muted);
+  }
+
+  .briefing-kpi .bk-val {
+    display: block;
+    margin-top: 0.18rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+  }
+
+  .table-wrapper {
+    overflow: auto;
+    max-inline-size: 99.9%;
+    max-block-size: min(440px, 68vh);
+    container-type: inline-size;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+
+  .table-wrapper table {
+    inline-size: 99.9%;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .table-wrapper thead th {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 2;
+    background: var(--surface-2);
+  }
+
+  .briefing-region {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 320px auto 480px;
+  }
+
+  @supports not (content-visibility: auto) {
+    .briefing-region {
+      contain: layout style paint;
+    }
+  }
+
+  .diff-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 0.8rem;
+    margin-block-start: 0.8rem;
+  }
+
+  .diff-card {
+    padding: 0.8rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+
+  .diff-card pre {
+    margin: 0.45rem 0 0;
+    white-space: pre-wrap;
+    font-size: 0.78rem;
+  }
 </style>
 </head>
 <body>
@@ -1000,13 +1080,17 @@ try {
     </div>
     <div class="kpi-card">
       <span class="kpi-label">Herramientas MCP</span>
-      <span class="kpi-value" id="kpi-mcp">19 Tools / 6 Res</span>
+      <span class="kpi-value" id="kpi-mcp">30 Tools / 6 Res</span>
     </div>
   </section>
 
   <div class="studio-grid">
     <main class="workbench-main">
       <nav class="workflow-bar" id="workflow-bar" aria-label="Flujo guiado de verificacion">
+        <button type="button" class="wf-step" data-step-tab="tab-briefing">
+          <span>0. Briefing 08:00</span>
+          <span class="wf-state" id="wf-state-briefing">Listo</span>
+        </button>
         <button type="button" class="wf-step" data-step-tab="tab-calc" aria-current="step">
           <span>1. Calculo &amp; CATIA</span>
           <span class="wf-state" id="wf-state-calc">Activo</span>
@@ -1026,6 +1110,7 @@ try {
       </nav>
 
       <div class="tablist" id="workbench-tablist" focusgroup="tablist nomemory" aria-label="Secciones de calculo">
+        <button type="button" role="tab" id="tab-briefing">0. Briefing 08:00 AM</button>
         <button type="button" role="tab" id="tab-calc" aria-selected="true" focusgroupstart>1. Calculo CAD</button>
         <button type="button" role="tab" id="tab-coverage">2. Envolvente Vuelo</button>
         <button type="button" role="tab" id="tab-docs">3. Docs y Agentes AI</button>
@@ -1034,6 +1119,98 @@ try {
       </div>
 
       <div class="panels-stack">
+        <!-- TAB 0: MORNING BRIEFING 08:00 AM & BATCH SIGN-OFF -->
+        <div role="tabpanel" aria-labelledby="tab-briefing" hidden="until-found">
+          <section class="panel-card briefing-region">
+            <div class="panel-head">
+              <h2>Morning Briefing 08:00 AM — Cola por Riesgo y Batch Sign-Off CVE</h2>
+              <div class="row">
+                <button type="button" class="primary" id="run-overnight-btn">Ejecutar Ciclo Nocturno (Audit + Red-Team)</button>
+                <button type="button" class="subtle" id="run-cross-artifact-btn">Cruzar CAD-FEM-PDF-Req</button>
+                <button type="button" class="subtle" id="refresh-briefing-btn">Refrescar Briefing</button>
+              </div>
+            </div>
+
+            <div class="briefing-kpis" id="briefing-kpis">
+              <div class="briefing-kpi"><span class="bk-label">Abiertos en Cola</span><span class="bk-val" id="bk-open">0</span></div>
+              <div class="briefing-kpi"><span class="bk-label">Riesgo MS &lt; 0</span><span class="bk-val" id="bk-ms-neg">0</span></div>
+              <div class="briefing-kpi"><span class="bk-label">CAD / FEM / PDF</span><span class="bk-val" id="bk-cross">0</span></div>
+              <div class="briefing-kpi"><span class="bk-label">ABSTAIN / Stale</span><span class="bk-val" id="bk-stale">0 / 0</span></div>
+              <div class="briefing-kpi"><span class="bk-label">Tokens Edge / Cloud</span><span class="bk-val" id="bk-tokens">0 / 0</span></div>
+              <div class="briefing-kpi"><span class="bk-label">Z3 p95 / DLQ</span><span class="bk-val" id="bk-z3-dlq">0 ms / 0</span></div>
+            </div>
+
+            <div tabindex="0" role="region" aria-labelledby="briefing-table-caption" class="table-wrapper">
+              <table>
+                <caption id="briefing-table-caption" style="text-align:left;padding:0.4rem 0.6rem;font-size:0.82rem;color:var(--muted);">
+                  Cola ordenada por severidad de riesgo: margenes negativos, discrepancias CAD-FEM-PDF, ABSTAIN y celdas stale.
+                </caption>
+                <thead>
+                  <tr>
+                    <th><input type="checkbox" id="briefing-select-all" aria-label="Seleccionar todos los hallazgos abiertos"></th>
+                    <th>Riesgo</th>
+                    <th>Categoria</th>
+                    <th>Hallazgo</th>
+                    <th>Estado</th>
+                    <th>Inspeccion</th>
+                  </tr>
+                </thead>
+                <tbody id="briefing-tbody">
+                  <tr><td colspan="6" class="meta-note">Pulsa "Ejecutar Ciclo Nocturno" o "Refrescar Briefing" para cargar hallazgos.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="diff-grid" id="briefing-diff-panel" hidden>
+              <div class="diff-card">
+                <strong id="diff-title">Diff Visual Antes / Despues</strong>
+                <p class="meta-note" id="diff-summary"></p>
+              </div>
+              <div class="diff-card">
+                <strong>Antes (Baseline / Declarado PDF)</strong>
+                <pre id="diff-before-pre"></pre>
+              </div>
+              <div class="diff-card">
+                <strong>Despues (FEM .bdf/.f06 / STEP / Red-Team)</strong>
+                <pre id="diff-after-pre"></pre>
+              </div>
+            </div>
+
+            <div class="row" style="margin-top:0.9rem;align-items:end;flex-wrap:wrap;gap:0.65rem;">
+              <div class="field" style="flex:1;min-width:220px;">
+                <label for="batch-signoff-statement">Declaracion Batch Sign-Off CVE (`human_signoff`)</label>
+                <input id="batch-signoff-statement" value="reviewed this event">
+              </div>
+              <button type="button" class="primary" id="batch-signoff-btn">Firmar Seleccionados (Batch Sign-Off CVE)</button>
+              <button type="button" class="subtle" id="switch-cve-btn" title="Inicia sesion rapida como revisor CVE para SoD">Cambiar a Rol CVE</button>
+            </div>
+          </section>
+
+          <section class="panel-card briefing-region">
+            <div class="panel-head">
+              <h2>Endurecimiento 24/7: Persistencia, Observabilidad &amp; Webhook DLQ</h2>
+              <div class="row">
+                <button type="button" class="subtle" id="refresh-ops-btn">Actualizar Estado 24/7</button>
+                <button type="button" class="subtle" id="replay-dlq-btn">Reintentar Webhook DLQ</button>
+              </div>
+            </div>
+            <div class="diff-grid">
+              <div class="diff-card">
+                <strong>Persistencia &amp; Migraciones</strong>
+                <pre id="ops-persistence-pre">Sin consultar</pre>
+              </div>
+              <div class="diff-card">
+                <strong>Observabilidad OTel / Prometheus</strong>
+                <pre id="ops-telemetry-pre">Sin consultar</pre>
+              </div>
+              <div class="diff-card">
+                <strong>Cola Dead-Letter Webhooks (DLQ)</strong>
+                <pre id="ops-dlq-pre">Sin consultar</pre>
+              </div>
+            </div>
+          </section>
+        </div>
+
         <!-- TAB 1: CALCULATOR & CAD PLOTS -->
         <div role="tabpanel" aria-labelledby="tab-calc" tabindex="0">
           <section class="panel-card">
@@ -2130,6 +2307,9 @@ function activateTab(targetTab) {
   targetTab.scrollIntoView({ block: "nearest", inline: "nearest" });
   if (targetTab.id === "tab-coverage" && typeof window.onCoverageTabVisible === "function") {
     requestAnimationFrame(() => window.onCoverageTabVisible());
+  }
+  if (targetTab.id === "tab-briefing" && typeof window.loadMorningBriefing === "function") {
+    requestAnimationFrame(() => window.loadMorningBriefing());
   }
 }
 
@@ -4213,6 +4393,243 @@ document.getElementById("refresh-3d-btn").onclick = () => load3DEnvelope();
 window.addEventListener("resize", () => viewer3d && viewer3d.resize());
 window.onCoverageTabVisible = () => {
   load3DEnvelope();
+};
+
+const _briefingState = { queue: [] };
+
+function _showBriefingDiff(item) {
+  const panel = document.getElementById("briefing-diff-panel");
+  if (!item) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  document.getElementById("diff-title").textContent = `${item.title} [${item.severity} | riesgo ${item.risk_score}]`;
+  document.getElementById("diff-summary").textContent = item.summary || "";
+  document.getElementById("diff-before-pre").textContent = JSON.stringify(item.before || {}, null, 2);
+  document.getElementById("diff-after-pre").textContent = JSON.stringify(item.after || {}, null, 2);
+}
+
+function renderMorningBriefing(brief) {
+  if (!brief || !brief.executive_summary) return;
+  const ex = brief.executive_summary;
+  const tel = ex.telemetry || {};
+  const toks = tel.tokens || {};
+  const smt = tel.smt_solver || {};
+  document.getElementById("bk-open").textContent = String(ex.open_items ?? 0);
+  document.getElementById("bk-ms-neg").textContent = String(ex.ms_negative_count ?? 0);
+  document.getElementById("bk-cross").textContent = String(ex.cross_artifact_count ?? 0);
+  document.getElementById("bk-stale").textContent = `${ex.abstain_count ?? 0} / ${ex.stale_cells_count ?? 0}`;
+  document.getElementById("bk-tokens").textContent = `${toks.edge_total ?? 0} / ${toks.cloud_total ?? 0}`;
+  document.getElementById("bk-z3-dlq").textContent = `${smt.global_p95_ms ?? 0} ms / ${ex.dlq_pending_count ?? 0}`;
+
+  const wfState = document.getElementById("wf-state-briefing");
+  if (wfState) wfState.textContent = ex.open_items > 0 ? `${ex.open_items} Alertas` : "Limpio";
+
+  const queue = Array.isArray(brief.queue) ? brief.queue : [];
+  _briefingState.queue = queue;
+  const tbody = document.getElementById("briefing-tbody");
+  tbody.innerHTML = "";
+  if (!queue.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 6;
+    td.className = "meta-note";
+    td.textContent = "Sin alertas abiertas en la cola 08:00 AM.";
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    _showBriefingDiff(null);
+    return;
+  }
+
+  queue.slice(0, 60).forEach((item, idx) => {
+    const tr = document.createElement("tr");
+    const tdChk = document.createElement("td");
+    const chk = document.createElement("input");
+    chk.type = "checkbox";
+    chk.className = "briefing-row-chk";
+    chk.dataset.findingId = item.finding_id;
+    chk.disabled = item.status === "signed_off";
+    chk.setAttribute("aria-label", `Seleccionar ${item.finding_id}`);
+    tdChk.appendChild(chk);
+
+    const tdRisk = document.createElement("td");
+    tdRisk.textContent = `${item.severity} (${item.risk_score})`;
+
+    const tdCat = document.createElement("td");
+    tdCat.textContent = item.category;
+
+    const tdTitle = document.createElement("td");
+    const strong = document.createElement("strong");
+    strong.textContent = item.title;
+    const sub = document.createElement("div");
+    sub.className = "meta-note";
+    sub.textContent = item.summary || "";
+    tdTitle.appendChild(strong);
+    tdTitle.appendChild(sub);
+
+    const tdSt = document.createElement("td");
+    tdSt.textContent = item.status === "signed_off" ? `FIRMADO (${item.signed_off_by || "cve"})` : "ABIERTO";
+
+    const tdAct = document.createElement("td");
+    const diffBtn = document.createElement("button");
+    diffBtn.type = "button";
+    diffBtn.className = "subtle";
+    diffBtn.textContent = "Ver Diff";
+    diffBtn.addEventListener("click", () => _showBriefingDiff(item));
+    tdAct.appendChild(diffBtn);
+
+    tr.append(tdChk, tdRisk, tdCat, tdTitle, tdSt, tdAct);
+    tbody.appendChild(tr);
+    if (idx === 0) _showBriefingDiff(item);
+  });
+}
+
+async function refreshOps247() {
+  const t = currentTenant();
+  try {
+    const [pRes, tRes, dRes] = await Promise.all([
+      fetch(`/system/persistence?tenant_id=${encodeURIComponent(t)}`),
+      fetch("/metrics/observability"),
+      fetch(`/webhooks/dlq?tenant_id=${encodeURIComponent(t)}`),
+    ]);
+    const [pJson, tJson, dJson] = await Promise.all([pRes.json(), tRes.json(), dRes.json()]);
+    document.getElementById("ops-persistence-pre").textContent = JSON.stringify(pJson.result || pJson, null, 2);
+    document.getElementById("ops-telemetry-pre").textContent = JSON.stringify(tJson.result || tJson, null, 2);
+    document.getElementById("ops-dlq-pre").textContent = JSON.stringify(dJson.result || dJson, null, 2);
+  } catch (err) {
+    showToast(`Error estado 24/7: ${err?.message || err}`, "err");
+  }
+}
+
+window.loadMorningBriefing = async function loadMorningBriefing() {
+  try {
+    const resp = await fetch(`/overnight/briefing?tenant_id=${encodeURIComponent(currentTenant())}`);
+    const data = await resp.json();
+    if (data && data.result) {
+      renderMorningBriefing(data.result);
+    }
+    await refreshOps247();
+  } catch (err) {
+    showToast(`Error cargando briefing: ${err?.message || err}`, "err");
+  }
+};
+
+document.getElementById("refresh-briefing-btn").onclick = () => window.loadMorningBriefing();
+document.getElementById("refresh-ops-btn").onclick = () => refreshOps247();
+
+document.getElementById("briefing-select-all").onchange = (ev) => {
+  const checked = ev.target.checked;
+  document.querySelectorAll(".briefing-row-chk").forEach((chk) => {
+    if (!chk.disabled) chk.checked = checked;
+  });
+};
+
+document.getElementById("run-overnight-btn").onclick = async () => {
+  try {
+    const resp = await fetch("/overnight/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tenant_id: currentTenant(), use_showcase: true, run_fuzzer: true }),
+    });
+    const data = await resp.json();
+    if (resp.status === 401) {
+      showToast("Inicia sesion arriba (author/reviewer) para ejecutar el ciclo nocturno.", "warn");
+      return;
+    }
+    if (data && data.result && data.result.briefing) {
+      renderMorningBriefing(data.result.briefing);
+    }
+    await refreshOps247();
+    showToast("Ciclo nocturno completado: Cross-Artifact + Red-Team Z3/cvc5.", "ok");
+  } catch (err) {
+    showToast(`Error ciclo nocturno: ${err?.message || err}`, "err");
+  }
+};
+
+document.getElementById("run-cross-artifact-btn").onclick = async () => {
+  try {
+    const resp = await fetch("/audit/cross-artifact", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tenant_id: currentTenant(), use_showcase: true }),
+    });
+    const data = await resp.json();
+    if (resp.status === 401) {
+      showToast("Inicia sesion arriba para auditar cross-artifact.", "warn");
+      return;
+    }
+    setOutput(JSON.stringify(data, null, 2).slice(0, 4000), "warn", "Cross-Artifact");
+    await window.loadMorningBriefing();
+    showToast("Auditoria CAD-FEM-PDF completada.", "ok");
+  } catch (err) {
+    showToast(`Error cross-artifact: ${err?.message || err}`, "err");
+  }
+};
+
+document.getElementById("switch-cve-btn").onclick = async () => {
+  try {
+    const resp = await fetch("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actor_id: "reviewer", password: "reviewer-local", tenant_id: currentTenant() }),
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      showToast("Sesion activa como revisor CVE (Separacion de Funciones SoD lista).", "ok");
+      const actorIn = document.getElementById("actor-id");
+      if (actorIn) actorIn.value = "reviewer";
+    } else {
+      showToast(data?.abstain?.reason || data?.abstain_reason || "No se pudo cambiar a rol CVE.", "warn");
+    }
+  } catch (err) {
+    showToast(`Error login CVE: ${err?.message || err}`, "err");
+  }
+};
+
+document.getElementById("batch-signoff-btn").onclick = async () => {
+  const fids = [...document.querySelectorAll(".briefing-row-chk:checked")].map((c) => c.dataset.findingId);
+  if (!fids.length) {
+    showToast("Selecciona al menos un hallazgo abierto para firmar.", "warn");
+    return;
+  }
+  const stmt = document.getElementById("batch-signoff-statement").value || "reviewed this event";
+  try {
+    const resp = await fetch("/overnight/batch-signoff", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tenant_id: currentTenant(), finding_ids: fids, statement: stmt }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      showToast(`Rechazado: ${data?.abstain?.reason || data?.abstain_reason || "Usa 'Cambiar a Rol CVE' antes de firmar."}`, "warn");
+      return;
+    }
+    const r = data.result || {};
+    showToast(`Firmados ${r.signed_count || 0} hallazgos en ledger (rechazados: ${r.rejected_count || 0}).`, "ok");
+    await window.loadMorningBriefing();
+  } catch (err) {
+    showToast(`Error en batch sign-off: ${err?.message || err}`, "err");
+  }
+};
+
+document.getElementById("replay-dlq-btn").onclick = async () => {
+  try {
+    const resp = await fetch("/webhooks/dlq/replay", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tenant_id: currentTenant() }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      showToast(data?.abstain?.reason || data?.abstain_reason || "Inicia sesion para reintentar DLQ.", "warn");
+      return;
+    }
+    showToast(`DLQ reintentado (${data?.result?.replayed_count || 0} entregas).`, "ok");
+    await refreshOps247();
+  } catch (err) {
+    showToast(`Error DLQ replay: ${err?.message || err}`, "err");
+  }
 };
 </script>
 </body>

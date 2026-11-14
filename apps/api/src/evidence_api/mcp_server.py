@@ -576,6 +576,103 @@ MCP_TOOLS: tuple[dict[str, Any], ...] = (
             },
         },
     },
+    {
+        "name": "evidence_cross_artifact_audit",
+        "description": (
+            "Cross-check Requirements, CAD, FEM (.bdf/.inp/.f06), and Report PDF/DOCX "
+            "for mass, CG, and load-reaction mismatches."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tenant_id": {"type": "string", "default": "demo"},
+                "use_showcase": {"type": "boolean", "default": False},
+                "requirements": {"type": "object"},
+                "cad": {"type": "object"},
+                "fem": {"type": "object"},
+                "fem_f06": {"type": "object"},
+                "report": {"type": "object"},
+            },
+        },
+    },
+    {
+        "name": "evidence_adversarial_fuzz",
+        "description": (
+            "Run envelope_critic (Z3+cvc5) and bench_attacker red-team "
+            "unit/sign/thermal/redundancy fuzzer."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tenant_id": {"type": "string", "default": "demo"},
+                "method_ids": {"type": "array", "items": {"type": "string"}},
+                "include_smt_critic": {"type": "boolean", "default": True},
+            },
+        },
+    },
+    {
+        "name": "evidence_overnight_watch",
+        "description": (
+            "Trigger continuous verification cycle across persistent queue, "
+            "cross-artifact auditor & red-team fuzzer."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tenant_id": {"type": "string", "default": "demo"},
+                "use_showcase": {"type": "boolean", "default": True},
+                "max_tokens_per_night": {"type": "integer", "default": 250000},
+            },
+        },
+    },
+    {
+        "name": "evidence_morning_briefing",
+        "description": (
+            "Retrieve 08:00 AM risk-sorted Morning Briefing queue "
+            "(MS<0, ABSTAIN, CAD<->FEM<->PDF, stale cells) & diffs."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"tenant_id": {"type": "string", "default": "demo"}},
+        },
+    },
+    {
+        "name": "evidence_batch_signoff",
+        "description": (
+            "Execute audited batch human_signoff on reviewed briefing findings "
+            "(enforcing CVE role and SoD)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["finding_ids"],
+            "properties": {
+                "tenant_id": {"type": "string", "default": "demo"},
+                "actor_id": {"type": "string", "default": "reviewer"},
+                "actor_role": {"type": "string", "default": "cve"},
+                "finding_ids": {"type": "array", "items": {"type": "string"}},
+                "statement": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "evidence_observability_metrics",
+        "description": (
+            "Return OpenTelemetry/Prometheus runtime metrics "
+            "(Z3/cvc5 p95 latency, abstain rate, edge vs cloud tokens, DLQ)."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "evidence_webhooks_dlq_replay",
+        "description": ("Replay dead-lettered webhook deliveries stored in the persistent DLQ."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tenant_id": {"type": "string", "default": "demo"},
+                "delivery_ids": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+    },
 )
 
 MCP_RESOURCES: tuple[dict[str, Any], ...] = (
@@ -791,6 +888,10 @@ def _call_tool(
             "evidence_calc_register_plugin",
             "evidence_webhooks_register",
             "evidence_dossier_pdf_export",
+            "evidence_cross_artifact_audit",
+            "evidence_overnight_watch",
+            "evidence_batch_signoff",
+            "evidence_webhooks_dlq_replay",
         } or (
             name in {"evidence_calc_run", "evidence_ingest_document"}
             and bool(arguments.get("record"))
@@ -1520,6 +1621,111 @@ def _call_tool(
             return True, {"error": str(exc)}
         saved = ledger.register_webhook(rec)
         return False, saved
+
+    if name == "evidence_cross_artifact_audit":
+        from evidence_coverage.cross_artifact import audit_cross_artifact_consistency
+        from evidence_coverage.overnight import default_showcase_artifacts
+
+        tenant_id = _validate_tenant(arguments.get("tenant_id") or "demo")
+        if tenant_id is None:
+            return True, {"error": "invalid_tenant"}
+        ledger = open_ledger(tenant_id)
+        src = default_showcase_artifacts() if arguments.get("use_showcase") else arguments
+        res = audit_cross_artifact_consistency(
+            ledger,
+            requirements=src.get("requirements") or arguments.get("requirements"),
+            cad=src.get("cad") or arguments.get("cad"),
+            fem=src.get("fem") or arguments.get("fem"),
+            fem_f06=src.get("fem_f06") or arguments.get("fem_f06"),
+            report=src.get("report") or arguments.get("report"),
+        )
+        return False, res
+
+    if name == "evidence_adversarial_fuzz":
+        from evidence_coverage.adversarial import run_bench_attacker, run_envelope_critic
+
+        tenant_id = _validate_tenant(arguments.get("tenant_id") or "demo")
+        if tenant_id is None:
+            return True, {"error": "invalid_tenant"}
+        qdir = evidence_home() / "tenants" / tenant_id / "quarantine"
+        mids = arguments.get("method_ids")
+        attacker = run_bench_attacker(
+            quarantine_dir=qdir,
+            method_ids=[str(m) for m in mids] if isinstance(mids, list) else None,
+        )
+        critic = run_envelope_critic() if arguments.get("include_smt_critic", True) else None
+        return False, {"bench_attacker": attacker, "envelope_critic": critic}
+
+    if name == "evidence_overnight_watch":
+        from evidence_coverage.overnight import run_overnight_cycle
+        from evidence_kernel.daemon import OvernightBudget
+
+        tenant_id = _validate_tenant(arguments.get("tenant_id") or "demo")
+        if tenant_id is None:
+            return True, {"error": "invalid_tenant"}
+        ledger = open_ledger(tenant_id)
+        budget = OvernightBudget(
+            max_tokens_per_night=int(arguments.get("max_tokens_per_night", 250_000))
+        )
+        summary = run_overnight_cycle(
+            ledger,
+            quarantine_dir=evidence_home() / "tenants" / tenant_id / "quarantine",
+            budget=budget,
+            use_showcase_if_empty=bool(arguments.get("use_showcase", True)),
+        )
+        return False, summary
+
+    if name == "evidence_morning_briefing":
+        from evidence_coverage.overnight import build_morning_briefing
+
+        tenant_id = _validate_tenant(arguments.get("tenant_id") or "demo")
+        if tenant_id is None:
+            return True, {"error": "invalid_tenant"}
+        return False, build_morning_briefing(open_ledger(tenant_id))
+
+    if name == "evidence_batch_signoff":
+        from evidence_coverage.overnight import batch_human_signoff
+
+        tenant_id = _validate_tenant(arguments.get("tenant_id") or "demo")
+        if tenant_id is None:
+            return True, {"error": "invalid_tenant"}
+        ledger = open_ledger(tenant_id)
+        fids = [str(x) for x in (arguments.get("finding_ids") or []) if str(x).strip()]
+        if not fids:
+            return True, {"error": "missing_finding_ids"}
+        actor_id = str(arguments.get("actor_id") or "reviewer")
+        role = str(arguments.get("actor_role") or ledger.actor_role(actor_id) or "cve")
+        try:
+            out = batch_human_signoff(
+                ledger,
+                finding_ids=fids,
+                actor_id=actor_id,
+                actor_role=role,
+                statement=str(arguments.get("statement") or SIGN_OFF_STATEMENT),
+                enforce_distinct_reviewer=False,
+            )
+            return False, out
+        except LedgerError as exc:
+            return True, {"error": str(exc)}
+
+    if name == "evidence_observability_metrics":
+        from evidence_kernel.telemetry import get_telemetry
+
+        return False, get_telemetry().snapshot()
+
+    if name == "evidence_webhooks_dlq_replay":
+        from evidence_kernel.webhooks import replay_dead_letters
+
+        tenant_id = _validate_tenant(arguments.get("tenant_id") or "demo")
+        if tenant_id is None:
+            return True, {"error": "invalid_tenant"}
+        ledger = open_ledger(tenant_id)
+        dids = arguments.get("delivery_ids")
+        res = replay_dead_letters(
+            ledger,
+            delivery_ids=[str(x) for x in dids] if isinstance(dids, list) else None,
+        )
+        return False, {"replayed_count": len(res), "results": res}
 
     return True, {"error": f"unknown_tool: {name}"}
 

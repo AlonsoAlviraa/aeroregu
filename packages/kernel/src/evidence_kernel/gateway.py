@@ -14,9 +14,10 @@ from urllib.parse import urlparse
 import httpx
 from jsonschema import Draft202012Validator
 
-from evidence_kernel.agents import MVP_AGENTS, require_mvp_agent
+from evidence_kernel.agents import ACTIVE_AGENTS, MVP_AGENTS, require_mvp_agent
 from evidence_kernel.edge import get_edge_preset
 from evidence_kernel.paths import prompts_dir
+from evidence_kernel.telemetry import get_telemetry
 
 logger = logging.getLogger("evidence_kernel.gateway")
 
@@ -141,12 +142,19 @@ class FixtureGateway:
                 model_id=f"fixture:{self.scenario}",
                 routed_via="local_fixture",
             )
+        in_toks = estimate_tokens(messages[-1]["content"])
+        get_telemetry().record_llm_tokens(
+            tier="edge",
+            agent_id=agent_id,
+            input_tokens=in_toks,
+            output_tokens=32,
+        )
         return Completion(
             output,
             None,
             "0",
             digest,
-            estimate_tokens(messages[-1]["content"]),
+            in_toks,
             32,
             provider="fixture",
             model_id=f"fixture:{self.scenario}",
@@ -222,7 +230,7 @@ class BudgetedGateway:
         self, agent_id: str, messages: list[dict[str, str]]
     ) -> tuple[str, int, Completion | None]:
         self.turns += 1
-        digest = prompt_hash(agent_id) if agent_id in MVP_AGENTS else ""
+        digest = prompt_hash(agent_id) if agent_id in ACTIVE_AGENTS else ""
         text = json.dumps(messages, separators=(",", ":"))
         input_tokens = estimate_tokens(text)
         content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -799,6 +807,13 @@ class HybridAgentRouter:
 
         res: Completion = primary.complete(agent_id, messages, schema)
         res.routed_via = "hybrid_edge" if prefer_edge else "hybrid_api"
+        tier = "edge" if prefer_edge else "cloud"
+        get_telemetry().record_llm_tokens(
+            tier=tier,
+            agent_id=agent_id,
+            input_tokens=res.input_tokens,
+            output_tokens=res.output_tokens,
+        )
         repaired = self._try_local_fsm_repair(res, messages, schema)
         if repaired is not None:
             return repaired
@@ -813,6 +828,12 @@ class HybridAgentRouter:
             escalated: Completion = self.api_gateway.complete(agent_id, messages, schema)
             escalated.routed_via = "hybrid_escalated"
             escalated.escalated = True
+            get_telemetry().record_llm_tokens(
+                tier="cloud",
+                agent_id=agent_id,
+                input_tokens=escalated.input_tokens,
+                output_tokens=escalated.output_tokens,
+            )
             return escalated
         return res
 
@@ -843,6 +864,13 @@ class HybridAgentRouter:
             else primary.complete(agent_id, messages, schema)
         )
         res.routed_via = "hybrid_edge" if prefer_edge else "hybrid_api"
+        tier = "edge" if prefer_edge else "cloud"
+        get_telemetry().record_llm_tokens(
+            tier=tier,
+            agent_id=agent_id,
+            input_tokens=res.input_tokens,
+            output_tokens=res.output_tokens,
+        )
         repaired = self._try_local_fsm_repair(res, messages, schema)
         if repaired is not None:
             return repaired
@@ -861,6 +889,12 @@ class HybridAgentRouter:
             )
             escalated.routed_via = "hybrid_escalated"
             escalated.escalated = True
+            get_telemetry().record_llm_tokens(
+                tier="cloud",
+                agent_id=agent_id,
+                input_tokens=escalated.input_tokens,
+                output_tokens=escalated.output_tokens,
+            )
             return escalated
         return res
 
@@ -1159,6 +1193,25 @@ def _fixture_output(agent_id: str, scenario: str, context: dict[str, Any]) -> di
             "attack": attack,
             "reason": "checked spans hashes coverage and inputs",
             "evidence_span": str(context.get("source_text", quotation)),
+        }
+    if agent_id == "envelope_critic":
+        return {
+            "proposal": "propose_review",
+            "status_suggestion": "not_in_envelope"
+            if scenario == "adversarial"
+            else "within_envelope",
+            "human_override_permitted": False,
+            "min_margin_of_safety": str(context.get("min_margin_of_safety", "0.000")),
+            "counterexample": context.get("counterexample") or {},
+            "reason": str(context.get("reason", "boundary envelope check")),
+        }
+    if agent_id == "bench_attacker":
+        return {
+            "quarantine_candidate_id": str(context.get("candidate_id", "cand-1")),
+            "attack_vector": str(context.get("attack_vector", "unit_mutation")),
+            "gold_label_untouched": True,
+            "mutated_inputs": context.get("mutated_inputs") or {},
+            "notes": "candidate written to quarantine buffer only",
         }
     if scenario == "scribe_extra_number" and decimals:
         paragraph = f"The stored value is {decimals[0]}. A stray value is 8.888."

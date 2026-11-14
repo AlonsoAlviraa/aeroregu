@@ -11,7 +11,7 @@ from evidence_ingest.cad_iges import parse_iges
 from evidence_ingest.cad_step import parse_step_ap242
 from evidence_ingest.catia_bridge import parse_catia_native, parse_catia_xml
 from evidence_ingest.docx import ingest_docx_bytes
-from evidence_ingest.fem_parsers import parse_abaqus_inp, parse_nastran_bdf
+from evidence_ingest.fem_parsers import parse_abaqus_inp, parse_nastran_bdf, parse_nastran_f06
 from evidence_ingest.pdf import ingest_pdf_bytes
 from evidence_ingest.requirements import parse_requirements
 from evidence_ingest.xlsx import ingest_xlsx_bytes
@@ -29,6 +29,7 @@ CAD_CAE_MEDIA_TYPES = {
     ".bdf": "nastran_bdf",
     ".dat": "nastran_bdf",
     ".nas": "nastran_bdf",
+    ".f06": "nastran_f06",
     ".inp": "abaqus_inp",
 }
 
@@ -80,6 +81,11 @@ def ingest_bytes(raw: bytes, filename: str) -> dict[str, Any]:
         blocks = parsed.pop("blocks")
         cad_cae = parsed
         media_type = "nastran_bdf"
+    elif suffix == ".f06":
+        parsed = parse_nastran_f06(raw, source_hash)
+        blocks = parsed.pop("blocks")
+        cad_cae = parsed
+        media_type = "nastran_f06"
     elif suffix == ".inp":
         parsed = parse_abaqus_inp(raw, source_hash)
         blocks = parsed.pop("blocks")

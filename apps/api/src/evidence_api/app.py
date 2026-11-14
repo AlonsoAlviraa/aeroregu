@@ -24,6 +24,8 @@ from evidence_calc.diagnostics import classify_numeric_delta
 from evidence_calc.errors import AbstainError
 from evidence_calc.plugins import delete_plugin_card
 from evidence_calc.registry import list_cards, load_card, register_custom_card, run_method
+from evidence_coverage.adversarial import run_bench_attacker, run_envelope_critic
+from evidence_coverage.cross_artifact import audit_cross_artifact_consistency
 from evidence_coverage.dossier import (
     active_calc_records,
     build_enterprise_dossier,
@@ -34,6 +36,12 @@ from evidence_coverage.envelope_3d import build_vn_cg_envelope_3d
 from evidence_coverage.formal_bounds import prove_continuous_flight_envelope
 from evidence_coverage.gate import evaluate_traceability_gate
 from evidence_coverage.grid import calc_inputs_for, generate_cells
+from evidence_coverage.overnight import (
+    batch_human_signoff,
+    build_morning_briefing,
+    default_showcase_artifacts,
+    run_overnight_cycle,
+)
 from evidence_coverage.pdf_report import build_signed_pdf_report, verify_signed_pdf_report
 from evidence_coverage.status import (
     gap_report,
@@ -52,6 +60,7 @@ from evidence_kernel.attestation import (
     generate_ed25519_keypair,
     sign_attestation_dsse,
 )
+from evidence_kernel.daemon import OvernightBudget
 from evidence_kernel.edge import (
     EDGE_PRESETS,
     compact_blocks_for_edge,
@@ -92,7 +101,13 @@ from evidence_kernel.supervisor import (
     astream_case,
     invoke_single_agent,
 )
-from evidence_kernel.webhooks import WebhookError, dispatch_webhook_event, new_webhook_record
+from evidence_kernel.telemetry import get_telemetry
+from evidence_kernel.webhooks import (
+    WebhookError,
+    dispatch_webhook_with_retry,
+    new_webhook_record,
+    replay_dead_letters,
+)
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -2160,6 +2175,289 @@ def create_app() -> FastAPI:
         verdict = verify_signed_pdf_report(raw, expected_public_key_pem=expected_pub)
         return JSONResponse(_ok("dossier_pdf_verify@1.0.0", {}, verdict))
 
+    @app.get("/metrics")
+    def prometheus_metrics() -> Response:
+        return Response(
+            content=get_telemetry().render_prometheus(),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+        )
+
+    @app.get("/metrics/observability")
+    def observability_metrics() -> JSONResponse:
+        return JSONResponse(_ok("observability@1.0.0", {}, get_telemetry().snapshot()))
+
+    @app.get("/system/persistence")
+    def system_persistence(tenant_id: str = DEMO_TENANT) -> JSONResponse:
+        checked = _validate_tenant(tenant_id)
+        if checked is None:
+            return JSONResponse(
+                _abstain("persistence@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        ledger = open_ledger(checked)
+        backend = getattr(ledger, "backend_name", "sqlite")
+        return JSONResponse(
+            _ok(
+                "persistence@1.0.0",
+                {"tenant_id": checked},
+                {
+                    "backend": backend,
+                    "postgres_configured": bool(os.environ.get("EVIDENCE_PG_DSN", "").strip()),
+                    "production_mode": _is_production_mode(),
+                    "schema_version": ledger.schema_version()
+                    if hasattr(ledger, "schema_version")
+                    else 0,
+                    "applied_migrations": ledger.applied_migrations()
+                    if hasattr(ledger, "applied_migrations")
+                    else [],
+                },
+            )
+        )
+
+    @app.post("/system/migrations/run")
+    def system_run_migrations(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(_abstain("migrations@1.0.0", {}, "invalid_tenant"), status_code=400)
+        actor = _session_actor(request, body.get("actor_id"), tenant_id=tenant_id)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        ledger = open_ledger(tenant_id)
+        newly = ledger.run_migrations() if hasattr(ledger, "run_migrations") else []
+        return JSONResponse(
+            _ok(
+                "migrations@1.0.0",
+                {"tenant_id": tenant_id},
+                {
+                    "backend": getattr(ledger, "backend_name", "sqlite"),
+                    "newly_applied_versions": newly,
+                    "schema_version": ledger.schema_version()
+                    if hasattr(ledger, "schema_version")
+                    else 0,
+                    "applied_migrations": ledger.applied_migrations()
+                    if hasattr(ledger, "applied_migrations")
+                    else [],
+                },
+            )
+        )
+
+    @app.get("/webhooks/dlq")
+    def list_webhooks_dlq(
+        tenant_id: str = DEMO_TENANT, status: str | None = "dead_letter"
+    ) -> JSONResponse:
+        checked = _validate_tenant(tenant_id)
+        if checked is None:
+            return JSONResponse(
+                _abstain("webhook_dlq@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        ledger = open_ledger(checked)
+        items = (
+            ledger.queue.list_webhook_dlq(status=status or None, limit=200)
+            if hasattr(ledger, "queue")
+            else []
+        )
+        return JSONResponse(
+            _ok(
+                "webhook_dlq@1.0.0",
+                {"tenant_id": checked},
+                {"count": len(items), "items": items},
+            )
+        )
+
+    @app.post("/webhooks/dlq/replay")
+    def replay_webhooks_dlq(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(
+                _abstain("webhook_dlq@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        actor = _session_actor(request, body.get("actor_id"), tenant_id=tenant_id)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        ledger = open_ledger(tenant_id)
+        dids = body.get("delivery_ids")
+        results = replay_dead_letters(
+            ledger,
+            delivery_ids=[str(x) for x in dids] if isinstance(dids, list) else None,
+        )
+        return JSONResponse(
+            _ok(
+                "webhook_dlq@1.0.0",
+                {"tenant_id": tenant_id},
+                {"replayed_count": len(results), "results": results},
+            )
+        )
+
+    @app.get("/daemon/status")
+    def daemon_status(tenant_id: str = DEMO_TENANT) -> JSONResponse:
+        checked = _validate_tenant(tenant_id)
+        if checked is None:
+            return JSONResponse(_abstain("daemon@1.0.0", {}, "invalid_tenant"), status_code=400)
+        ledger = open_ledger(checked)
+        jobs = ledger.queue.list_daemon_jobs(limit=100) if hasattr(ledger, "queue") else []
+        budget = ledger.queue.get_budget_usage() if hasattr(ledger, "queue") else {}
+        counts: dict[str, int] = {}
+        for j in jobs:
+            st = j["status"]
+            counts[st] = counts.get(st, 0) + 1
+        return JSONResponse(
+            _ok(
+                "daemon@1.0.0",
+                {"tenant_id": checked},
+                {"job_counts": counts, "budget_usage": budget, "recent_jobs": jobs[:25]},
+            )
+        )
+
+    @app.get("/daemon/jobs")
+    def daemon_jobs(tenant_id: str = DEMO_TENANT, status: str | None = None) -> JSONResponse:
+        checked = _validate_tenant(tenant_id)
+        if checked is None:
+            return JSONResponse(_abstain("daemon@1.0.0", {}, "invalid_tenant"), status_code=400)
+        ledger = open_ledger(checked)
+        jobs = (
+            ledger.queue.list_daemon_jobs(status=status, limit=200)
+            if hasattr(ledger, "queue")
+            else []
+        )
+        return JSONResponse(
+            _ok("daemon@1.0.0", {"tenant_id": checked}, {"count": len(jobs), "jobs": jobs})
+        )
+
+    @app.post("/audit/cross-artifact")
+    def audit_cross_artifact_endpoint(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(
+                _abstain("cross_artifact@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        actor = _session_actor(request, body.get("actor_id"), tenant_id=tenant_id)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        ledger = open_ledger(tenant_id)
+        use_showcase = bool(body.get("use_showcase"))
+        src = default_showcase_artifacts() if use_showcase else body
+        res = audit_cross_artifact_consistency(
+            ledger,
+            requirements=src.get("requirements") or body.get("requirements"),
+            cad=src.get("cad") or body.get("cad"),
+            fem=src.get("fem") or body.get("fem"),
+            fem_f06=src.get("fem_f06") or body.get("fem_f06"),
+            report=src.get("report") or body.get("report"),
+            tolerances=body.get("tolerances"),
+            invalidate_cells=bool(body.get("invalidate_cells", True)),
+            actor_id=actor,
+            created_at=str(body.get("created_at") or _now()),
+        )
+        return JSONResponse(_ok("cross_artifact@1.0.0", {"tenant_id": tenant_id}, res))
+
+    @app.post("/adversarial/fuzz")
+    def adversarial_fuzz_endpoint(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(
+                _abstain("adversarial@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        actor = _session_actor(request, body.get("actor_id"), tenant_id=tenant_id)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        method_ids = body.get("method_ids")
+        include_smt = bool(body.get("include_smt_critic", True))
+        quarantine_dir = evidence_home() / "tenants" / tenant_id / "quarantine"
+        attacker = run_bench_attacker(
+            quarantine_dir=quarantine_dir,
+            method_ids=[str(m) for m in method_ids] if isinstance(method_ids, list) else None,
+            custom_inputs=body.get("custom_inputs")
+            if isinstance(body.get("custom_inputs"), dict)
+            else None,
+        )
+        critic = run_envelope_critic() if include_smt else None
+        return JSONResponse(
+            _ok(
+                "adversarial@1.0.0",
+                {"tenant_id": tenant_id},
+                {"bench_attacker": attacker, "envelope_critic": critic},
+            )
+        )
+
+    @app.get("/overnight/briefing")
+    def get_overnight_briefing(tenant_id: str = DEMO_TENANT) -> JSONResponse:
+        checked = _validate_tenant(tenant_id)
+        if checked is None:
+            return JSONResponse(_abstain("overnight@1.0.0", {}, "invalid_tenant"), status_code=400)
+        ledger = open_ledger(checked)
+        briefing = build_morning_briefing(ledger)
+        return JSONResponse(_ok("overnight@1.0.0", {"tenant_id": checked}, briefing))
+
+    @app.post("/overnight/run")
+    def trigger_overnight_run(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(_abstain("overnight@1.0.0", {}, "invalid_tenant"), status_code=400)
+        actor = _session_actor(request, body.get("actor_id"), tenant_id=tenant_id)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        ledger = open_ledger(tenant_id)
+        budget = OvernightBudget(
+            max_tokens_per_night=int(body.get("max_tokens_per_night", 250_000)),
+            max_cloud_tokens_per_night=int(body.get("max_cloud_tokens_per_night", 50_000)),
+            max_jobs_per_run=int(body.get("max_jobs_per_run", 200)),
+        )
+        quarantine_dir = evidence_home() / "tenants" / tenant_id / "quarantine"
+        watch_dirs_safe: list[Path] = []
+        base_home = evidence_home().resolve()
+        for raw_dir in body.get("watch_dirs") or []:
+            cand = Path(str(raw_dir)).resolve()
+            if base_home in cand.parents or cand == base_home:
+                watch_dirs_safe.append(cand)
+        ca_inputs = (
+            body.get("cross_artifact") if isinstance(body.get("cross_artifact"), dict) else None
+        )
+        summary = run_overnight_cycle(
+            ledger,
+            watch_dirs=watch_dirs_safe or None,
+            cross_artifact_inputs=ca_inputs,
+            run_fuzzer=bool(body.get("run_fuzzer", True)),
+            quarantine_dir=quarantine_dir,
+            budget=budget,
+            actor_id=actor,
+            use_showcase_if_empty=bool(body.get("use_showcase", True)),
+        )
+        return JSONResponse(_ok("overnight@1.0.0", {"tenant_id": tenant_id}, summary))
+
+    @app.post("/overnight/batch-signoff")
+    def overnight_batch_signoff_endpoint(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(
+                _abstain("overnight_signoff@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        actor = _session_actor(request, body.get("actor_id"), tenant_id=tenant_id)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        ledger = open_ledger(tenant_id)
+        role = ledger.actor_role(actor)
+        if role == "author":
+            return JSONResponse(
+                _abstain("overnight_signoff@1.0.0", {"role": role}, "cve_role_required"),
+                status_code=403,
+            )
+        fids = [str(x) for x in (body.get("finding_ids") or []) if str(x).strip()]
+        if not fids:
+            return JSONResponse(
+                _abstain("overnight_signoff@1.0.0", {}, "missing_finding_ids"),
+                status_code=400,
+            )
+        result = batch_human_signoff(
+            ledger,
+            finding_ids=fids,
+            actor_id=actor,
+            actor_role=role,
+            statement=str(body.get("statement") or SIGN_OFF_STATEMENT),
+            created_at=str(body.get("created_at") or _now()),
+            enforce_distinct_reviewer=_is_production_mode()
+            or bool(body.get("enforce_distinct_reviewer", False)),
+        )
+        return JSONResponse(_ok("overnight_signoff@1.0.0", {"tenant_id": tenant_id}, result))
+
     @app.get("/")
     def index() -> FileResponse:
         return FileResponse(Path(__file__).parent / "static" / "demo.html")
@@ -2300,10 +2598,14 @@ def _dispatch_registered_webhooks(
     subs = ledger.list_webhooks(include_secret=True)
     if not subs:
         return []
-    deliveries = dispatch_webhook_event(subs, event_name=event_name, payload=payload)
-    for item in deliveries:
-        ledger.record_webhook_delivery(item)
-    return deliveries
+    return dispatch_webhook_with_retry(
+        subs,
+        event_name=event_name,
+        payload=payload,
+        ledger=ledger,
+        max_attempts=3,
+        backoff_base_seconds=0.0,
+    )
 
 
 def _ensure_default_actors(ledger: Any) -> None:

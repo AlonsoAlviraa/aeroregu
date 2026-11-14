@@ -253,7 +253,7 @@ def build_signed_pdf_report(
         gate_status=str(gate["gate_status"]),
         event_count=len(events),
     )
-    qr_png = render_qr_png(qr_text, scale=6, border=4)
+    qr_png = render_qr_png(qr_text, scale=8, border=6)
 
     doc = pymupdf.open()
     page = doc.new_page(width=595, height=842)  # A4 portrait
@@ -275,13 +275,13 @@ def build_signed_pdf_report(
     )
 
     # QR code top-right (high contrast for physical/camera scanning with clean quiet zone)
-    qr_rect = pymupdf.Rect(408, 106, 558, 256)
+    qr_rect = pymupdf.Rect(366, 102, 566, 302)
     page.draw_rect(
-        pymupdf.Rect(404, 102, 562, 260), color=(0.85, 0.88, 0.92), fill=(1, 1, 1), width=0.6
+        pymupdf.Rect(362, 98, 570, 306), color=(0.85, 0.88, 0.92), fill=(1, 1, 1), width=0.6
     )
     page.insert_image(qr_rect, stream=qr_png)
     page.insert_text(
-        (412, 272), "Scan to verify Merkle + DSSE", fontsize=7.5, color=(0.2, 0.25, 0.35)
+        (402, 316), "Scan to verify Merkle + DSSE", fontsize=7.5, color=(0.2, 0.25, 0.35)
     )
 
     # Cryptographic ledger metadata (left of QR)
@@ -304,7 +304,7 @@ def build_signed_pdf_report(
         y_cursor += 15
 
     # Human Sign-Offs & Blockers
-    y_cursor = max(y_cursor + 12, 288)
+    y_cursor = max(y_cursor + 12, 332)
     page.insert_text(
         (36, y_cursor), "Human Review & Separation of Duties", fontsize=11, color=(0.06, 0.1, 0.18)
     )

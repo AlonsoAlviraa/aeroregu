@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import threading
+import time
 from dataclasses import asdict, dataclass
 from decimal import Decimal
 from fractions import Fraction
@@ -14,6 +15,7 @@ import z3
 from cvc5 import Kind
 
 from evidence_kernel.canonical import inputs_hash
+from evidence_kernel.telemetry import get_telemetry
 
 _SMT_CACHE_LOCK = threading.RLock()
 _SMT_PROOF_CACHE: dict[str, SMTProofResult] = {}
@@ -120,6 +122,18 @@ class SMTSolverProofEngine:
         self.timeout_ms = timeout_ms
         self.cross_check = cross_check
 
+    @staticmethod
+    def _timed_z3_check(solver: z3.Solver) -> tuple[Any, float]:
+        t0 = time.perf_counter()
+        res = solver.check()
+        return res, time.perf_counter() - t0
+
+    @staticmethod
+    def _timed_cvc5_check(solver: cvc5.Solver) -> tuple[Any, float]:
+        t0 = time.perf_counter()
+        res = solver.checkSat()
+        return res, time.perf_counter() - t0
+
     def _reconcile_verdicts(
         self,
         *,
@@ -133,10 +147,22 @@ class SMTSolverProofEngine:
         cvc5_cex: dict[str, str] | None,
         proved_reason: str,
         cex_reason: str,
+        z3_seconds: float | None = None,
+        cvc5_seconds: float | None = None,
     ) -> SMTProofResult:
+        tel = get_telemetry()
+        if z3_seconds is not None:
+            tel.record_smt_latency("z3", z3_status_str, z3_seconds)
+        if cvc5_seconds is not None and cvc5_status_str is not None:
+            tel.record_smt_latency("cvc5", cvc5_status_str, cvc5_seconds)
+
         cross_meta: dict[str, Any] = {"z3": z3_status_str}
+        if z3_seconds is not None:
+            cross_meta["z3_ms"] = f"{z3_seconds * 1000.0:.3f}"
         if cvc5_status_str is not None:
             cross_meta["cvc5"] = cvc5_status_str
+        if cvc5_seconds is not None:
+            cross_meta["cvc5_ms"] = f"{cvc5_seconds * 1000.0:.3f}"
 
         # Fail closed on direct solver disagreement between unsat and sat
         if cvc5_status_str is not None and {z3_status_str, cvc5_status_str} == {"unsat", "sat"}:
@@ -290,7 +316,7 @@ class SMTSolverProofEngine:
         rhs = (area * tau_allow * sigma_allow) ** 2
         solver.add(lhs > rhs)
 
-        z3_check = solver.check()
+        z3_check, z3_seconds = self._timed_z3_check(solver)
         z3_status_str = (
             "unsat" if z3_check == z3.unsat else ("sat" if z3_check == z3.sat else "unknown")
         )
@@ -334,7 +360,7 @@ class SMTSolverProofEngine:
             c_lhs = cs.mkTerm(Kind.ADD, cs.mkTerm(Kind.MULT, t1, t1), cs.mkTerm(Kind.MULT, t2, t2))
             c_rhs = cs.mkTerm(Kind.MULT, t3, t3)
             cs.assertFormula(cs.mkTerm(Kind.GT, c_lhs, c_rhs))
-            c_res = cs.checkSat()
+            c_res, cvc5_seconds = self._timed_cvc5_check(cs)
             cvc5_status_str = _cvc5_status_str(c_res)
             if cvc5_status_str == "sat":
                 cvc5_cex = {
@@ -362,6 +388,8 @@ class SMTSolverProofEngine:
                 cvc5_cex=cvc5_cex,
                 proved_reason="No counterexample exists in continuous domain",
                 cex_reason="Structural margin violated at counterexample point",
+                z3_seconds=z3_seconds,
+                cvc5_seconds=cvc5_seconds if cvc5_status_str is not None else None,
             ),
         )
 
@@ -453,7 +481,7 @@ class SMTSolverProofEngine:
                     z3_failures.append(moment_term < -cap_z3)
         solver.add(z3.Or(*z3_failures))
 
-        z3_check = solver.check()
+        z3_check, z3_seconds = self._timed_z3_check(solver)
         z3_status_str = (
             "unsat" if z3_check == z3.unsat else ("sat" if z3_check == z3.sat else "unknown")
         )
@@ -505,7 +533,7 @@ class SMTSolverProofEngine:
                 c_failures.append(cs.mkTerm(Kind.GT, c_moment, c_m_cap))
                 c_failures.append(cs.mkTerm(Kind.LT, c_moment, c_m_neg_cap))
             cs.assertFormula(cs.mkTerm(Kind.OR, *c_failures))
-            c_res = cs.checkSat()
+            c_res, cvc5_seconds = self._timed_cvc5_check(cs)
             cvc5_status_str = _cvc5_status_str(c_res)
             if cvc5_status_str == "sat":
                 cvc5_cex = {
@@ -538,6 +566,8 @@ class SMTSolverProofEngine:
                 cvc5_cex=cvc5_cex,
                 proved_reason="Equilibrium authority proved across entire envelope",
                 cex_reason="Control envelope violated at counterexample point",
+                z3_seconds=z3_seconds,
+                cvc5_seconds=cvc5_seconds if cvc5_status_str is not None else None,
             ),
         )
 
@@ -595,7 +625,7 @@ class SMTSolverProofEngine:
         rhs_kw_to_w = _to_z3_real("1000") * fm * p_avail
         solver.add((thrust * thrust * thrust) > (_to_z3_real("2") * rho * area * (rhs_kw_to_w**2)))
 
-        z3_check = solver.check()
+        z3_check, z3_seconds = self._timed_z3_check(solver)
         z3_status_str = (
             "unsat" if z3_check == z3.unsat else ("sat" if z3_check == z3.sat else "unknown")
         )
@@ -627,7 +657,7 @@ class SMTSolverProofEngine:
             )
             c_t3 = cs.mkTerm(Kind.MULT, c_thrust, c_thrust, c_thrust)
             cs.assertFormula(cs.mkTerm(Kind.GT, c_t3, c_rhs))
-            c_res = cs.checkSat()
+            c_res, cvc5_seconds = self._timed_cvc5_check(cs)
             cvc5_status_str = _cvc5_status_str(c_res)
             if cvc5_status_str == "sat":
                 cvc5_cex = {"thrust_n": _rat_to_decimal_str(cs.getValue(c_thrust))}
@@ -653,5 +683,7 @@ class SMTSolverProofEngine:
                 cvc5_cex=cvc5_cex,
                 proved_reason="Shaft power stays within available budget across thrust interval",
                 cex_reason="Power budget exceeded at counterexample thrust",
+                z3_seconds=z3_seconds,
+                cvc5_seconds=cvc5_seconds if cvc5_status_str is not None else None,
             ),
         )

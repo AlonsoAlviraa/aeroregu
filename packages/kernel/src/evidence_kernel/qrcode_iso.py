@@ -265,6 +265,21 @@ def _penalty_score(grid: list[list[int]]) -> int:
             v = grid[r][c]
             if grid[r][c + 1] == v and grid[r + 1][c] == v and grid[r + 1][c + 1] == v:
                 score += 3
+    # Rule 3: finder-like 1:1:3:1:1 patterns (with 4 light modules on either side)
+    p1 = (1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0)
+    p2 = (0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1)
+    for r in range(n):
+        row = tuple(grid[r])
+        for c in range(n - 10):
+            seg = row[c : c + 11]
+            if seg == p1 or seg == p2:
+                score += 40
+    for c in range(n):
+        col = tuple(grid[r][c] for r in range(n))
+        for r in range(n - 10):
+            seg = col[r : r + 11]
+            if seg == p1 or seg == p2:
+                score += 40
     # Rule 4: dark ratio deviation from 50%
     dark = sum(sum(row) for row in grid)
     pct = (dark * 100) // (n * n)

@@ -37,6 +37,11 @@ security_app = typer.Typer(help="Guardrail scanner and Red-Team adversarial benc
 bench_app = typer.Typer(help="Run B2 baseline comparisons and live/edge agent benchmarks.")
 mcp_app = typer.Typer(help="Model Context Protocol (MCP) stdio server, inspector & client configs.")
 cad_app = typer.Typer(help="CAD/CAE connectors (STEP AP242, IGES, CATIA, NASTRAN, ABAQUS).")
+overnight_app = typer.Typer(
+    help="Overnight continuous verification, cross-artifact audit & 08:00 AM briefing."
+)
+db_app = typer.Typer(help="PostgreSQL / SQLite persistence status & automated migrations.")
+webhooks_app = typer.Typer(help="Webhook dead-letter queue (DLQ) inspection & replay.")
 
 app.add_typer(calc_app, name="calc")
 app.add_typer(bundle_app, name="bundle")
@@ -47,6 +52,9 @@ app.add_typer(security_app, name="security")
 app.add_typer(bench_app, name="bench")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(cad_app, name="cad")
+app.add_typer(overnight_app, name="overnight")
+app.add_typer(db_app, name="db")
+app.add_typer(webhooks_app, name="webhooks")
 
 
 @app.callback(invoke_without_command=True)
@@ -1548,6 +1556,152 @@ def examples_cmd() -> None:
             border_style="cyan",
         )
     )
+
+
+@app.command("watch")
+def watch_cmd(
+    tenant: str = typer.Option("demo", "--tenant"),
+    watch_dir: list[Path] = typer.Option([], "--watch-dir", help="Shared/PLM folder to watch."),
+    git_repo: Path | None = typer.Option(None, "--git-repo", help="Git repository path to watch."),
+    git_base: str = typer.Option("master", "--git-base"),
+    max_tokens: int = typer.Option(250_000, "--max-tokens"),
+    max_cloud_tokens: int = typer.Option(50_000, "--max-cloud-tokens"),
+    max_jobs: int = typer.Option(200, "--max-jobs"),
+    once: bool = typer.Option(True, "--once/--loop"),
+    interval: float = typer.Option(30.0, "--interval"),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Run persistent overnight verification daemon over shared folders & Git branches."""
+    import time
+
+    from evidence_coverage.overnight import run_overnight_cycle
+    from evidence_kernel.daemon import OvernightBudget
+
+    from evidence_api.app import open_ledger
+
+    checked = _tenant_or_exit(tenant)
+    ledger = open_ledger(checked)
+    budget = OvernightBudget(
+        max_tokens_per_night=max_tokens,
+        max_cloud_tokens_per_night=max_cloud_tokens,
+        max_jobs_per_run=max_jobs,
+    )
+    while True:
+        res = run_overnight_cycle(
+            ledger,
+            watch_dirs=list(watch_dir) if watch_dir else None,
+            git_repo=git_repo,
+            git_base=git_base,
+            budget=budget,
+            run_fuzzer=True,
+        )
+        if once:
+            if _wants_json(json_out):
+                _emit_json(res)
+            else:
+                brief = res["briefing"]["executive_summary"]
+                console.print(
+                    Panel(
+                        f"Run: {res['run_id']}\n"
+                        f"Jobs processed: {res['queue']['processed']}\n"
+                        f"Findings open: {brief['open_items']} "
+                        f"(MS<0: {brief['ms_negative_count']}, "
+                        f"Cross-Artifact: {brief['cross_artifact_count']}, "
+                        f"Stale: {brief['stale_cells_count']})",
+                        title=f"aeroregu watch ({checked})",
+                        border_style="green",
+                    )
+                )
+            return
+        time.sleep(max(1.0, interval))
+
+
+@overnight_app.command("briefing")
+def overnight_briefing_cmd(
+    tenant: str = typer.Option("demo", "--tenant"),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Show risk-sorted 08:00 AM Morning Briefing queue."""
+    from evidence_coverage.overnight import build_morning_briefing
+
+    from evidence_api.app import open_ledger
+
+    checked = _tenant_or_exit(tenant)
+    brief = build_morning_briefing(open_ledger(checked))
+    if _wants_json(json_out):
+        _emit_json(brief)
+        return
+    tbl = Table(title=f"Morning Briefing 08:00 AM ({checked})", box=box.ROUNDED)
+    tbl.add_column("ID")
+    tbl.add_column("Risk")
+    tbl.add_column("Category")
+    tbl.add_column("Title")
+    tbl.add_column("Status")
+    for item in brief["queue"][:25]:
+        tbl.add_row(
+            item["finding_id"],
+            str(item["risk_score"]),
+            item["category"],
+            item["title"][:60],
+            item["status"],
+        )
+    console.print(tbl)
+
+
+@db_app.command("migrate")
+def db_migrate_cmd(
+    tenant: str = typer.Option("demo", "--tenant"),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Apply idempotent versioned schema migrations on active SQLite or PostgreSQL backend."""
+    from evidence_api.app import open_ledger
+
+    checked = _tenant_or_exit(tenant)
+    ledger = open_ledger(checked)
+    applied = ledger.run_migrations() if hasattr(ledger, "run_migrations") else []
+    payload = {
+        "backend": getattr(ledger, "backend_name", "sqlite"),
+        "newly_applied": applied,
+        "schema_version": ledger.schema_version() if hasattr(ledger, "schema_version") else 0,
+        "migrations": ledger.applied_migrations() if hasattr(ledger, "applied_migrations") else [],
+    }
+    if _wants_json(json_out):
+        _emit_json(payload)
+    else:
+        console.print(
+            Panel(
+                f"Backend: {payload['backend']}\nSchema v{payload['schema_version']}",
+                title=f"Persistence Migrations ({checked})",
+                border_style="cyan",
+            )
+        )
+
+
+@webhooks_app.command("dlq")
+def webhooks_dlq_cmd(
+    tenant: str = typer.Option("demo", "--tenant"),
+    replay: bool = typer.Option(False, "--replay"),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """List dead-letter webhook deliveries and optionally replay them."""
+    from evidence_kernel.webhooks import replay_dead_letters
+
+    from evidence_api.app import open_ledger
+
+    checked = _tenant_or_exit(tenant)
+    ledger = open_ledger(checked)
+    if replay:
+        out: Any = {"replayed": replay_dead_letters(ledger)}
+    else:
+        out = {
+            "dlq": ledger.queue.list_webhook_dlq(status="dead_letter")
+            if hasattr(ledger, "queue")
+            else []
+        }
+    if _wants_json(json_out):
+        _emit_json(out)
+    else:
+        console.print(out)
 
 
 def main() -> None:

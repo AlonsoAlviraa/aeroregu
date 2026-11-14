@@ -1029,6 +1029,136 @@ paths:
             application/javascript:
               schema:
                 type: string
+  /metrics:
+    get:
+      operationId: prometheusMetrics
+      responses:
+        "200":
+          description: Prometheus 0.0.4 metrics (Z3/cvc5 latency, abstain rate, edge vs cloud tokens, DLQ).
+          content:
+            text/plain:
+              schema:
+                type: string
+  /metrics/observability:
+    get:
+      operationId: observabilitySnapshot
+      responses:
+        "200":
+          description: Structured OpenTelemetry observability JSON snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /system/persistence:
+    get:
+      operationId: systemPersistence
+      responses:
+        "200":
+          description: Active persistence backend (PostgreSQL or SQLite) and applied schema migrations.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /system/migrations/run:
+    post:
+      operationId: systemRunMigrations
+      responses:
+        "200":
+          description: Execute automated versioned schema migrations idempotently.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /webhooks/dlq:
+    get:
+      operationId: webhooksDlqList
+      responses:
+        "200":
+          description: Inspect failed webhook deliveries in the persistent dead-letter queue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /webhooks/dlq/replay:
+    post:
+      operationId: webhooksDlqReplay
+      responses:
+        "200":
+          description: Replay dead-letter webhook deliveries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /daemon/status:
+    get:
+      operationId: daemonStatus
+      responses:
+        "200":
+          description: Persistent verification worker queue counts and nightly token budget usage.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /daemon/jobs:
+    get:
+      operationId: daemonJobs
+      responses:
+        "200":
+          description: List persistent verification daemon jobs and step checkpoints.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /audit/cross-artifact:
+    post:
+      operationId: crossArtifactAudit
+      responses:
+        "200":
+          description: Audit consistency across Requirements, CAD, FEM (.bdf/.inp/.f06), and Report PDF/DOCX.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /adversarial/fuzz:
+    post:
+      operationId: adversarialFuzz
+      responses:
+        "200":
+          description: Run envelope_critic (Z3+cvc5) and bench_attacker numerical/unit/sign/thermal fuzzer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /overnight/run:
+    post:
+      operationId: overnightRun
+      responses:
+        "200":
+          description: Run overnight daemon cycle (watchers, cross-artifact audit, red-team fuzzer, briefing).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /overnight/briefing:
+    get:
+      operationId: overnightBriefing
+      responses:
+        "200":
+          description: Risk-sorted 08:00 AM Morning Briefing queue with before/after diffs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /overnight/batch-signoff:
+    post:
+      operationId: overnightBatchSignoff
+      responses:
+        "200":
+          description: Audited batch human_signoff across selected briefing findings enforcing CVE SoD.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
 components:
   schemas:
     Envelope:

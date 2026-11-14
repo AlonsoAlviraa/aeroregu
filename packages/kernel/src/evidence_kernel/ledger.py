@@ -16,6 +16,7 @@ from typing import Any
 from evidence_kernel.canonical import canonicalize, event_hash
 from evidence_kernel.merkle import consistency_proof, inclusion_proof, merkle_root
 from evidence_kernel.numbers import stray_physical_numbers
+from evidence_kernel.queue_store import PersistentQueueOps, apply_versioned_migrations
 from evidence_kernel.schema import validate_instance
 
 GENESIS = "0" * 64
@@ -80,6 +81,26 @@ class Ledger:
         self._enable_wal()
         with self._connect(immediate=True) as conn:
             self._migrate(conn)
+        self.queue = PersistentQueueOps(
+            dialect="sqlite",
+            tenant_id=self.tenant_id,
+            tx_fn=self._queue_tx,
+        )
+
+    @contextmanager
+    def _queue_tx(self, *, write: bool = False):
+        with self._connect(immediate=write) as conn:
+            yield conn.cursor()
+
+    def schema_version(self) -> int:
+        return self.queue.schema_version()
+
+    def applied_migrations(self) -> list[dict[str, Any]]:
+        return self.queue.applied_migrations()
+
+    def run_migrations(self) -> list[int]:
+        with self._connect(immediate=True) as conn:
+            return apply_versioned_migrations(conn.cursor(), "sqlite")
 
     def _open_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path, timeout=10.0, isolation_level=None)
@@ -223,6 +244,7 @@ class Ledger:
             )
             """
         )
+        apply_versioned_migrations(conn.cursor(), "sqlite")
 
     def head_hash(self) -> str:
         with self._connect() as conn:

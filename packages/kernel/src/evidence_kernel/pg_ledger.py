@@ -28,6 +28,7 @@ from evidence_kernel.ledger import (
     verify_chain_document,
 )
 from evidence_kernel.merkle import consistency_proof, inclusion_proof, merkle_root
+from evidence_kernel.queue_store import PersistentQueueOps, apply_versioned_migrations
 from evidence_kernel.schema import validate_instance
 
 
@@ -65,6 +66,29 @@ class PostgresLedger:
         self._lock = threading.RLock()
         with self._tx() as conn:
             self._migrate(conn)
+        self.queue = PersistentQueueOps(
+            dialect="postgres",
+            tenant_id=self.tenant_id,
+            tx_fn=self._queue_tx,
+        )
+
+    @contextmanager
+    def _queue_tx(self, *, write: bool = False):
+        with self._tx() as conn:
+            cur = conn.cursor()
+            if write:
+                self._acquire_tenant_lock(cur)
+            yield cur
+
+    def schema_version(self) -> int:
+        return self.queue.schema_version()
+
+    def applied_migrations(self) -> list[dict[str, Any]]:
+        return self.queue.applied_migrations()
+
+    def run_migrations(self) -> list[int]:
+        with self._tx() as conn:
+            return apply_versioned_migrations(conn.cursor(), "postgres")
 
     def close(self) -> None:
         return None
@@ -174,6 +198,7 @@ class PostgresLedger:
             FOR EACH ROW EXECUTE FUNCTION evidence_reject_event_mutation()
             """
         )
+        apply_versioned_migrations(cur, "postgres")
 
     def _validate_body(self, body: dict[str, Any]) -> None:
         validate_instance("ledger_event.schema.json", body)
