@@ -682,6 +682,151 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Envelope"
+  /cad/ingest:
+    post:
+      operationId: cadIngest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename]
+              properties:
+                filename:
+                  type: string
+                content_text:
+                  type: string
+                content_base64:
+                  type: string
+                auto_run:
+                  type: boolean
+                stated_outputs:
+                  type: object
+                tenant_id:
+                  type: string
+                record:
+                  type: boolean
+      responses:
+        "200":
+          description: Parsed STEP AP242, IGES, CATIA XML/.CATPart/.CATProduct, NASTRAN .bdf/.dat, or ABAQUS .inp model plus Knowledgeware/FEM card bindings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /cad/bind:
+    post:
+      operationId: cadBind
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [parameters]
+              properties:
+                parameters:
+                  type: array
+                  items:
+                    type: object
+                formulas:
+                  type: array
+                  items:
+                    type: object
+                auto_run:
+                  type: boolean
+                stated_outputs:
+                  type: object
+      responses:
+        "200":
+          description: Automatic deterministic bindings from CAD/CAE Knowledgeware parameters to verified calculation cards.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /coverage/envelope-3d:
+    get:
+      operationId: coverageEnvelope3dGet
+      parameters:
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+        - in: query
+          name: wing_area_m2
+          schema:
+            type: string
+        - in: query
+          name: v_c_mps
+          schema:
+            type: string
+        - in: query
+          name: v_d_mps
+          schema:
+            type: string
+        - in: query
+          name: nz_max
+          schema:
+            type: string
+        - in: query
+          name: nz_min
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deterministic 3D V-n flight envelope surface and [X_cg, Y_cg, Z_cg] CG cloud dataset.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+    post:
+      operationId: coverageEnvelope3dPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenant_id:
+                  type: string
+                cad_cg_points:
+                  type: array
+                  items:
+                    type: object
+                mass_kg_override:
+                  type: string
+                wing_area_m2:
+                  type: string
+                v_c_mps:
+                  type: string
+                v_d_mps:
+                  type: string
+                nz_max:
+                  type: string
+                nz_min:
+                  type: string
+                cg_limits_m:
+                  type: object
+                fem_overlay:
+                  type: object
+      responses:
+        "200":
+          description: Custom 3D V-n flight envelope merged with CAD/FEM CG points and mesh overlay.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /static/viewer3d.js:
+    get:
+      operationId: viewer3dScript
+      responses:
+        "200":
+          description: Air-gapped WebGL/Three.js interactive 3D V-n and CG cloud viewer module.
+          content:
+            application/javascript:
+              schema:
+                type: string
 components:
   schemas:
     Envelope:

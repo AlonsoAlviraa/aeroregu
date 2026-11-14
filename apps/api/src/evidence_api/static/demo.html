@@ -1000,7 +1000,7 @@ try {
     </div>
     <div class="kpi-card">
       <span class="kpi-label">Herramientas MCP</span>
-      <span class="kpi-value" id="kpi-mcp">17 Tools / 6 Res</span>
+      <span class="kpi-value" id="kpi-mcp">19 Tools / 6 Res</span>
     </div>
   </section>
 
@@ -1154,6 +1154,67 @@ try {
               </details>
             </div>
 
+            <div class="catia-box" aria-label="Conectores CAD CAE Estandar" style="margin-top:0.75rem;">
+              <div class="row" style="justify-content:space-between;">
+                <strong>Conectores CAD/CAE Estandar (STEP AP242 + GD&amp;T, IGES, CATIA XML/.CATPart/.CATProduct, NASTRAN, ABAQUS)</strong>
+                <span class="status-pill" id="cad-format-pill">Sin modelo CAD/CAE</span>
+              </div>
+              <div class="sub-grid" style="margin-top:0.55rem;">
+                <div class="field">
+                  <label for="cad-file-picker">Subir archivo CAD/CAE (.stp, .igs, .xml, .catpart, .catproduct, .bdf, .dat, .inp)</label>
+                  <input id="cad-file-picker" type="file" accept=".stp,.step,.p21,.igs,.iges,.xml,.catxml,.catpart,.catproduct,.bdf,.dat,.nas,.inp">
+                </div>
+                <div class="field">
+                  <label for="cad-filename-input">Nombre archivo / Contenido sintético</label>
+                  <input id="cad-filename-input" type="text" value="rotor_hub_ap242.stp" placeholder="modelo.stp / malla.bdf / deck.inp">
+                </div>
+              </div>
+              <div class="field" style="margin-top:0.45rem;">
+                <label for="cad-content-text">Buffer CAD/CAE (texto o preset sintetico)</label>
+                <textarea id="cad-content-text" rows="4" placeholder="Carga un preset o pega STEP AP242, IGES, CATIA XML, NASTRAN .bdf o ABAQUS .inp"></textarea>
+              </div>
+              <div class="row" style="margin-top:0.5rem;">
+                <button type="button" id="cad-ingest-btn" class="primary">Ingestar CAD/CAE y Auto-Vincular Tarjetas</button>
+                <button type="button" class="subtle cad-preset-btn" data-preset="step">Preset STEP AP242 (+GD&amp;T)</button>
+                <button type="button" class="subtle cad-preset-btn" data-preset="iges">Preset IGES 5.3</button>
+                <button type="button" class="subtle cad-preset-btn" data-preset="catia_xml">Preset CATIA XML</button>
+                <button type="button" class="subtle cad-preset-btn" data-preset="nastran">Preset NASTRAN .bdf</button>
+                <button type="button" class="subtle cad-preset-btn" data-preset="abaqus">Preset ABAQUS .inp</button>
+              </div>
+              <div id="cad-results-panel" hidden style="margin-top:0.65rem;">
+                <div class="row" style="justify-content:space-between; margin-bottom:0.4rem;">
+                  <strong id="cad-meta-summary">Bindings Automaticos Knowledgeware / FEM</strong>
+                  <span class="status-pill" id="cad-cg-pill">CG: pendiente</span>
+                </div>
+                <div tabindex="0" role="region" class="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th scope="col">Tarjeta Calculo</th>
+                        <th scope="col">Estado Binding</th>
+                        <th scope="col">Parametros Vinculados</th>
+                        <th scope="col">Auto-Calculo</th>
+                        <th scope="col">Accion</th>
+                      </tr>
+                    </thead>
+                    <tbody id="cad-bindings-body"></tbody>
+                  </table>
+                </div>
+                <div tabindex="0" role="region" class="table-wrapper" style="margin-top:0.5rem;" id="cad-pmi-wrap" hidden>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th scope="col">GD&amp;T / PMI</th>
+                        <th scope="col">Tolerancia / Nota</th>
+                        <th scope="col">Datums / Ref</th>
+                      </tr>
+                    </thead>
+                    <tbody id="cad-pmi-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
             <details>
               <summary>JSON avanzado sincronizado (Inputs y Stated Outputs)</summary>
               <div class="sub-grid" style="margin-top:0.65rem;">
@@ -1201,6 +1262,36 @@ try {
                 </thead>
                 <tbody id="cov-table-body"></tbody>
               </table>
+            </div>
+          </section>
+
+          <section class="panel-card" style="margin-top:0.9rem;">
+            <div class="panel-head">
+              <h2>Visor 3D Interactivo (WebGL / Three.js) — Envolvente V-n y Nube CG [X_cg, Y_cg, Z_cg]</h2>
+              <span class="status-pill" id="v3d-status-pill">Listo</span>
+            </div>
+            <div class="row" style="margin-bottom:0.55rem;">
+              <button type="button" class="primary v3d-mode-btn" data-3d-mode="combined">Vista Combinada</button>
+              <button type="button" class="subtle v3d-mode-btn" data-3d-mode="vn">Solo Envolvente V-n</button>
+              <button type="button" class="subtle v3d-mode-btn" data-3d-mode="cg">Solo Nube CG [X,Y,Z]</button>
+              <button type="button" class="subtle v3d-cam-btn" data-3d-cam="iso">Iso</button>
+              <button type="button" class="subtle v3d-cam-btn" data-3d-cam="front">Frente</button>
+              <button type="button" class="subtle v3d-cam-btn" data-3d-cam="top">Planta XY</button>
+              <button type="button" class="subtle v3d-cam-btn" data-3d-cam="side">Lateral YZ</button>
+              <button type="button" id="refresh-3d-btn" class="primary">Actualizar 3D</button>
+            </div>
+            <div class="row" style="margin-bottom:0.55rem; font-size:0.85rem;">
+              <label><input type="checkbox" class="v3d-layer" data-layer="surface" checked> Superficie V-n</label>
+              <label><input type="checkbox" class="v3d-layer" data-layer="gust" checked> Rafagas</label>
+              <label><input type="checkbox" class="v3d-layer" data-layer="cgBox" checked> Caja Limites CG</label>
+              <label><input type="checkbox" class="v3d-layer" data-layer="cadPoints" checked> Refs CAD/FEM</label>
+              <label><input type="checkbox" class="v3d-layer" data-layer="femMesh" checked> Malla FEM</label>
+              <label><input type="checkbox" class="v3d-layer" data-layer="labels" checked> Etiquetas</label>
+            </div>
+            <div id="vn-cg-3d-mount" style="position:relative; height:440px; border-radius:10px; border:1px solid var(--border); background:#080e19; overflow:hidden;"></div>
+            <div class="row" style="justify-content:space-between; margin-top:0.5rem; font-size:0.82rem; color:var(--muted);">
+              <span id="v3d-inspector">Arrastra para rotar, rueda para zoom, Shift+arrastra para mover, clic en punto para inspeccionar.</span>
+              <span>Colores CG: Verde=calc | Ambar=gap | Cyan=CAD/FEM | Rojo=fuera limites</span>
             </div>
           </section>
         </div>
@@ -1333,12 +1424,12 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
         <div role="tabpanel" aria-labelledby="tab-mcp" hidden="until-found">
           <section class="panel-card">
             <div class="panel-head">
-              <h2>MCP Playground (17 Tools) y Auditoria Red-Team</h2>
+              <h2>MCP Playground (19 Tools) y Auditoria Red-Team</h2>
               <span class="status-pill">POST /mcp JSON-RPC 2.0</span>
             </div>
 
             <div class="row">
-              <button id="mcp-list-tools" class="primary" type="button">Cargar 17 Tools MCP</button>
+              <button id="mcp-list-tools" class="primary" type="button">Cargar 19 Tools MCP</button>
               <button id="mcp-run-redteam" type="button">Correr Red-Team (46 Sondas)</button>
               <button id="mcp-run-b2" type="button">Comparativa B2 vs Baseline</button>
             </div>
@@ -1434,6 +1525,7 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
   </div>
 </dialog>
 
+<script src="/static/viewer3d.js"></script>
 <script>
 const DEFAULT_INPUTS = {
   hover_power_screen: {
@@ -1782,6 +1874,9 @@ function activateTab(targetTab) {
     else step.removeAttribute("aria-current");
   });
   targetTab.scrollIntoView({ block: "nearest", inline: "nearest" });
+  if (targetTab.id === "tab-coverage" && typeof window.onCoverageTabVisible === "function") {
+    requestAnimationFrame(() => window.onCoverageTabVisible());
+  }
 }
 
 document.querySelectorAll("#workflow-bar .wf-step").forEach((step) => {
@@ -1984,6 +2079,16 @@ function formatDisplayUnits(method, inputs, outputs) {
   const catiaPre = document.getElementById("catia-params-preview");
   if (!bar) return;
   bar.replaceChildren();
+  const statusChip = document.createElement("span");
+  statusChip.className = "unit-chip";
+  if (!outputs) {
+    statusChip.dataset.tone = "warn";
+    statusChip.textContent = "Preview Est. (sin verificar)";
+  } else {
+    statusChip.dataset.tone = "ok";
+    statusChip.textContent = "Verificado (Decimal/Flint)";
+  }
+  bar.append(statusChip);
   const chips = [];
   if (method === "hover_power_screen") {
     const tN = parseFloat(inputs.thrust_n || "0") || 0;
@@ -2049,7 +2154,11 @@ function formatDisplayUnits(method, inputs, outputs) {
   });
 
   if (catiaPre) {
-    const lines = [`' CATIA Knowledgeware Parameters (${method})`, ...Object.entries(inputs).map(([k, v]) => `AEROREGU\\${k} = ${Array.isArray(v) ? v.join(";") : v}`)];
+    const lines = [`' CATIA Knowledgeware Parameters (${method})`];
+    if (!outputs) {
+      lines.push("' [Preview Est.] Sliders activos - Pendiente /calc/run");
+    }
+    lines.push(...Object.entries(inputs).map(([k, v]) => `AEROREGU\\${k} = ${Array.isArray(v) ? v.join(";") : v}`));
     if (outputs) {
       lines.push("' Verified Exact Outputs (Decimal + Flint)");
       Object.entries(outputs).forEach(([k, v]) => {
@@ -2082,7 +2191,7 @@ function drawBlueprintGrid(svg) {
 }
 
 function renderCadDiagram(method, inputs, outputs) {
-  lastVerifiedCalc = { ...lastVerifiedCalc, method, inputs, outputs: outputs ?? lastVerifiedCalc.outputs };
+  lastVerifiedCalc = { ...lastVerifiedCalc, method, inputs, outputs: outputs || null, intervals: outputs ? lastVerifiedCalc.intervals : null };
   const svg = document.getElementById("cad-svg");
   const title = document.getElementById("cad-title");
   const badge = document.getElementById("cad-badge");
@@ -2102,8 +2211,8 @@ function renderCadDiagram(method, inputs, outputs) {
     const ratio = Math.max(0, Math.min(1.25, pShaft / pAvail));
     const fillW = Math.round(ratio * 420);
     const estMargin = (pAvail - pShaft) / pAvail;
-    badge.textContent = outputs ? `Margin ${outputs.power_margin_ratio}` : `Est Margin ${estMargin.toFixed(3)}`;
-    badge.dataset.tone = ratio <= 0.95 ? "ok" : "err";
+    badge.textContent = outputs ? `Margin ${outputs.power_margin_ratio}` : `Preview Est. Margin ${estMargin.toFixed(3)}`;
+    badge.dataset.tone = outputs ? (ratio <= 0.95 ? "ok" : "err") : (ratio <= 0.95 ? "warn" : "err");
 
     const diskR = Math.min(200, Math.max(80, Math.round(Math.sqrt(area) * 42)));
     svg.appendChild(svgEl("ellipse", { cx: 280, cy: 52, rx: diskR, ry: 18, fill: "#0a58ca", "fill-opacity": 0.14, stroke: "#0a58ca", "stroke-width": 2 }));
@@ -2140,8 +2249,8 @@ function renderCadDiagram(method, inputs, outputs) {
     const px = cx + rs * r;
     const py = cy - rt * r;
     const inter = outputs ? parseFloat(outputs.interaction_ratio || "0") : Math.hypot(rs, rt);
-    badge.textContent = outputs ? `Interaction ${outputs.interaction_ratio}` : `Est Ratio ${inter.toFixed(3)}`;
-    badge.dataset.tone = inter <= 1 ? "ok" : "err";
+    badge.textContent = outputs ? `Margin Interaction ${outputs.interaction_ratio}` : `Preview Est. Ratio ${inter.toFixed(3)}`;
+    badge.dataset.tone = outputs ? (inter <= 1 ? "ok" : "err") : (inter <= 1 ? "warn" : "err");
     svg.appendChild(svgEl("line", { x1: cx, y1: cy, x2: px.toFixed(1), y2: py.toFixed(1), stroke: inter <= 1 ? "#16a34a" : "#dc2626", "stroke-dasharray": "4 3", "stroke-width": 1.6 }));
     svg.appendChild(svgEl("circle", { cx: px.toFixed(1), cy: py.toFixed(1), r: 8, fill: inter <= 1 ? "#16a34a" : "#dc2626" }));
     const lbl = svgEl("text", { x: 290, y: 66, fill: "currentColor", "font-size": 13, "font-family": "monospace" });
@@ -2173,8 +2282,8 @@ function renderCadDiagram(method, inputs, outputs) {
   const cgLbl = svgEl("text", { x: cgx - 36, y: 174, fill: "currentColor", "font-size": 12, "font-family": "monospace" });
   cgLbl.textContent = `CG=${parseFloat(inputs.cg_x_m || "0").toFixed(2)}m | nz=${inputs.load_factor || "1.0"}`;
   svg.appendChild(cgLbl);
-  badge.textContent = outputs ? `Residual ${outputs.vertical_residual_n} N` : `Mass ${inputs.mass_kg} kg`;
-  badge.dataset.tone = "ok";
+  badge.textContent = outputs ? `Margin Residual ${outputs.vertical_residual_n} N` : `Preview Est. Mass ${inputs.mass_kg} kg`;
+  badge.dataset.tone = outputs ? "ok" : "warn";
 }
 
 syncMethodTemplates(DEFAULT_INPUTS);
@@ -2294,12 +2403,19 @@ function renderCoverageCellsTable(cells) {
 function renderLedgerEventsTable(events) {
   const box = document.getElementById("ledger-table-box");
   const tbody = document.getElementById("ledger-table-body");
+  const cap = document.getElementById("ledger-table-cap");
   if (!Array.isArray(events) || !events.length) {
     box.hidden = true;
     return;
   }
   tbody.replaceChildren();
-  events.forEach((ev) => {
+  const total = events.length;
+  const sliceLimit = 50;
+  const visible = total > sliceLimit ? events.slice(-sliceLimit) : events;
+  if (cap) {
+    cap.textContent = `Eventos Inmutables Ledger SQLite (mostrando ${visible.length} de ${total})`;
+  }
+  visible.forEach((ev) => {
     const tr = document.createElement("tr");
     const body = ev.body || ev;
     const th = document.createElement("th");
@@ -2433,6 +2549,29 @@ function setOutput(text, tone = "ok", badgeLabel = null) {
   document.getElementById("out").textContent = String(text || "").slice(0, 4000);
 }
 
+function capDataForPreview(val, depth = 0) {
+  if (depth > 4 || val === null || typeof val !== "object") return val;
+  if (Array.isArray(val)) {
+    if (val.length > 50) {
+      const head = val.slice(0, 50).map((x) => capDataForPreview(x, depth + 1));
+      head.push(`... [${val.length - 50} elementos adicionales omitidos en preview]`);
+      return head;
+    }
+    return val.map((x) => capDataForPreview(x, depth + 1));
+  }
+  const out = {};
+  for (const [k, v] of Object.entries(val)) {
+    if (Array.isArray(v) && v.length > 50) {
+      const head = v.slice(0, 50).map((x) => capDataForPreview(x, depth + 1));
+      head.push(`... [${v.length - 50} elementos adicionales omitidos en preview]`);
+      out[k] = head;
+    } else {
+      out[k] = capDataForPreview(v, depth + 1);
+    }
+  }
+  return out;
+}
+
 async function show(url, options) {
   const badge = document.getElementById("out-badge");
   badge.textContent = "Cargando...";
@@ -2459,7 +2598,8 @@ async function show(url, options) {
           gaps: (data.result.gaps || []).slice(0, 3)
         }, null, 2);
       } else {
-        shown = JSON.stringify(data, null, 2);
+        const previewObj = capDataForPreview(data);
+        shown = JSON.stringify(previewObj, null, 2);
       }
     } catch {
       badge.textContent = response.ok ? "text/plain" : `HTTP ${response.status}`;
@@ -2578,17 +2718,29 @@ document.getElementById("download-svg-btn")?.addEventListener("click", () => {
   showToast(`Diagrama ${lastVerifiedCalc.method}.svg descargado.`, "ok");
 });
 
+function sanitizeCsvCell(cell) {
+  const isArr = Array.isArray(cell);
+  let s = isArr ? cell.join(";") : (cell === null || cell === undefined ? "" : String(cell));
+  const isPureNum = /^-?\d+(\.\d+)?$/.test(s) || /^-?\d+(\.\d+)?([;|]-?\d+(\.\d+)?)*$/.test(s);
+  const startsWithDangerous = /^[-=+\t\r@]/.test(s);
+  if (startsWithDangerous && !isPureNum) {
+    s = "'" + s;
+  }
+  if (isArr || /[",\r\n]/.test(s)) {
+    return '"' + s.replaceAll('"', '""') + '"';
+  }
+  return s;
+}
+
 document.getElementById("download-catia-csv")?.addEventListener("click", () => {
   const rows = [];
   const inp = lastVerifiedCalc.inputs || {};
   const out = lastVerifiedCalc.outputs || {};
   const ivs = lastVerifiedCalc.intervals || {};
   const headers = [...Object.keys(inp), ...Object.keys(out).filter((k) => ["string", "number", "boolean"].includes(typeof out[k]))];
-  const vals = headers.map((k) => {
-    const v = inp[k] ?? out[k];
-    return Array.isArray(v) ? `"${v.join(";")}"` : String(v);
-  });
-  rows.push(headers.join(","), vals.join(","));
+  const safeHeaders = headers.map(sanitizeCsvCell);
+  const safeVals = headers.map((k) => sanitizeCsvCell(inp[k] ?? out[k]));
+  rows.push(safeHeaders.join(","), safeVals.join(","));
   Object.entries(ivs).forEach(([k, iv]) => {
     rows.push(`# INTERVAL ${k}: [${iv.lower} .. ${iv.upper}]`);
   });
@@ -2600,21 +2752,68 @@ document.getElementById("download-catia-csv")?.addEventListener("click", () => {
   showToast("CATIA Design Table (.csv) exportada.", "ok");
 });
 
+function parseCatiaCsvLine(line, sep) {
+  const fields = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < line.length && line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cur += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === sep) {
+      fields.push(cur.trim());
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  fields.push(cur.trim());
+  return fields;
+}
+
 function parseCatiaCsvRow(rawText) {
   const lines = rawText.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#") && !l.startsWith("'"));
   if (lines.length < 2) return null;
   const sep = lines[0].includes(";") ? ";" : (lines[0].includes("\t") ? "\t" : ",");
-  const headers = lines[0].split(sep).map((h) => h.trim().replace(/^"|"$/g, ""));
-  const vals = lines[1].split(sep).map((v) => v.trim().replace(/^"|"$/g, ""));
+  const headers = parseCatiaCsvLine(lines[0], sep).map((h) => h.replace(/^["']|["']$/g, "").trim());
+  const rawVals = parseCatiaCsvLine(lines[1], sep).map((v) => v.replace(/^["']|["']$/g, "").trim());
   const method = document.getElementById("calc-method").value;
   const merged = structuredClone(DEFAULT_INPUTS[method]);
   let matched = 0;
   headers.forEach((h, i) => {
-    if (h in merged && vals[i] !== undefined && vals[i] !== "") {
+    let rawVal = rawVals[i];
+    if (h in merged && rawVal !== undefined && rawVal !== "") {
       matched++;
-      merged[h] = Array.isArray(merged[h])
-        ? vals[i].split(/[;|]/).map((x) => (h === "unit_operative" ? x.toLowerCase() === "true" || x === "1" : x.trim()))
-        : vals[i];
+      if (Array.isArray(merged[h])) {
+        const vecDelim = sep === "," ? /[;|]/ : (rawVal.includes("|") ? /\|/ : (rawVal.includes(",") ? /,/ : /[;|]/));
+        merged[h] = rawVal.split(vecDelim).map((x) => {
+          let item = x.trim().replace(/^["']|["']$/g, "");
+          if ((sep === ";" || sep === "\t") && /^-?\d+,\d+$/.test(item)) {
+            item = item.replace(",", ".");
+          }
+          if (h === "unit_operative") {
+            return item.toLowerCase() === "true" || item === "1";
+          }
+          return item;
+        });
+      } else {
+        let scalarVal = rawVal.replace(/^'/, "");
+        if ((sep === ";" || sep === "\t") && /^-?\d+,\d+$/.test(scalarVal)) {
+          scalarVal = scalarVal.replace(",", ".");
+        }
+        merged[h] = scalarVal;
+      }
     }
   });
   if (!matched) return null;
@@ -3000,6 +3199,399 @@ document.getElementById("mcp-invoke-tool").onclick = () => {
 document.getElementById("mcp-scan-text").onclick = () => {
   const text = document.getElementById("ingest-text").value || "";
   callMcpRpc("tools/call", { name: "evidence_safety_scan", arguments: { text, mode: "both" } });
+};
+
+/* ---------- CAD/CAE Standard Connectors & Interactive 3D Viewer ---------- */
+const CAD_PRESETS = {
+  step: {
+    filename: "rotor_hub_ap242.stp",
+    text: [
+      "ISO-10303-21;",
+      "HEADER;",
+      "FILE_DESCRIPTION(('Synthetic eVTOL Hub AP242'),'2;1');",
+      "FILE_NAME('rotor_hub_ap242.stp','2026-11-12T10:00:00',('Eng'),('AeroRegu'),'STEP AP242','','');",
+      "FILE_SCHEMA(('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF'));",
+      "ENDSEC;",
+      "DATA;",
+      "#10=PRODUCT('ROTOR_HUB','ROTOR_HUB','',(#11));",
+      "#20=CARTESIAN_POINT('Origin',(0.000,0.000,0.000));",
+      "#21=CARTESIAN_POINT('CG_Point',(45.000,-12.000,165.000));",
+      "#22=CARTESIAN_POINT('P_Max',(850.000,620.000,420.000));",
+      "#23=DATUM('D_A',#20,'A');",
+      "#24=FLATNESS_TOLERANCE('FLAT_TOP','',#25,#23);",
+      "#25=LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE(0.05),#26);",
+      "#26=(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.));",
+      "#27=POSITION_TOLERANCE('BOLT_POS','M8 hole pattern',#28,#23);",
+      "#28=LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE(0.15),#26);",
+      "#29=(MASS_UNIT()NAMED_UNIT(*)SI_UNIT(.KILO.,.GRAM.));",
+      "#30=PROPERTY_DEFINITION('center_of_gravity','CG',#10);",
+      "#31=REPRESENTATION('CG_REP',(#21),#99);",
+      "#32=PROPERTY_DEFINITION_REPRESENTATION(#30,#31);",
+      "#33=MEASURE_REPRESENTATION_ITEM('mass_kg',MASS_MEASURE(950.0),#29);",
+      "#34=MEASURE_REPRESENTATION_ITEM('shear_force_n',NUMERIC_MEASURE(2500.0),$);",
+      "#35=MEASURE_REPRESENTATION_ITEM('tensile_force_n',NUMERIC_MEASURE(3600.0),$);",
+      "#36=MEASURE_REPRESENTATION_ITEM('area_mm2',NUMERIC_MEASURE(80.0),$);",
+      "#37=MEASURE_REPRESENTATION_ITEM('shear_allowable_mpa',NUMERIC_MEASURE(250.0),$);",
+      "#38=MEASURE_REPRESENTATION_ITEM('tensile_allowable_mpa',NUMERIC_MEASURE(250.0),$);",
+      "#39=REPRESENTATION('BOLT_REP',(#33,#34,#35,#36,#37,#38),#99);",
+      "#40=PROPERTY_DEFINITION('STRUCT_PROPS','Loads',#10);",
+      "#41=PROPERTY_DEFINITION_REPRESENTATION(#40,#39);",
+      "ENDSEC;",
+      "END-ISO-10303-21;"
+    ].join("\n")
+  },
+  iges: {
+    filename: "frame_bracket.igs",
+    text: [
+      "Synthetic IGES 5.3 Bracket".padEnd(72, " ") + "S      1",
+      "1H,,1H;,12Hframe_bracket,8Haeroregu,,32,38,6,38,15,,1.0,2,2HMM,1,0.01,".padEnd(72, " ") + "G      1",
+      "15H20261112.120000;".padEnd(72, " ") + "G      2",
+      "     116       1       0       1       0       0       0       000000000D      1",
+      "     116       0       0       1       0                         CG_PT  D      2",
+      "     212       2       0       1       0       0       0       000000000D      3",
+      "     212       0       0       1       0                         PMI_01 D      4",
+      "116,32.0,14.0,148.0;".padEnd(64, " ") + "       1P      1",
+      "212,1,24HPERP +/-0.05 TO DATUM A ,0.0,0.0,0.0;".padEnd(64, " ") + "       3P      2",
+      "S      1G      2D      4P      2".padEnd(72, " ") + "T      1"
+    ].join("\n")
+  },
+  catia_xml: {
+    filename: "evtol_fuselage_kw.xml",
+    text: [
+      "<CATProduct name=\"SyntheticEVTOL_Product\">",
+      "  <Parameters>",
+      "    <Parameter name=\"mass_kg\" value=\"960.0\" unit=\"kg\" />",
+      "    <Parameter name=\"thrust_n\" value=\"9800.0\" unit=\"N\" />",
+      "    <Parameter name=\"disk_area_m2\" value=\"10.5\" unit=\"m2\" />",
+      "    <Parameter name=\"air_density_kg_m3\" value=\"1.225\" unit=\"kg/m3\" />",
+      "    <Parameter name=\"figure_of_merit\" value=\"0.72\" />",
+      "    <Parameter name=\"power_available_kw\" value=\"350.0\" unit=\"kW\" />",
+      "    <Parameter name=\"load_factor\" value=\"2.5\" />",
+      "    <Parameter name=\"cg_x_m\" value=\"0.035\" unit=\"m\" />",
+      "    <Parameter name=\"gravity_m_s2\" value=\"9.81\" unit=\"m/s2\" />",
+      "  </Parameters>",
+      "  <Relations>",
+      "    <Formula name=\"KW_ThrustCheck\" target=\"thrust_n\" expression=\"mass_kg * gravity_m_s2\" />",
+      "  </Relations>",
+      "  <MassProperties>",
+      "    <CenterOfGravity x=\"0.035\" y=\"-0.008\" z=\"0.172\" unit=\"m\" />",
+      "  </MassProperties>",
+      "  <GDT>",
+      "    <Tolerance type=\"PROFILE_SURFACE\" value=\"0.20\" unit=\"mm\" datum=\"A|B\" />",
+      "  </GDT>",
+      "</CATProduct>"
+    ].join("\n")
+  },
+  nastran: {
+    filename: "wing_rib_mesh.bdf",
+    text: [
+      "$ Synthetic NASTRAN Bulk Data",
+      "BEGIN BULK",
+      "GRID,1,0,-0.150,-0.120,0.140",
+      "GRID,2,0,0.150,-0.120,0.140",
+      "GRID,3,0,0.150,0.120,0.220",
+      "GRID,4,0,-0.150,0.120,0.220",
+      "CQUAD4,10,1,1,2,3,4",
+      "CONM2,20,2,0,920.0,0.025,0.010,0.180",
+      "FORCE,30,3,0,1.0,0.0,0.0,4200.0",
+      "MOMENT,31,3,0,1.0,0.0,650.0,0.0",
+      "PLOAD4,32,10,0.25",
+      "ENDDATA"
+    ].join("\n")
+  },
+  abaqus: {
+    filename: "fuselage_lug.inp",
+    text: [
+      "*HEADING",
+      "Synthetic ABAQUS Lug & CG Model",
+      "*NODE",
+      "1, -0.180, -0.110, 0.120",
+      "2,  0.180, -0.110, 0.120",
+      "3,  0.180,  0.110, 0.240",
+      "4, -0.180,  0.110, 0.240",
+      "*ELEMENT, TYPE=C3D4, ELSET=E_LUG",
+      "1, 1, 2, 3, 4",
+      "*NSET, NSET=LUG_PIN",
+      "2, 3",
+      "*MASS, ELSET=E_LUG",
+      "880.0",
+      "*CLOAD",
+      "2, 1, 2800.0",
+      "3, 3, 3900.0",
+      "4, 3, 1800.0",
+      "*BOUNDARY",
+      "1, 1, 3, 0.0"
+    ].join("\n")
+  }
+};
+
+let cadUploadedBase64 = null;
+window.latestCadOverlay = { cad_cg_points: [], fem_overlay: null, mass_kg_override: null };
+let viewer3d = null;
+
+document.getElementById("cad-file-picker").addEventListener("change", (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  document.getElementById("cad-filename-input").value = file.name;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const res = String(reader.result || "");
+    cadUploadedBase64 = res.includes(",") ? res.split(",")[1] : res;
+    document.getElementById("cad-format-pill").textContent = `Archivo listo: ${file.name}`;
+  };
+  reader.readAsDataURL(file);
+});
+
+document.querySelectorAll(".cad-preset-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const p = CAD_PRESETS[btn.dataset.preset];
+    if (!p) return;
+    cadUploadedBase64 = null;
+    document.getElementById("cad-filename-input").value = p.filename;
+    document.getElementById("cad-content-text").value = p.text;
+    document.getElementById("cad-format-pill").textContent = `Preset: ${p.filename}`;
+  });
+});
+
+function renderCadBindings(data) {
+  const res = data?.result;
+  if (!res || data.confidence === "abstain") {
+    document.getElementById("cad-format-pill").textContent = `Abstain: ${data?.abstain || "error"}`;
+    return;
+  }
+  const cad = res.cad_cae || {};
+  const bindings = res.bindings || {};
+  document.getElementById("cad-results-panel").hidden = false;
+  document.getElementById("cad-format-pill").textContent = `${cad.format || "cad"} (${cad.parameter_count || (cad.parameters || []).length} params)`;
+  const meshNodes = cad.mesh && Array.isArray(cad.mesh.nodes) ? cad.mesh.nodes : [];
+  const meshElems = cad.mesh && Array.isArray(cad.mesh.elements) ? cad.mesh.elements : [];
+  const loadObj = cad.loads || {};
+  const loadCount = (loadObj.forces || []).length + (loadObj.cloads || []).length + (loadObj.pload4 || []).length + (loadObj.dloads || []).length;
+  document.getElementById("cad-meta-summary").textContent =
+    `${res.filename} — ${(cad.gdt_pmi || []).length} GD&T, ${meshNodes.length} nodos FEM, ${loadCount} cargas`;
+
+  const cgList = Array.isArray(cad.cg_points) ? cad.cg_points : [];
+  const paramMass = (cad.parameters || []).find((p) => String(p.name || "").toLowerCase().includes("mass"));
+  if (cgList.length > 0 && Array.isArray(cgList[0].coords)) {
+    const uScale = String(cgList[0].unit || "m").toLowerCase() === "mm" ? 0.001 : 1.0;
+    const xm = (Number(cgList[0].coords[0] || 0) * uScale).toFixed(4);
+    const ym = (Number(cgList[0].coords[1] || 0) * uScale).toFixed(4);
+    const zm = (Number(cgList[0].coords[2] || 0) * uScale).toFixed(4);
+    document.getElementById("cad-cg-pill").textContent = `CG=[${xm}, ${ym}, ${zm}] m (${cgList.length})`;
+    window.latestCadOverlay.cad_cg_points = cgList.map((pt, idx) => {
+      const sc = String(pt.unit || "m").toLowerCase() === "mm" ? 0.001 : 1.0;
+      return {
+        point_id: `CAD-${res.filename}-${idx + 1}`,
+        label: pt.label || res.filename,
+        source: "cad_cae",
+        x_cg_m: (Number(pt.coords[0] || 0) * sc).toFixed(4),
+        y_cg_m: (Number(pt.coords[1] || 0) * sc).toFixed(4),
+        z_cg_m: (Number(pt.coords[2] || 0) * sc).toFixed(4),
+        mass_kg: paramMass ? String(paramMass.value) : "900.000",
+      };
+    });
+    if (paramMass && Number(paramMass.value) > 0) {
+      window.latestCadOverlay.mass_kg_override = String(paramMass.value);
+    }
+  } else {
+    document.getElementById("cad-cg-pill").textContent = "CG: no declarado";
+    window.latestCadOverlay.cad_cg_points = [];
+  }
+
+  if (meshNodes.length > 0) {
+    const edges = [];
+    meshElems.forEach((el) => {
+      const nids = el.node_ids || el.nodes || [];
+      for (let i = 0; i < nids.length; i++) {
+        edges.push([nids[i], nids[(i + 1) % nids.length]]);
+      }
+    });
+    const loadVectors = [];
+    (loadObj.forces || []).slice(0, 60).forEach((ld) => {
+      const dir = ld.direction || [0, 0, 1];
+      loadVectors.push({ node_id: ld.grid_id, dx: dir[0] || "0", dy: dir[1] || "0", dz: dir[2] || "0.5" });
+    });
+    (loadObj.cloads || []).slice(0, 60).forEach((ld) => {
+      const dof = String(ld.dof || "3");
+      loadVectors.push({
+        node_id: ld.node_id,
+        dx: dof === "1" ? "1" : "0",
+        dy: dof === "2" ? "1" : "0",
+        dz: dof === "3" ? "1" : "0",
+      });
+    });
+    window.latestCadOverlay.fem_overlay = {
+      nodes: meshNodes.slice(0, 300),
+      edges: edges.slice(0, 600),
+      load_vectors: loadVectors,
+    };
+  } else {
+    window.latestCadOverlay.fem_overlay = null;
+  }
+
+  const tbody = document.getElementById("cad-bindings-body");
+  tbody.replaceChildren();
+  const cards = bindings.cards || {};
+  Object.keys(cards).forEach((methodId) => {
+    const info = cards[methodId];
+    const tr = document.createElement("tr");
+    const tdM = document.createElement("td");
+    tdM.textContent = methodId;
+    const tdS = document.createElement("td");
+    tdS.textContent = info.ready_to_run
+      ? "LISTO"
+      : `Falta: ${(info.missing_required || []).join(", ")}`;
+    const tdP = document.createElement("td");
+    tdP.textContent =
+      (info.bindings || []).map((m) => `${m.card_field}=${m.raw_value} ${m.raw_unit || ""}`.trim()).join("; ") || "-";
+    const tdA = document.createElement("td");
+    tdA.textContent = info.execution
+      ? `${info.execution.confidence}: ${JSON.stringify(info.execution.outputs || info.execution.abstain_reason || {})}`
+      : "-";
+    const tdBtn = document.createElement("td");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "subtle";
+    btn.textContent = "Aplicar al Calculador";
+    btn.onclick = () => {
+      const sel = document.getElementById("calc-method");
+      sel.value = methodId;
+      sel.dispatchEvent(new Event("change"));
+      const jsonBox = document.getElementById("calc-inputs-json");
+      let merged = {};
+      try { merged = JSON.parse(jsonBox.value || "{}"); } catch (_e) {}
+      Object.assign(merged, info.matched_inputs || {});
+      jsonBox.value = JSON.stringify(merged, null, 2);
+      setOutput(`Binding CAD aplicado a ${methodId}. Pulsa Ejecutar Calculo o Re-verificar.`, "ok", "Bound");
+    };
+    tdBtn.appendChild(btn);
+    tr.append(tdM, tdS, tdP, tdA, tdBtn);
+    tbody.appendChild(tr);
+  });
+
+  const pmiList = cad.gdt_pmi || [];
+  const annList = cad.annotations || [];
+  const pmiWrap = document.getElementById("cad-pmi-wrap");
+  const pmiBody = document.getElementById("cad-pmi-body");
+  pmiBody.replaceChildren();
+  if (pmiList.length > 0 || annList.length > 0) {
+    pmiWrap.hidden = false;
+    pmiList.slice(0, 40).forEach((pmi) => {
+      const tr = document.createElement("tr");
+      const td1 = document.createElement("td");
+      td1.textContent = pmi.gdt_type || "GD&T";
+      const td2 = document.createElement("td");
+      td2.textContent = `${pmi.name || ""} ${pmi.tolerance_value || ""} ${pmi.unit || ""}`.trim() || "-";
+      const td3 = document.createElement("td");
+      td3.textContent = Array.isArray(pmi.datum_refs) && pmi.datum_refs.length ? pmi.datum_refs.join(",") : "-";
+      tr.append(td1, td2, td3);
+      pmiBody.appendChild(tr);
+    });
+    annList.slice(0, 20).forEach((ann) => {
+      const tr = document.createElement("tr");
+      const td1 = document.createElement("td");
+      td1.textContent = "IGES_NOTE";
+      const td2 = document.createElement("td");
+      td2.textContent = ann.text || "-";
+      const td3 = document.createElement("td");
+      td3.textContent = ann.label || "-";
+      tr.append(td1, td2, td3);
+      pmiBody.appendChild(tr);
+    });
+  } else {
+    pmiWrap.hidden = true;
+  }
+
+  if (viewer3d) load3DEnvelope();
+}
+
+document.getElementById("cad-ingest-btn").onclick = async () => {
+  const filename = document.getElementById("cad-filename-input").value || "rotor_hub_ap242.stp";
+  const body = { filename, auto_run: true, tenant_id: currentTenant() };
+  if (cadUploadedBase64) body.content_base64 = cadUploadedBase64;
+  else body.content_text = document.getElementById("cad-content-text").value || CAD_PRESETS.step.text;
+  try {
+    const resp = await fetch("/cad/ingest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    updateBadgesAndTables(data);
+    renderCadBindings(data);
+    setOutput(JSON.stringify(data, null, 2).slice(0, 4000), resp.ok && data.confidence === "deterministic" ? "ok" : "warn", data.confidence);
+  } catch (err) {
+    setOutput(`Error CAD/CAE: ${err?.message || err}`, "err", "Offline");
+  }
+};
+
+function ensureViewer3D() {
+  if (!viewer3d && typeof window.AeroRegu3DViewer === "function") {
+    viewer3d = new window.AeroRegu3DViewer("vn-cg-3d-mount", {
+      onSelect: (pt) => {
+        const el = document.getElementById("v3d-inspector");
+        if (!pt) {
+          el.textContent = "Sin punto seleccionado.";
+          return;
+        }
+        el.textContent =
+          pt.x_cg_m !== undefined
+            ? `Seleccionado ${pt.point_id}: CG=[${pt.x_cg_m}, ${pt.y_cg_m}, ${pt.z_cg_m}] m | status=${pt.status} | dentro_limites=${pt.within_cg_limits}`
+            : `Seleccionado ${pt.point_id}: V=${pt.v_mps} m/s | nz=${pt.nz} | m=${pt.mass_kg} kg`;
+      },
+    });
+  }
+  return viewer3d;
+}
+
+async function load3DEnvelope() {
+  const v = ensureViewer3D();
+  if (!v) return;
+  const pill = document.getElementById("v3d-status-pill");
+  pill.textContent = "Calculando 3D...";
+  try {
+    const resp = await fetch("/coverage/envelope-3d", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tenant_id: currentTenant(),
+        cad_cg_points: window.latestCadOverlay.cad_cg_points || [],
+        mass_kg_override: window.latestCadOverlay.mass_kg_override || null,
+        fem_overlay: window.latestCadOverlay.fem_overlay || null,
+      }),
+    });
+    const data = await resp.json();
+    if (data && data.result) {
+      v.setData(data.result);
+      v.resize();
+      const cloud = data.result.cg_cloud || {};
+      const smt = data.result.smt_proof || {};
+      pill.textContent = `${cloud.total_points || 0} pts CG (${cloud.cad_cae_points || 0} CAD) | SMT=${smt.envelope_proved ? "PROVED" : "CHECK"}`;
+    } else {
+      pill.textContent = "Error datos 3D";
+    }
+  } catch (err) {
+    pill.textContent = `Error 3D: ${err?.message || err}`;
+  }
+}
+
+document.querySelectorAll(".v3d-mode-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".v3d-mode-btn").forEach((b) => (b.className = "subtle v3d-mode-btn"));
+    btn.className = "primary v3d-mode-btn";
+    ensureViewer3D()?.setMode(btn.dataset["3dMode"]);
+  });
+});
+document.querySelectorAll(".v3d-cam-btn").forEach((btn) => {
+  btn.addEventListener("click", () => ensureViewer3D()?.setPreset(btn.dataset["3dCam"]));
+});
+document.querySelectorAll(".v3d-layer").forEach((chk) => {
+  chk.addEventListener("change", () => ensureViewer3D()?.setLayer(chk.dataset.layer, chk.checked));
+});
+document.getElementById("refresh-3d-btn").onclick = () => load3DEnvelope();
+window.addEventListener("resize", () => viewer3d && viewer3d.resize());
+window.onCoverageTabVisible = () => {
+  load3DEnvelope();
 };
 </script>
 </body>

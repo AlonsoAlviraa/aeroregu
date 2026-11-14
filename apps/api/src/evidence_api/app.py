@@ -13,11 +13,13 @@ import time
 import zipfile
 from collections import deque
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from evidence_calc.cad_bindings import bind_parameters_to_cards
 from evidence_calc.diagnostics import classify_numeric_delta
 from evidence_calc.errors import AbstainError
 from evidence_calc.registry import load_card, run_method
@@ -27,6 +29,7 @@ from evidence_coverage.dossier import (
     export_oscal_sar,
     export_strictdoc,
 )
+from evidence_coverage.envelope_3d import build_vn_cg_envelope_3d
 from evidence_coverage.formal_bounds import prove_continuous_flight_envelope
 from evidence_coverage.gate import evaluate_traceability_gate
 from evidence_coverage.grid import calc_inputs_for, generate_cells
@@ -79,11 +82,15 @@ from evidence_kernel.supervisor import (
     invoke_single_agent,
 )
 from fastapi import FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 DEMO_TENANT = "demo"
 TENANT_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
 MAX_INGEST_BYTES = int(os.environ.get("EVIDENCE_MAX_INGEST_BYTES", str(16 * 1024 * 1024)))
+MAX_JSON_BODY_BYTES = int(os.environ.get("EVIDENCE_MAX_JSON_BODY_BYTES", str(24 * 1024 * 1024)))
 DEFAULT_SESSION_TTL_SECONDS = int(os.environ.get("EVIDENCE_SESSION_TTL_SECONDS", "28800"))
 ASSISTANCE = "This tool assists a human reviewer. It does not determine compliance."
 VERIFY_TEXT = ASSISTANCE + "\nVerify with: uv run python -m evidence_kernel verify bundle.zip\n"
@@ -93,6 +100,10 @@ _LEDGER_CACHE: dict[Path, tuple[Ledger, tuple[int, int] | None]] = {}
 _DOSSIER_CACHE_LOCK = threading.RLock()
 _DOSSIER_CACHE: dict[tuple[str, str, tuple[tuple[int, int], ...] | None], dict[str, Any]] = {}
 _MAX_DOSSIER_CACHE = 64
+_GATE_CACHE_LOCK = threading.RLock()
+_GATE_CACHE: dict[tuple[str, str, bool], dict[str, Any]] = {}
+_FALLBACK_TEMP_LOCK = threading.Lock()
+_FALLBACK_TEMP_DIR: Path | None = None
 
 
 class _SlidingRateLimiter:
@@ -123,15 +134,41 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next: Any) -> Response:
+        cl = request.headers.get("content-length")
+        if cl:
+            try:
+                if int(cl) > MAX_JSON_BODY_BYTES:
+                    return JSONResponse(
+                        _abstain("api@1.0.0", {}, "payload_too_large"),
+                        status_code=413,
+                    )
+            except ValueError:
+                pass
         response: Response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Cache-Control"] = "no-store"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+            "connect-src 'self'; object-src 'none'; frame-ancestors 'none'"
+        )
+        if _cookie_secure(request):
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["X-Evidence-Request-Hash"] = hashlib.sha256(
             f"{request.method}:{request.url.path}".encode()
         ).hexdigest()
         return response
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        if isinstance(exc, (StarletteHTTPException, RequestValidationError)):
+            raise exc
+        return JSONResponse(
+            _abstain("api@1.0.0", {}, "internal_error"),
+            status_code=500,
+        )
 
     @app.get("/health")
     def health() -> dict[str, Any]:
@@ -463,11 +500,30 @@ def create_app() -> FastAPI:
                 _abstain("traceability_gate@1.0.0", {}, "invalid_tenant"), status_code=400
             )
         ledger = open_ledger(checked_tenant)
+        head = ledger.head_hash()
+        cache_key = (checked_tenant, head, require_signoff)
+        with _GATE_CACHE_LOCK:
+            cached = _GATE_CACHE.get(cache_key)
+            if cached is not None:
+                return JSONResponse(
+                    _ok(
+                        "traceability_gate@1.0.0",
+                        {
+                            "tenant_id": checked_tenant,
+                            "require_signoff": str(require_signoff).lower(),
+                        },
+                        cached,
+                    )
+                )
         gate = evaluate_traceability_gate(
             ledger.events(),
             chain_verified=ledger.verify(),
             require_head_signoff=require_signoff,
         )
+        with _GATE_CACHE_LOCK:
+            if len(_GATE_CACHE) >= 64:
+                _GATE_CACHE.pop(next(iter(_GATE_CACHE)), None)
+            _GATE_CACHE[cache_key] = gate
         return JSONResponse(
             _ok(
                 "traceability_gate@1.0.0",
@@ -714,9 +770,20 @@ def create_app() -> FastAPI:
             return JSONResponse(
                 _abstain("agent_invoke@1.0.0", {}, "invalid_tenant"), status_code=400
             )
+        invoke_limit = int(os.environ.get("EVIDENCE_INVOKE_RATE_LIMIT", "60"))
+        if not _RATE_LIMITER.allow(f"invoke:{_client_ip(request)}:{tenant_id}", invoke_limit, 60):
+            return JSONResponse(
+                _abstain("agent_invoke@1.0.0", {"tenant_id": tenant_id}, "rate_limited"),
+                status_code=429,
+            )
         records = bool(body.get("record"))
         actor_id = str(body.get("actor_id") or "author")
-        if records:
+        if _is_production_mode():
+            session_actor = _actor_from_request(request, tenant_id=tenant_id)
+            if session_actor is None:
+                return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+            actor_id = session_actor
+        elif records:
             session_actor = _session_actor(request, body.get("actor_id"), tenant_id=tenant_id)
             if session_actor is None:
                 return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
@@ -952,7 +1019,8 @@ def create_app() -> FastAPI:
         if err_resp is not None:
             return err_resp
         outcome = await arun_case(ctx["ledger"], ctx["gw"], ctx["case"])
-        envelope = _decorate_supervisor_envelope(
+        envelope = await run_in_threadpool(
+            _decorate_supervisor_envelope,
             outcome.envelope,
             ledger=ctx["ledger"],
             actor_id=ctx["actor_id"],
@@ -978,7 +1046,8 @@ def create_app() -> FastAPI:
                 ev_type = event["event"]
                 payload = event["data"]
                 if ev_type == "done":
-                    decorated = _decorate_supervisor_envelope(
+                    decorated = await run_in_threadpool(
+                        _decorate_supervisor_envelope,
                         payload["envelope"],
                         ledger=ctx["ledger"],
                         actor_id=ctx["actor_id"],
@@ -1212,8 +1281,8 @@ def create_app() -> FastAPI:
                 _abstain("human_signoff@1.0.0", {}, "empty_ledger"),
                 status_code=400,
             )
-        known_hashes = {str(event["event_hash"]) for event in ledger.events()}
-        if target not in known_hashes:
+        known_events = {str(event["event_hash"]): event for event in ledger.events()}
+        if target not in known_events:
             return JSONResponse(
                 _abstain(
                     "human_signoff@1.0.0",
@@ -1221,6 +1290,17 @@ def create_app() -> FastAPI:
                     "target_event_not_found",
                 ),
                 status_code=404,
+            )
+        target_ev = known_events[target]
+        target_author = target_ev["body"].get("actor_id")
+        if _is_production_mode() and target_author == actor_id:
+            return JSONResponse(
+                _abstain(
+                    "human_signoff@1.0.0",
+                    {"target_event_hash": target},
+                    "self_signoff_prohibited",
+                ),
+                status_code=403,
             )
         statement = str(body.get("statement") or SIGN_OFF_STATEMENT)
         created_at = str(body.get("created_at") or _now())
@@ -1381,7 +1461,8 @@ def create_app() -> FastAPI:
                 status_code=400,
             )
         is_auth = _actor_from_request(request, tenant_id=checked_tenant) is not None
-        reply = handle_mcp_message(
+        reply = await run_in_threadpool(
+            handle_mcp_message,
             payload,
             require_auth_for_writes=_is_production_mode(),
             is_authenticated=is_auth,
@@ -1390,11 +1471,275 @@ def create_app() -> FastAPI:
             return Response(status_code=204)
         return JSONResponse(reply)
 
+    @app.get("/static/viewer3d.js")
+    def viewer3d_script() -> FileResponse:
+        return FileResponse(
+            Path(__file__).parent / "static" / "viewer3d.js",
+            media_type="application/javascript",
+        )
+
+    @app.post("/cad/ingest")
+    def cad_ingest(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(_abstain("cad_ingest@1.0.0", {}, "invalid_tenant"), status_code=400)
+        filename = str(body.get("filename") or "model.stp")
+        records = bool(body.get("record"))
+        actor_id = str(body.get("actor_id") or "author")
+        if records:
+            session_actor = _session_actor(request, body.get("actor_id"), tenant_id=tenant_id)
+            if session_actor is None:
+                return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+            actor_id = session_actor
+
+        raw, err = _decode_body_bytes(body, "cad_ingest@1.0.0", filename)
+        if err is not None or raw is None:
+            return err or JSONResponse(
+                _abstain("cad_ingest@1.0.0", {"filename": filename}, "missing_document_content"),
+                status_code=400,
+            )
+        try:
+            parsed = ingest_bytes(raw, filename)
+        except IngestAbstain as exc:
+            return JSONResponse(
+                _abstain("cad_ingest@1.0.0", {"filename": filename}, exc.reason),
+            )
+        cad_cae = parsed.get("cad_cae")
+        if not isinstance(cad_cae, dict):
+            return JSONResponse(
+                _abstain("cad_ingest@1.0.0", {"filename": filename}, "not_cad_cae_media"),
+            )
+
+        auto_run = bool(body.get("auto_run", True))
+        bindings = bind_parameters_to_cards(
+            list(cad_cae.get("parameters") or []),
+            formulas=list(cad_cae.get("formulas") or []),
+            auto_run=auto_run,
+        )
+        stated_by_method = body.get("stated_outputs")
+        if isinstance(stated_by_method, dict):
+            _attach_binding_deltas(bindings, stated_by_method)
+
+        recorded_hash = ""
+        if records:
+            ledger = open_ledger(tenant_id)
+            created_at = str(body.get("created_at") or _now())
+            cad_env = make_envelope(
+                sources=[project_source("cad-cae", "https://aeroregu.local/cad", "ASSUMPTION")],
+                method_version="cad_ingest@1.0.0",
+                inputs={"filename": parsed["filename"], "source_hash": parsed["source_hash"]},
+                confidence="deterministic",
+                result={
+                    "format": cad_cae.get("format"),
+                    "ready_methods": bindings.get("ready_methods", []),
+                    "total_parameters_scanned": bindings.get("total_parameters_scanned", 0),
+                },
+            )
+            recorded_hash = record(
+                ledger,
+                {
+                    "event_type": "cad_cae_ingested",
+                    "tenant_id": ledger.tenant_id,
+                    "actor_id": actor_id,
+                    "created_at": created_at,
+                    "payload": {
+                        "filename": parsed["filename"],
+                        "media_type": parsed["media_type"],
+                        "source_hash": parsed["source_hash"],
+                        "format": cad_cae.get("format"),
+                        "ready_methods": bindings.get("ready_methods", []),
+                    },
+                    "envelope": cad_env,
+                },
+            )
+
+        return JSONResponse(
+            _ok(
+                "cad_ingest@1.0.0",
+                {"filename": parsed["filename"], "source_hash": parsed["source_hash"]},
+                {
+                    "filename": parsed["filename"],
+                    "media_type": parsed["media_type"],
+                    "source_hash": parsed["source_hash"],
+                    "cad_cae": cad_cae,
+                    "bindings": bindings,
+                    "recorded_event_hash": recorded_hash,
+                },
+            )
+        )
+
+    @app.post("/cad/bind")
+    def cad_bind(body: dict[str, Any]) -> JSONResponse:
+        parameters = body.get("parameters")
+        if not isinstance(parameters, list):
+            return JSONResponse(
+                _abstain("cad_bind@1.0.0", {}, "missing_parameters"), status_code=400
+            )
+        formulas = body.get("formulas") if isinstance(body.get("formulas"), list) else None
+        auto_run = bool(body.get("auto_run", True))
+        bindings = bind_parameters_to_cards(parameters, formulas=formulas, auto_run=auto_run)
+        stated_by_method = body.get("stated_outputs")
+        if isinstance(stated_by_method, dict):
+            _attach_binding_deltas(bindings, stated_by_method)
+        return JSONResponse(
+            _ok(
+                "cad_bind@1.0.0",
+                {"parameter_count": str(len(parameters)), "auto_run": auto_run},
+                bindings,
+            )
+        )
+
+    @app.get("/coverage/envelope-3d")
+    def coverage_envelope_3d_get(
+        tenant_id: str = DEMO_TENANT,
+        wing_area_m2: str = "12.000",
+        v_c_mps: str = "65.000",
+        v_d_mps: str = "82.000",
+        nz_max: str = "2.500",
+        nz_min: str = "-1.000",
+    ) -> JSONResponse:
+        checked_tenant = _validate_tenant(tenant_id)
+        if checked_tenant is None:
+            return JSONResponse(
+                _abstain("coverage_envelope_3d@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        try:
+            for val in (wing_area_m2, v_c_mps, v_d_mps, nz_max, nz_min):
+                Decimal(str(val))
+        except (InvalidOperation, ValueError):
+            return JSONResponse(
+                _abstain("coverage_envelope_3d@1.0.0", {}, "invalid_numeric_input"), status_code=400
+            )
+        ledger = open_ledger(checked_tenant)
+        payload = build_vn_cg_envelope_3d(
+            ledger.events(),
+            wing_area_m2=wing_area_m2,
+            v_c_mps=v_c_mps,
+            v_d_mps=v_d_mps,
+            nz_max=nz_max,
+            nz_min=nz_min,
+        )
+        return JSONResponse(
+            _ok("coverage_envelope_3d@1.0.0", {"tenant_id": checked_tenant}, payload)
+        )
+
+    @app.post("/coverage/envelope-3d")
+    def coverage_envelope_3d_post(body: dict[str, Any]) -> JSONResponse:
+        checked_tenant = _validate_tenant(body.get("tenant_id"))
+        if checked_tenant is None:
+            return JSONResponse(
+                _abstain("coverage_envelope_3d@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        wing_area_m2 = str(body.get("wing_area_m2") or "12.000")
+        v_c_mps = str(body.get("v_c_mps") or "65.000")
+        v_d_mps = str(body.get("v_d_mps") or "82.000")
+        nz_max = str(body.get("nz_max") or "2.500")
+        nz_min = str(body.get("nz_min") or "-1.000")
+        mass_override = (
+            str(body["mass_kg_override"]) if body.get("mass_kg_override") is not None else None
+        )
+        cad_cg_points = (
+            list(body["cad_cg_points"]) if isinstance(body.get("cad_cg_points"), list) else None
+        )
+        cg_limits_m = (
+            dict(body["cg_limits_m"]) if isinstance(body.get("cg_limits_m"), dict) else None
+        )
+        fem_overlay = (
+            dict(body["fem_overlay"]) if isinstance(body.get("fem_overlay"), dict) else None
+        )
+        try:
+            for val in (wing_area_m2, v_c_mps, v_d_mps, nz_max, nz_min):
+                Decimal(val)
+            if mass_override is not None:
+                Decimal(mass_override)
+            for pt in cad_cg_points or []:
+                for k in ("x_cg_m", "y_cg_m", "z_cg_m", "x_m", "y_m", "z_m"):
+                    if k in pt and pt[k] is not None:
+                        Decimal(str(pt[k]))
+        except (InvalidOperation, ValueError, TypeError):
+            return JSONResponse(
+                _abstain("coverage_envelope_3d@1.0.0", {}, "invalid_numeric_input"), status_code=400
+            )
+        ledger = open_ledger(checked_tenant)
+        payload = build_vn_cg_envelope_3d(
+            ledger.events(),
+            cad_cg_points=cad_cg_points,
+            mass_kg_override=mass_override,
+            wing_area_m2=wing_area_m2,
+            v_c_mps=v_c_mps,
+            v_d_mps=v_d_mps,
+            nz_max=nz_max,
+            nz_min=nz_min,
+            cg_limits_m=cg_limits_m,
+            fem_overlay=fem_overlay,
+        )
+        return JSONResponse(
+            _ok(
+                "coverage_envelope_3d@1.0.0",
+                {
+                    "tenant_id": checked_tenant,
+                    "cad_cg_count": str(len(cad_cg_points or [])),
+                },
+                payload,
+            )
+        )
+
     @app.get("/")
     def index() -> FileResponse:
         return FileResponse(Path(__file__).parent / "static" / "demo.html")
 
     return app
+
+
+def _decode_body_bytes(
+    body: dict[str, Any], method_version: str, filename: str
+) -> tuple[bytes | None, JSONResponse | None]:
+    if body.get("content_base64") is not None:
+        encoded = str(body["content_base64"])
+        if len(encoded) > (MAX_INGEST_BYTES * 4) // 3 + 16:
+            return None, JSONResponse(
+                _abstain(method_version, {"filename": filename}, "payload_too_large"),
+                status_code=413,
+            )
+        try:
+            raw = base64.b64decode(encoded, validate=True)
+        except Exception:
+            return None, JSONResponse(
+                _abstain(method_version, {"filename": filename}, "invalid_base64"),
+                status_code=400,
+            )
+    elif body.get("content_text") is not None:
+        raw = str(body["content_text"]).encode("utf-8")
+    else:
+        return None, JSONResponse(
+            _abstain(method_version, {"filename": filename}, "missing_document_content"),
+            status_code=400,
+        )
+    if len(raw) > MAX_INGEST_BYTES:
+        return None, JSONResponse(
+            _abstain(method_version, {"filename": filename}, "payload_too_large"),
+            status_code=413,
+        )
+    return raw, None
+
+
+def _attach_binding_deltas(bindings: dict[str, Any], stated_by_method: dict[str, Any]) -> None:
+    cards = bindings.get("cards") or {}
+    for method_id, card_info in cards.items():
+        execution = card_info.get("execution")
+        stated = stated_by_method.get(method_id)
+        if (
+            isinstance(execution, dict)
+            and execution.get("confidence") == "deterministic"
+            and isinstance(stated, dict)
+        ):
+            delta = classify_numeric_delta(
+                method_id,
+                dict(card_info.get("matched_inputs") or {}),
+                {str(k): str(v) for k, v in stated.items()},
+                dict(execution.get("outputs") or {}),
+            )
+            execution["delta_classification"] = delta
 
 
 def _validate_tenant(value: Any) -> str | None:
@@ -1421,7 +1766,16 @@ def evidence_home() -> Path:
         candidate.mkdir(parents=True, exist_ok=True)
         return candidate
     except OSError:
-        return (Path(tempfile.gettempdir()) / "aeroregu").resolve()
+        global _FALLBACK_TEMP_DIR
+        with _FALLBACK_TEMP_LOCK:
+            if _FALLBACK_TEMP_DIR is None:
+                td = tempfile.mkdtemp(prefix="aeroregu-")
+                try:
+                    os.chmod(td, 0o700)
+                except OSError:
+                    pass
+                _FALLBACK_TEMP_DIR = Path(td).resolve()
+            return _FALLBACK_TEMP_DIR
 
 
 def _sqlite_fingerprint(path: Path) -> tuple[tuple[int, int], ...] | None:
@@ -1633,10 +1987,17 @@ def _session_actor(
 
 
 def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-    if forwarded:
-        return forwarded
-    return request.client.host if request.client else "unknown"
+    peer_ip = request.client.host if request.client else "unknown"
+    trust_proxy = os.environ.get("EVIDENCE_TRUST_PROXY", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    } or peer_ip in {"127.0.0.1", "::1", "localhost", "testclient"}
+    if trust_proxy:
+        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        if forwarded:
+            return forwarded
+    return peer_ip
 
 
 def _cookie_secure(request: Request) -> bool:

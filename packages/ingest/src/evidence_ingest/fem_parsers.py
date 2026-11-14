@@ -1,0 +1,756 @@
+"""Deterministic FEM mesh and load parsers for NASTRAN (.bdf/.dat) and ABAQUS (.inp)."""
+
+from __future__ import annotations
+
+from decimal import Decimal
+from typing import Any
+
+from evidence_ingest.blocks import Block, IngestAbstain
+from evidence_ingest.cad_common import (
+    compute_bbox_and_centroid,
+    decimal_str,
+    make_param_entry,
+    parse_decimal_str,
+)
+
+_NASTRAN_ELEM_CARDS = {"CQUAD4", "CTRIA3", "CHEXA", "CTETRA", "CBAR", "CBEAM", "CROD", "CBUSH"}
+
+
+def _decimal_hypot3(x: Decimal, y: Decimal, z: Decimal) -> Decimal:
+    sq = x * x + y * y + z * z
+    if sq == 0:
+        return Decimal(0)
+    return sq.sqrt()
+
+
+def _nastran_dec(raw: str | None) -> Decimal | None:
+    parsed = parse_decimal_str(raw, allow_nastran_short=True)
+    return Decimal(parsed) if parsed is not None else None
+
+
+def _split_nastran_line_fields(line: str) -> tuple[str, list[str], str]:
+    """Split a single NASTRAN physical line into (card_or_cont, data_fields, tail_cont)."""
+    stripped = line.rstrip("\r\n")
+    if "," in stripped and not stripped.lstrip().startswith("$"):
+        # Free-field comma-separated
+        parts = [p.strip() for p in stripped.split(",")]
+        head = parts[0].strip()
+        return head, parts[1:9], parts[9] if len(parts) > 9 else ""
+
+    padded = stripped.ljust(80)
+    head = padded[0:8].strip()
+    if head.endswith("*"):
+        # Large-field: 4 x 16-char data fields (cols 9..72), continuation cols 73..80
+        fields = [padded[8 + 16 * i : 8 + 16 * (i + 1)].strip() for i in range(4)]
+        return head, fields, padded[72:80].strip()
+
+    # Small-field: 8 x 8-char data fields (cols 9..72), continuation cols 73..80
+    fields = [padded[8 + 8 * i : 8 + 8 * (i + 1)].strip() for i in range(8)]
+    return head, fields, padded[72:80].strip()
+
+
+def _group_nastran_cards(lines: list[str]) -> list[tuple[str, list[str]]]:
+    """Assemble logical NASTRAN bulk cards across small/large/free-field continuations."""
+    cards: list[tuple[str, list[str]]] = []
+    cur_name = ""
+    cur_fields: list[str] = []
+    in_bulk = False
+    has_begin_bulk = any(ln.strip().upper().startswith("BEGIN BULK") for ln in lines)
+
+    for raw_line in lines:
+        code_part = raw_line.split("$", 1)[0].rstrip("\r\n")
+        if not code_part.strip():
+            continue
+        upper = code_part.strip().upper()
+        if has_begin_bulk and not in_bulk:
+            if upper.startswith("BEGIN BULK"):
+                in_bulk = True
+            continue
+        if upper.startswith("ENDDATA"):
+            break
+
+        head, fields, _ = _split_nastran_line_fields(code_part)
+        is_cont = (
+            head == ""
+            or head == "*"
+            or head.startswith("+")
+            or (head.startswith("*") and len(head) > 1 and not head[:-1].isalpha())
+        )
+        if is_cont and cur_name:
+            cur_fields.extend(fields)
+        else:
+            if cur_name:
+                cards.append((cur_name, cur_fields))
+            cur_name = head.rstrip("*").upper()
+            cur_fields = list(fields)
+
+    if cur_name:
+        cards.append((cur_name, cur_fields))
+    return cards
+
+
+def parse_nastran_bdf(raw: bytes, source_hash: str) -> dict[str, Any]:
+    """Parse NASTRAN .bdf/.dat bulk data (GRID, FORCE, MOMENT, PLOAD4, CONM2, elements)."""
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1")
+
+    cards = _group_nastran_cards(text.splitlines())
+    if not cards:
+        raise IngestAbstain("empty_nastran_bulk")
+
+    grids: dict[str, dict[str, str]] = {}
+    grid_pts: list[tuple[Decimal, Decimal, Decimal]] = []
+    forces: list[dict[str, Any]] = []
+    moments: list[dict[str, Any]] = []
+    pload4s: list[dict[str, Any]] = []
+    elements: list[dict[str, Any]] = []
+    conm2_masses: list[dict[str, Any]] = []
+
+    def _f(fields: list[str], idx: int) -> str:
+        return fields[idx].strip() if idx < len(fields) else ""
+
+    for name, fields in cards:
+        if name == "GRID":
+            gid = _f(fields, 0)
+            cp = _f(fields, 1) or "0"
+            x = _nastran_dec(_f(fields, 2))
+            y = _nastran_dec(_f(fields, 3))
+            z = _nastran_dec(_f(fields, 4))
+            if gid and x is not None and y is not None and z is not None:
+                sx, sy, sz = decimal_str(x), decimal_str(y), decimal_str(z)
+                grids[gid] = {"id": gid, "cp": cp, "x": sx, "y": sy, "z": sz}
+                grid_pts.append((x, y, z))
+
+        elif name == "FORCE":
+            sid = _f(fields, 0) or "1"
+            gid = _f(fields, 1)
+            cid = _f(fields, 2) or "0"
+            scale = _nastran_dec(_f(fields, 3))
+            n1 = _nastran_dec(_f(fields, 4)) or Decimal(0)
+            n2 = _nastran_dec(_f(fields, 5)) or Decimal(0)
+            n3 = _nastran_dec(_f(fields, 6)) or Decimal(0)
+            if gid and scale is not None:
+                fx, fy, fz = scale * n1, scale * n2, scale * n3
+                mag = _decimal_hypot3(fx, fy, fz)
+                forces.append(
+                    {
+                        "sid": sid,
+                        "grid_id": gid,
+                        "cid": cid,
+                        "scale": decimal_str(scale),
+                        "direction": [decimal_str(n1), decimal_str(n2), decimal_str(n3)],
+                        "vector_n": [decimal_str(fx), decimal_str(fy), decimal_str(fz)],
+                        "magnitude_n": decimal_str(mag),
+                    }
+                )
+
+        elif name == "MOMENT":
+            sid = _f(fields, 0) or "1"
+            gid = _f(fields, 1)
+            cid = _f(fields, 2) or "0"
+            scale = _nastran_dec(_f(fields, 3))
+            n1 = _nastran_dec(_f(fields, 4)) or Decimal(0)
+            n2 = _nastran_dec(_f(fields, 5)) or Decimal(0)
+            n3 = _nastran_dec(_f(fields, 6)) or Decimal(0)
+            if gid and scale is not None:
+                mx, my, mz = scale * n1, scale * n2, scale * n3
+                mag = _decimal_hypot3(mx, my, mz)
+                moments.append(
+                    {
+                        "sid": sid,
+                        "grid_id": gid,
+                        "cid": cid,
+                        "scale": decimal_str(scale),
+                        "direction": [decimal_str(n1), decimal_str(n2), decimal_str(n3)],
+                        "vector_n_m": [decimal_str(mx), decimal_str(my), decimal_str(mz)],
+                        "magnitude_n_m": decimal_str(mag),
+                    }
+                )
+
+        elif name == "PLOAD4":
+            sid = _f(fields, 0) or "1"
+            eid = _f(fields, 1)
+            p1 = _nastran_dec(_f(fields, 2))
+            p2 = _nastran_dec(_f(fields, 3))
+            p3 = _nastran_dec(_f(fields, 4))
+            p4 = _nastran_dec(_f(fields, 5))
+            g1 = _f(fields, 6)
+            g34 = _f(fields, 7)
+            cid = _f(fields, 8) or "0"
+            n1 = _nastran_dec(_f(fields, 9))
+            n2 = _nastran_dec(_f(fields, 10))
+            n3 = _nastran_dec(_f(fields, 11))
+            if eid and p1 is not None:
+                pressures = [p for p in (p1, p2, p3, p4) if p is not None]
+                p_avg = sum(pressures, Decimal(0)) / Decimal(len(pressures))
+                pload4s.append(
+                    {
+                        "sid": sid,
+                        "eid": eid,
+                        "pressures": [decimal_str(p) for p in pressures],
+                        "mean_pressure": decimal_str(p_avg),
+                        "g1": g1,
+                        "g3_or_g4": g34,
+                        "cid": cid,
+                        "vector": (
+                            [decimal_str(n1), decimal_str(n2), decimal_str(n3)]
+                            if n1 is not None and n2 is not None and n3 is not None
+                            else None
+                        ),
+                    }
+                )
+
+        elif name == "CONM2":
+            eid = _f(fields, 0)
+            gid = _f(fields, 1)
+            cid = _f(fields, 2) or "0"
+            mass = _nastran_dec(_f(fields, 3))
+            ox = _nastran_dec(_f(fields, 4)) or Decimal(0)
+            oy = _nastran_dec(_f(fields, 5)) or Decimal(0)
+            oz = _nastran_dec(_f(fields, 6)) or Decimal(0)
+            if eid and gid and mass is not None:
+                base = grids.get(gid)
+                gx = Decimal(base["x"]) + ox if base else ox
+                gy = Decimal(base["y"]) + oy if base else oy
+                gz = Decimal(base["z"]) + oz if base else oz
+                conm2_masses.append(
+                    {
+                        "eid": eid,
+                        "grid_id": gid,
+                        "cid": cid,
+                        "mass": decimal_str(mass),
+                        "cg": [decimal_str(gx), decimal_str(gy), decimal_str(gz)],
+                    }
+                )
+
+        elif name in _NASTRAN_ELEM_CARDS:
+            eid = _f(fields, 0)
+            pid = _f(fields, 1)
+            node_ids = [f for f in fields[2:] if f and f.isdigit()]
+            if eid and node_ids:
+                elements.append({"eid": eid, "type": name, "pid": pid, "node_ids": node_ids})
+
+    if not grids and not forces and not moments and not pload4s:
+        raise IngestAbstain("empty_nastran_bulk")
+
+    # Summarize loads per SID
+    sids = sorted(
+        {f["sid"] for f in forces} | {m["sid"] for m in moments} | {p["sid"] for p in pload4s}
+    )
+    load_cases: list[dict[str, Any]] = []
+    for sid in sids:
+        sf = [f for f in forces if f["sid"] == sid]
+        sm = [m for m in moments if m["sid"] == sid]
+        sp = [p for p in pload4s if p["sid"] == sid]
+        fx = sum((Decimal(f["vector_n"][0]) for f in sf), Decimal(0))
+        fy = sum((Decimal(f["vector_n"][1]) for f in sf), Decimal(0))
+        fz = sum((Decimal(f["vector_n"][2]) for f in sf), Decimal(0))
+        mx = sum((Decimal(m["vector_n_m"][0]) for m in sm), Decimal(0))
+        my = sum((Decimal(m["vector_n_m"][1]) for m in sm), Decimal(0))
+        mz = sum((Decimal(m["vector_n_m"][2]) for m in sm), Decimal(0))
+        peak_f = max((Decimal(f["magnitude_n"]) for f in sf), default=Decimal(0))
+        peak_p = max((Decimal(p["mean_pressure"]) for p in sp), default=Decimal(0))
+        load_cases.append(
+            {
+                "sid": sid,
+                "force_count": len(sf),
+                "moment_count": len(sm),
+                "pload4_count": len(sp),
+                "total_force_n": [decimal_str(fx), decimal_str(fy), decimal_str(fz)],
+                "resultant_force_n": decimal_str(_decimal_hypot3(fx, fy, fz)),
+                "total_moment_n_m": [decimal_str(mx), decimal_str(my), decimal_str(mz)],
+                "peak_nodal_force_n": decimal_str(peak_f),
+                "peak_pload4_pressure": decimal_str(peak_p),
+            }
+        )
+
+    # Mass & CG from CONM2
+    cg_points: list[dict[str, Any]] = []
+    parameters: list[dict[str, Any]] = []
+    total_mass = sum((Decimal(c["mass"]) for c in conm2_masses), Decimal(0))
+    if total_mass > 0:
+        cx = (
+            sum((Decimal(c["mass"]) * Decimal(c["cg"][0]) for c in conm2_masses), Decimal(0))
+            / total_mass
+        )
+        cy = (
+            sum((Decimal(c["mass"]) * Decimal(c["cg"][1]) for c in conm2_masses), Decimal(0))
+            / total_mass
+        )
+        cz = (
+            sum((Decimal(c["mass"]) * Decimal(c["cg"][2]) for c in conm2_masses), Decimal(0))
+            / total_mass
+        )
+        cg_coords = [decimal_str(cx), decimal_str(cy), decimal_str(cz)]
+        cg_points.append(
+            {
+                "label": "NASTRAN_CONM2_CG",
+                "coords": cg_coords,
+                "unit": "m",
+                "source_kind": "nastran_conm2",
+            }
+        )
+        parameters.append(
+            make_param_entry(
+                path="NASTRAN\\CONM2\\mass_kg",
+                name="mass_kg",
+                value=decimal_str(total_mass),
+                unit="kg",
+                source_kind="nastran_bdf",
+            )
+        )
+        parameters.append(
+            make_param_entry(
+                path="NASTRAN\\CONM2\\cg_x_m",
+                name="cg_x_m",
+                value=cg_coords[0],
+                unit="m",
+                source_kind="nastran_bdf",
+            )
+        )
+
+    if load_cases:
+        lc0 = load_cases[0]
+        parameters.append(
+            make_param_entry(
+                path=f"NASTRAN\\SID_{lc0['sid']}\\resultant_force_n",
+                name="thrust_n",
+                value=lc0["resultant_force_n"],
+                unit="N",
+                source_kind="nastran_bdf",
+            )
+        )
+        # Shear (X-Y plane resultant) & tensile (Z) for fastener/bolt screening bindings
+        fx0, fy0, fz0 = (Decimal(v) for v in lc0["total_force_n"])
+        shear_xy = (fx0 * fx0 + fy0 * fy0).sqrt() if (fx0 != 0 or fy0 != 0) else Decimal(0)
+        parameters.append(
+            make_param_entry(
+                path=f"NASTRAN\\SID_{lc0['sid']}\\shear_force_n",
+                name="shear_force_n",
+                value=decimal_str(shear_xy),
+                unit="N",
+                source_kind="nastran_bdf",
+            )
+        )
+        parameters.append(
+            make_param_entry(
+                path=f"NASTRAN\\SID_{lc0['sid']}\\tensile_force_n",
+                name="tensile_force_n",
+                value=decimal_str(fz0.copy_abs()),
+                unit="N",
+                source_kind="nastran_bdf",
+            )
+        )
+
+    bbox, geo_centroid = compute_bbox_and_centroid(grid_pts)
+    if not cg_points and geo_centroid is not None:
+        cg_points.append(
+            {
+                "label": "NASTRAN_Mesh_Centroid_ESTIMATE",
+                "coords": geo_centroid,
+                "unit": "m",
+                "source_kind": "nastran_estimate",
+            }
+        )
+
+    block_lines = [
+        f"NASTRAN Bulk Data: GRID={len(grids)}, ELEMENTS={len(elements)}, "
+        f"FORCE={len(forces)}, MOMENT={len(moments)}, PLOAD4={len(pload4s)}, "
+        f"CONM2={len(conm2_masses)}"
+    ]
+    for lc in load_cases:
+        block_lines.append(
+            f"NASTRAN SID={lc['sid']}: Resultant={lc['resultant_force_n']} N "
+            f"F={lc['total_force_n']} M={lc['total_moment_n_m']} PLOAD4={lc['pload4_count']}"
+        )
+
+    blocks: list[Block] = []
+    offset = 0
+    for line in block_lines:
+        blocks.append(
+            Block(
+                text=line,
+                span_start=offset,
+                span_end=offset + len(line),
+                source_hash=source_hash,
+                block_kind="nastran_bdf",
+            )
+        )
+        offset += len(line) + 1
+
+    return {
+        "format": "nastran_bdf",
+        "mesh": {
+            "node_count": len(grids),
+            "element_count": len(elements),
+            "nodes": list(grids.values())[:2500],
+            "elements": elements[:2500],
+            "bbox": bbox,
+        },
+        "loads": {
+            "forces": forces,
+            "moments": moments,
+            "pload4": pload4s,
+            "load_cases": load_cases,
+        },
+        "masses": conm2_masses,
+        "cg_points": cg_points,
+        "parameters": parameters,
+        "blocks": blocks,
+    }
+
+
+def _split_abaqus_logical_lines(text: str) -> list[str]:
+    """Join Abaqus comma-continued lines and strip ** comments."""
+    logical: list[str] = []
+    buf = ""
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("**"):
+            continue
+        if stripped.startswith("*"):
+            if buf:
+                logical.append(buf)
+                buf = ""
+            logical.append(stripped)
+            continue
+        if buf:
+            buf += " " + stripped
+        else:
+            buf = stripped
+        if not stripped.endswith(","):
+            logical.append(buf)
+            buf = ""
+    if buf:
+        logical.append(buf)
+    return logical
+
+
+def _parse_abaqus_header(line: str) -> tuple[str, dict[str, str]]:
+    parts = [p.strip() for p in line.split(",") if p.strip()]
+    kw = parts[0].upper()
+    params: dict[str, str] = {}
+    for item in parts[1:]:
+        if "=" in item:
+            k, v = item.split("=", 1)
+            params[k.strip().upper()] = v.strip()
+        else:
+            params[item.upper()] = "true"
+    return kw, params
+
+
+def parse_abaqus_inp(raw: bytes, source_hash: str) -> dict[str, Any]:
+    """Parse ABAQUS .inp mesh, sets, boundary conditions, *MASS, and *CLOAD/*DLOAD/*DSLOAD."""
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1")
+
+    lines = _split_abaqus_logical_lines(text)
+    if not lines:
+        raise IngestAbstain("empty_abaqus_inp")
+
+    nodes: dict[str, dict[str, str]] = {}
+    node_pts: list[tuple[Decimal, Decimal, Decimal]] = []
+    elements: list[dict[str, Any]] = []
+    nsets: dict[str, list[str]] = {}
+    elsets: dict[str, list[str]] = {}
+    cloads: list[dict[str, Any]] = []
+    dloads: list[dict[str, Any]] = []
+    masses: list[dict[str, Any]] = []
+    boundaries: list[dict[str, Any]] = []
+    heading_lines: list[str] = []
+
+    current_kw = ""
+    current_params: dict[str, str] = {}
+    current_step = "STEP_0"
+    step_idx = 0
+
+    for line in lines:
+        if line.startswith("*"):
+            current_kw, current_params = _parse_abaqus_header(line)
+            if current_kw == "*STEP":
+                step_idx += 1
+                current_step = current_params.get("NAME") or f"STEP_{step_idx}"
+            elif current_kw == "*END STEP":
+                current_step = "MODEL"
+            continue
+
+        fields = [f.strip() for f in line.split(",") if f.strip() != ""]
+        if not fields:
+            continue
+
+        if current_kw == "*HEADING":
+            heading_lines.append(line)
+
+        elif current_kw == "*NODE" and len(fields) >= 3:
+            nid = fields[0]
+            x = parse_decimal_str(fields[1])
+            y = parse_decimal_str(fields[2])
+            z = parse_decimal_str(fields[3]) if len(fields) > 3 else "0"
+            if nid and x is not None and y is not None and z is not None:
+                nodes[nid] = {"id": nid, "x": x, "y": y, "z": z}
+                node_pts.append((Decimal(x), Decimal(y), Decimal(z)))
+                nset_name = current_params.get("NSET")
+                if nset_name:
+                    nsets.setdefault(nset_name.upper(), []).append(nid)
+
+        elif current_kw == "*ELEMENT" and len(fields) >= 2:
+            eid = fields[0]
+            etype = current_params.get("TYPE", "UNKNOWN")
+            conn = fields[1:]
+            elements.append({"eid": eid, "type": etype, "node_ids": conn})
+            elset_name = current_params.get("ELSET")
+            if elset_name:
+                elsets.setdefault(elset_name.upper(), []).append(eid)
+
+        elif current_kw == "*NSET":
+            sname = current_params.get("NSET", "").upper()
+            if sname:
+                bucket = nsets.setdefault(sname, [])
+                if "GENERATE" in current_params and len(fields) >= 2:
+                    try:
+                        start, stop = int(fields[0]), int(fields[1])
+                        step = int(fields[2]) if len(fields) > 2 else 1
+                        bucket.extend(str(i) for i in range(start, stop + 1, max(1, step)))
+                    except ValueError:
+                        pass
+                else:
+                    bucket.extend(fields)
+
+        elif current_kw == "*ELSET":
+            sname = current_params.get("ELSET", "").upper()
+            if sname:
+                bucket = elsets.setdefault(sname, [])
+                if "GENERATE" in current_params and len(fields) >= 2:
+                    try:
+                        start, stop = int(fields[0]), int(fields[1])
+                        step = int(fields[2]) if len(fields) > 2 else 1
+                        bucket.extend(str(i) for i in range(start, stop + 1, max(1, step)))
+                    except ValueError:
+                        pass
+                else:
+                    bucket.extend(fields)
+
+        elif current_kw == "*MASS":
+            elset_ref = current_params.get("ELSET", "").upper()
+            mval = parse_decimal_str(fields[0])
+            if mval is not None:
+                target_eids = elsets.get(elset_ref, [elset_ref or "MASS"])
+                for teid in target_eids:
+                    # Find element node if exists
+                    elem = next((e for e in elements if e["eid"] == teid), None)
+                    nid = elem["node_ids"][0] if elem and elem["node_ids"] else teid
+                    n_rec = nodes.get(nid)
+                    cg = [n_rec["x"], n_rec["y"], n_rec["z"]] if n_rec else ["0", "0", "0"]
+                    masses.append({"eid": teid, "elset": elset_ref, "mass": mval, "cg": cg})
+
+        elif current_kw == "*CLOAD" and len(fields) >= 3:
+            target = fields[0]
+            try:
+                dof = int(fields[1])
+            except ValueError:
+                continue
+            mag = parse_decimal_str(fields[2])
+            if mag is None:
+                continue
+            expanded_nodes = nsets.get(target.upper(), [target])
+            cloads.append(
+                {
+                    "step": current_step,
+                    "target": target,
+                    "node_count": len(expanded_nodes),
+                    "dof": dof,
+                    "magnitude": mag,
+                }
+            )
+
+        elif current_kw in {"*DLOAD", "*DSLOAD"} and len(fields) >= 3:
+            target = fields[0]
+            load_type = fields[1]
+            mag = parse_decimal_str(fields[2])
+            if mag is not None:
+                dloads.append(
+                    {
+                        "step": current_step,
+                        "keyword": current_kw,
+                        "target": target,
+                        "load_type": load_type,
+                        "magnitude": mag,
+                    }
+                )
+
+        elif current_kw == "*BOUNDARY" and len(fields) >= 2:
+            boundaries.append({"target": fields[0], "dofs": fields[1:]})
+
+    if not nodes and not cloads and not dloads and not masses:
+        raise IngestAbstain("empty_abaqus_inp")
+
+    # Summarize *CLOAD resultants per step
+    steps = sorted({c["step"] for c in cloads} | {d["step"] for d in dloads})
+    load_cases: list[dict[str, Any]] = []
+    for st in steps:
+        sc = [c for c in cloads if c["step"] == st]
+        sd = [d for d in dloads if d["step"] == st]
+        fx = sum(
+            (Decimal(c["magnitude"]) * c["node_count"] for c in sc if c["dof"] == 1), Decimal(0)
+        )
+        fy = sum(
+            (Decimal(c["magnitude"]) * c["node_count"] for c in sc if c["dof"] == 2), Decimal(0)
+        )
+        fz = sum(
+            (Decimal(c["magnitude"]) * c["node_count"] for c in sc if c["dof"] == 3), Decimal(0)
+        )
+        mx = sum(
+            (Decimal(c["magnitude"]) * c["node_count"] for c in sc if c["dof"] == 4), Decimal(0)
+        )
+        my = sum(
+            (Decimal(c["magnitude"]) * c["node_count"] for c in sc if c["dof"] == 5), Decimal(0)
+        )
+        mz = sum(
+            (Decimal(c["magnitude"]) * c["node_count"] for c in sc if c["dof"] == 6), Decimal(0)
+        )
+        load_cases.append(
+            {
+                "step": st,
+                "cload_count": len(sc),
+                "dload_count": len(sd),
+                "total_force_n": [decimal_str(fx), decimal_str(fy), decimal_str(fz)],
+                "resultant_force_n": decimal_str(_decimal_hypot3(fx, fy, fz)),
+                "total_moment_n_m": [decimal_str(mx), decimal_str(my), decimal_str(mz)],
+            }
+        )
+
+    cg_points: list[dict[str, Any]] = []
+    parameters: list[dict[str, Any]] = []
+    total_mass = sum((Decimal(m["mass"]) for m in masses), Decimal(0))
+    if total_mass > 0:
+        cx = (
+            sum((Decimal(m["mass"]) * Decimal(m["cg"][0]) for m in masses), Decimal(0)) / total_mass
+        )
+        cy = (
+            sum((Decimal(m["mass"]) * Decimal(m["cg"][1]) for m in masses), Decimal(0)) / total_mass
+        )
+        cz = (
+            sum((Decimal(m["mass"]) * Decimal(m["cg"][2]) for m in masses), Decimal(0)) / total_mass
+        )
+        cg_coords = [decimal_str(cx), decimal_str(cy), decimal_str(cz)]
+        cg_points.append(
+            {
+                "label": "ABAQUS_MASS_CG",
+                "coords": cg_coords,
+                "unit": "m",
+                "source_kind": "abaqus_mass",
+            }
+        )
+        parameters.append(
+            make_param_entry(
+                path="ABAQUS\\MASS\\mass_kg",
+                name="mass_kg",
+                value=decimal_str(total_mass),
+                unit="kg",
+                source_kind="abaqus_inp",
+            )
+        )
+        parameters.append(
+            make_param_entry(
+                path="ABAQUS\\MASS\\cg_x_m",
+                name="cg_x_m",
+                value=cg_coords[0],
+                unit="m",
+                source_kind="abaqus_inp",
+            )
+        )
+
+    if load_cases:
+        lc0 = load_cases[0]
+        parameters.append(
+            make_param_entry(
+                path=f"ABAQUS\\{lc0['step']}\\resultant_force_n",
+                name="thrust_n",
+                value=lc0["resultant_force_n"],
+                unit="N",
+                source_kind="abaqus_inp",
+            )
+        )
+        fx0, fy0, fz0 = (Decimal(v) for v in lc0["total_force_n"])
+        shear_xy = (fx0 * fx0 + fy0 * fy0).sqrt() if (fx0 != 0 or fy0 != 0) else Decimal(0)
+        parameters.append(
+            make_param_entry(
+                path=f"ABAQUS\\{lc0['step']}\\shear_force_n",
+                name="shear_force_n",
+                value=decimal_str(shear_xy),
+                unit="N",
+                source_kind="abaqus_inp",
+            )
+        )
+        parameters.append(
+            make_param_entry(
+                path=f"ABAQUS\\{lc0['step']}\\tensile_force_n",
+                name="tensile_force_n",
+                value=decimal_str(fz0.copy_abs()),
+                unit="N",
+                source_kind="abaqus_inp",
+            )
+        )
+
+    bbox, geo_centroid = compute_bbox_and_centroid(node_pts)
+    if not cg_points and geo_centroid is not None:
+        cg_points.append(
+            {
+                "label": "ABAQUS_Mesh_Centroid_ESTIMATE",
+                "coords": geo_centroid,
+                "unit": "m",
+                "source_kind": "abaqus_estimate",
+            }
+        )
+
+    block_lines = [
+        f"ABAQUS Input: {' '.join(heading_lines) or 'Model'} | NODES={len(nodes)}, "
+        f"ELEMENTS={len(elements)}, CLOAD={len(cloads)}, DLOAD={len(dloads)}, MASS={len(masses)}"
+    ]
+    for lc in load_cases:
+        block_lines.append(
+            f"ABAQUS {lc['step']}: Resultant={lc['resultant_force_n']} N "
+            f"F={lc['total_force_n']} M={lc['total_moment_n_m']}"
+        )
+
+    blocks: list[Block] = []
+    offset = 0
+    for line in block_lines:
+        blocks.append(
+            Block(
+                text=line,
+                span_start=offset,
+                span_end=offset + len(line),
+                source_hash=source_hash,
+                block_kind="abaqus_inp",
+            )
+        )
+        offset += len(line) + 1
+
+    return {
+        "format": "abaqus_inp",
+        "heading": " ".join(heading_lines),
+        "mesh": {
+            "node_count": len(nodes),
+            "element_count": len(elements),
+            "nodes": list(nodes.values())[:2500],
+            "elements": elements[:2500],
+            "nsets": {k: len(v) for k, v in nsets.items()},
+            "elsets": {k: len(v) for k, v in elsets.items()},
+            "bbox": bbox,
+        },
+        "loads": {
+            "cloads": cloads,
+            "dloads": dloads,
+            "boundaries": boundaries,
+            "load_cases": load_cases,
+        },
+        "masses": masses,
+        "cg_points": cg_points,
+        "parameters": parameters,
+        "blocks": blocks,
+    }

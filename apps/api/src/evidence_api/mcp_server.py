@@ -9,71 +9,30 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import sys
 from pathlib import Path
 from typing import Any
 
-from evidence_calc.diagnostics import classify_numeric_delta
-from evidence_calc.errors import AbstainError
-from evidence_calc.registry import cards_dir, load_card, run_method
-from evidence_coverage.dossier import (
-    active_calc_records,
-    build_enterprise_dossier,
-    export_oscal_sar,
-    export_strictdoc,
-)
-from evidence_coverage.formal_bounds import prove_continuous_flight_envelope
-from evidence_coverage.gate import evaluate_traceability_gate
-from evidence_coverage.grid import generate_cells
-from evidence_coverage.status import (
-    gap_report,
-    invalidate_mass_shift,
-    list_cells_with_status,
-    run_coverage_sweep,
-    set_cell_status,
-)
-from evidence_eval.agent_live_bench import compare_baseline_vs_evidence_layer
-from evidence_eval.detect import assess
-from evidence_eval.faults import clean_artifact, inject
-from evidence_ingest.blocks import IngestAbstain
-from evidence_ingest.router import ingest_bytes
-from evidence_kernel.__main__ import verify_zip_bundle
-from evidence_kernel.edge import (
-    EDGE_PRESETS,
-    edge_deployment_recipe,
-    preflight_edge_screening,
-)
-from evidence_kernel.formal import SMTSolverProofEngine
-from evidence_kernel.gateway import (
-    BudgetedGateway,
-    FixtureGateway,
-    describe_agent_runtime,
-    gateway_from_env,
-    probe_gateway_health,
-)
-from evidence_kernel.guardrails import (
-    check_output_safety,
-    check_structure_safety,
-    check_text_safety,
-)
-from evidence_kernel.ledger import SIGN_OFF_STATEMENT, LedgerError, verify_chain_document
-from evidence_kernel.merkle import inclusion_proof
-from evidence_kernel.orchestrator import record
 from evidence_kernel.paths import repo_root
-from evidence_kernel.supervisor import CaseSpec, run_case
+
+logger = logging.getLogger(__name__)
 
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-03-26", "2024-11-05")
 SERVER_INFO = {"name": "aeroregu-evidence-layer", "version": "0.1.0"}
 
 
 def _all_calc_cards() -> list[dict[str, Any]]:
+    from evidence_calc.registry import cards_dir, load_card
+
     cards: list[dict[str, Any]] = []
     for path in sorted(cards_dir().glob("*.json")):
         method_id = path.stem
         try:
             cards.append(load_card(method_id))
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to load calculation card %s: %s", path, exc)
             continue
     return cards
 
@@ -93,6 +52,9 @@ def run_formal_proof_for_method(
     formal_bounds: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run dual Z3+cvc5 formal proof matching the calculation method and inputs."""
+    from evidence_coverage.formal_bounds import prove_continuous_flight_envelope
+    from evidence_kernel.formal import SMTSolverProofEngine
+
     bounds = formal_bounds or {}
     if method_id == "rigid_body_point_mass":
         mass_range = _pair_bounds(
@@ -515,6 +477,45 @@ MCP_TOOLS: tuple[dict[str, Any], ...] = (
             },
         },
     },
+    {
+        "name": "evidence_cad_cae_ingest",
+        "description": (
+            "Ingest and extract STEP AP242 (+ GD&T/PMI), IGES 5.3, CATIA XML/.CATPart/.CATProduct "
+            "Knowledgeware trees, NASTRAN .bdf/.dat, or ABAQUS .inp FEM models and bind parameters "
+            "to verified Decimal calculation cards."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["filename"],
+            "properties": {
+                "filename": {"type": "string"},
+                "content_text": {"type": "string"},
+                "content_base64": {"type": "string"},
+                "auto_run": {"type": "boolean", "default": True},
+            },
+        },
+    },
+    {
+        "name": "evidence_envelope_3d",
+        "description": (
+            "Build deterministic 3D V-n flight envelope surface, [X_cg, Y_cg, Z_cg] CG cloud, "
+            "and SMT continuous bounds (with optional CAD/FEM CG overlay points)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "tenant_id": {"type": "string", "default": "demo"},
+                "wing_area_m2": {"type": "string", "default": "12.000"},
+                "v_c_mps": {"type": "string", "default": "65.000"},
+                "v_d_mps": {"type": "string", "default": "82.000"},
+                "nz_max": {"type": "string", "default": "2.500"},
+                "nz_min": {"type": "string", "default": "-1.000"},
+                "cad_cg_points": {"type": "array", "items": {"type": "object"}},
+            },
+        },
+    },
 )
 
 MCP_RESOURCES: tuple[dict[str, Any], ...] = (
@@ -657,8 +658,57 @@ def _call_tool(
     require_auth_for_writes: bool = False,
     is_authenticated: bool = True,
 ) -> tuple[bool, dict[str, Any]]:
+    from evidence_calc.cad_bindings import bind_parameters_to_cards
+    from evidence_calc.diagnostics import classify_numeric_delta
+    from evidence_calc.errors import AbstainError
+    from evidence_calc.registry import run_method
+    from evidence_coverage.dossier import (
+        active_calc_records,
+        build_enterprise_dossier,
+        export_oscal_sar,
+        export_strictdoc,
+    )
+    from evidence_coverage.envelope_3d import build_vn_cg_envelope_3d
+    from evidence_coverage.formal_bounds import prove_continuous_flight_envelope
+    from evidence_coverage.gate import evaluate_traceability_gate
+    from evidence_coverage.grid import generate_cells
+    from evidence_coverage.status import (
+        gap_report,
+        invalidate_mass_shift,
+        list_cells_with_status,
+        run_coverage_sweep,
+        set_cell_status,
+    )
+    from evidence_eval.agent_live_bench import compare_baseline_vs_evidence_layer
+    from evidence_eval.detect import assess
+    from evidence_eval.faults import clean_artifact, inject
     from evidence_eval.redteam import run_redteam_suite
+    from evidence_ingest.blocks import IngestAbstain
+    from evidence_ingest.router import ingest_bytes
+    from evidence_kernel.__main__ import verify_zip_bundle
+    from evidence_kernel.edge import (
+        EDGE_PRESETS,
+        edge_deployment_recipe,
+        preflight_edge_screening,
+    )
     from evidence_kernel.envelope import make_envelope, project_source
+    from evidence_kernel.formal import SMTSolverProofEngine
+    from evidence_kernel.gateway import (
+        BudgetedGateway,
+        FixtureGateway,
+        describe_agent_runtime,
+        gateway_from_env,
+        probe_gateway_health,
+    )
+    from evidence_kernel.guardrails import (
+        check_output_safety,
+        check_structure_safety,
+        check_text_safety,
+    )
+    from evidence_kernel.ledger import SIGN_OFF_STATEMENT, LedgerError, verify_chain_document
+    from evidence_kernel.merkle import inclusion_proof
+    from evidence_kernel.orchestrator import record
+    from evidence_kernel.supervisor import CaseSpec, run_case
 
     from evidence_api.app import (
         MAX_INGEST_BYTES,
@@ -677,6 +727,7 @@ def _call_tool(
             "evidence_verify_case",
             "evidence_ledger_signoff",
             "evidence_coverage_sweep",
+            "evidence_formal_prove",
         } or (
             name in {"evidence_calc_run", "evidence_ingest_document"}
             and bool(arguments.get("record"))
@@ -947,9 +998,13 @@ def _call_tool(
             return True, {"error": "missing_bundle_path"}
         home_root = evidence_home().resolve()
         exports_root = (home_root / "exports").resolve()
-        target = _confine_path(raw_bundle, allowed_roots=(home_root,), default_dir=exports_root)
+        keys_root = (home_root / ".keys").resolve()
+        target = _confine_path(raw_bundle, allowed_roots=(exports_root,), default_dir=exports_root)
         if target is None:
-            return True, {"error": "path_outside_allowed_root", "allowed_root": str(home_root)}
+            return True, {
+                "error": "path_outside_allowed_root",
+                "allowed_root": str(exports_root),
+            }
         if not target.is_file():
             return True, {"error": "file_not_found", "path": str(target)}
         if target.stat().st_size > MAX_BUNDLE_VERIFY_BYTES:
@@ -959,19 +1014,23 @@ def _call_tool(
             if arguments.get("public_key_path"):
                 key_path = _confine_path(
                     str(arguments["public_key_path"]),
-                    allowed_roots=(home_root,),
-                    default_dir=home_root / ".keys",
+                    allowed_roots=(keys_root,),
+                    default_dir=keys_root,
                 )
                 if key_path is None:
                     return True, {
                         "error": "path_outside_allowed_root",
-                        "allowed_root": str(home_root),
+                        "allowed_root": str(keys_root),
                     }
+                if key_path.name.endswith(".key.pem") or not key_path.name.endswith(".pem"):
+                    return True, {"error": "invalid_public_key_path"}
                 if not key_path.is_file():
                     return True, {"error": "public_key_not_found", "path": str(key_path)}
                 if key_path.stat().st_size > 1024 * 64:
                     return True, {"error": "public_key_too_large"}
                 pub_pem = key_path.read_bytes()
+                if b"PRIVATE KEY" in pub_pem:
+                    return True, {"error": "invalid_public_key_contents"}
             ok, report = verify_zip_bundle(target, public_key_pem=pub_pem)
             return not ok, report
         try:
@@ -1248,10 +1307,62 @@ def _call_tool(
             is_live=False,
         )
 
+    if name == "evidence_cad_cae_ingest":
+        filename = str(arguments.get("filename") or "model.stp")
+        if arguments.get("content_base64") is not None:
+            try:
+                raw = base64.b64decode(str(arguments["content_base64"]), validate=True)
+            except Exception:
+                return True, {"error": "invalid_base64"}
+        elif arguments.get("content_text") is not None:
+            raw = str(arguments["content_text"]).encode("utf-8")
+        else:
+            return True, {"error": "provide content_text or content_base64"}
+        try:
+            parsed = ingest_bytes(raw, filename)
+        except IngestAbstain as exc:
+            return True, {"error": exc.reason}
+        cad_cae = parsed.get("cad_cae")
+        if not isinstance(cad_cae, dict):
+            return True, {"error": "not_cad_cae_media"}
+        bindings = bind_parameters_to_cards(
+            list(cad_cae.get("parameters") or []),
+            formulas=list(cad_cae.get("formulas") or []),
+            auto_run=bool(arguments.get("auto_run", True)),
+        )
+        return False, {
+            "filename": parsed["filename"],
+            "media_type": parsed["media_type"],
+            "source_hash": parsed["source_hash"],
+            "cad_cae": cad_cae,
+            "bindings": bindings,
+        }
+
+    if name == "evidence_envelope_3d":
+        tenant_id = _validate_tenant(arguments.get("tenant_id") or "demo")
+        if tenant_id is None:
+            return True, {"error": "invalid_tenant"}
+        ledger = open_ledger(tenant_id)
+        payload = build_vn_cg_envelope_3d(
+            ledger.events(),
+            cad_cg_points=arguments.get("cad_cg_points"),
+            wing_area_m2=str(arguments.get("wing_area_m2") or "12.000"),
+            v_c_mps=str(arguments.get("v_c_mps") or "65.000"),
+            v_d_mps=str(arguments.get("v_d_mps") or "82.000"),
+            nz_max=str(arguments.get("nz_max") or "2.500"),
+            nz_min=str(arguments.get("nz_min") or "-1.000"),
+        )
+        return False, payload
+
     return True, {"error": f"unknown_tool: {name}"}
 
 
 def _read_resource(uri: str) -> tuple[str, str]:
+    from evidence_coverage.dossier import build_enterprise_dossier, export_oscal_sar
+    from evidence_coverage.gate import evaluate_traceability_gate
+    from evidence_coverage.status import gap_report
+    from evidence_kernel.gateway import describe_agent_runtime
+
     from evidence_api.app import _attestation_keypair, _validate_tenant, open_ledger
 
     if uri == "aeroregu://runtime/status":

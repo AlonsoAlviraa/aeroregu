@@ -13,68 +13,11 @@ from pathlib import Path
 from typing import Any
 
 import typer
-import uvicorn
-from evidence_calc.diagnostics import classify_numeric_delta
-from evidence_calc.errors import AbstainError
-from evidence_calc.registry import cards_dir, load_card, run_method
-from evidence_coverage.dossier import (
-    build_enterprise_dossier,
-    export_oscal_sar,
-    export_strictdoc,
-)
-from evidence_coverage.gate import evaluate_traceability_gate
-from evidence_coverage.status import gap_report, list_cells_with_status, run_coverage_sweep
-from evidence_ingest.blocks import IngestAbstain
-from evidence_ingest.router import ingest_bytes
-from evidence_kernel.__main__ import verify_zip_bundle
-from evidence_kernel.gateway import (
-    BudgetedGateway,
-    FixtureGateway,
-    HybridAgentRouter,
-    OllamaEdgeGateway,
-    OpenAICompatibleGateway,
-    describe_agent_runtime,
-    gateway_from_env,
-    probe_gateway_health,
-)
-from evidence_kernel.guardrails import (
-    check_output_safety,
-    check_text_safety,
-)
-from evidence_kernel.ledger import (
-    GENESIS,
-    SIGN_OFF_STATEMENT,
-    LedgerError,
-    verify_chain_document,
-)
-from evidence_kernel.orchestrator import record
-from evidence_kernel.supervisor import CaseSpec, run_case
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
-from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
-
-from evidence_api.app import (
-    MAX_INGEST_BYTES,
-    _attestation_keypair,
-    _now,
-    _secret,
-    _validate_tenant,
-    _zip_bytes,
-    evidence_home,
-    open_ledger,
-)
-from evidence_api.mcp_server import (
-    MCP_PROMPTS,
-    MCP_RESOURCES,
-    MCP_TOOLS,
-    build_mcp_client_config,
-    run_formal_proof_for_method,
-    serve_stdio,
-)
-from evidence_api.wizard import prompt_method_inputs, run_interactive_hub
 
 app = typer.Typer(
     name="aeroregu",
@@ -93,6 +36,7 @@ dossier_app = typer.Typer(help="Enterprise certification dossier, StrictDOC & NI
 security_app = typer.Typer(help="Guardrail scanner and Red-Team adversarial benchmark.")
 bench_app = typer.Typer(help="Run B2 baseline comparisons and live/edge agent benchmarks.")
 mcp_app = typer.Typer(help="Model Context Protocol (MCP) stdio server, inspector & client configs.")
+cad_app = typer.Typer(help="CAD/CAE connectors (STEP AP242, IGES, CATIA, NASTRAN, ABAQUS).")
 
 app.add_typer(calc_app, name="calc")
 app.add_typer(bundle_app, name="bundle")
@@ -102,6 +46,7 @@ app.add_typer(dossier_app, name="dossier")
 app.add_typer(security_app, name="security")
 app.add_typer(bench_app, name="bench")
 app.add_typer(mcp_app, name="mcp")
+app.add_typer(cad_app, name="cad")
 
 
 @app.callback(invoke_without_command=True)
@@ -110,6 +55,8 @@ def _root_callback(ctx: typer.Context) -> None:
     if ctx.invoked_subcommand is not None:
         return
     if sys.stdin.isatty() and sys.stdout.isatty():
+        from evidence_api.wizard import run_interactive_hub
+
         run_interactive_hub(
             console,
             lambda: quickstart_cmd(tenant="quickstart-demo", output_zip=None),
@@ -160,6 +107,8 @@ def _pkg_ver(name: str) -> str:
 
 
 def _tenant_or_exit(tenant_id: str) -> str:
+    from evidence_api.app import _validate_tenant
+
     checked = _validate_tenant(tenant_id)
     if checked is None:
         err_console.print(f"[red]Invalid tenant_id:[/red] {tenant_id!r}")
@@ -173,6 +122,11 @@ def doctor(
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """Diagnose solvers, cryptography, agent gateways, and production readiness."""
+    from evidence_kernel.gateway import describe_agent_runtime, probe_gateway_health
+
+    from evidence_api.app import _attestation_keypair, _secret, evidence_home
+    from evidence_api.mcp_server import MCP_RESOURCES, MCP_TOOLS
+
     runtime = describe_agent_runtime()
     probed = probe_gateway_health(target="all", timeout_s=2.0) if probe else None
     _, pub_pem = _attestation_keypair()
@@ -249,6 +203,12 @@ def ingest_cmd(
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """Ingest engineering/regulatory specs with exact spans, page numbers, and PDF bboxes."""
+    from evidence_ingest.blocks import IngestAbstain
+    from evidence_ingest.router import ingest_bytes
+    from evidence_kernel.orchestrator import record
+
+    from evidence_api.app import MAX_INGEST_BYTES, _now, open_ledger
+
     raw = file.read_bytes()
     if len(raw) > MAX_INGEST_BYTES:
         err_console.print(f"[red]Payload exceeds MAX_INGEST_BYTES ({MAX_INGEST_BYTES})[/red]")
@@ -332,6 +292,8 @@ def calc_list(
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """List certified deterministic Decimal calculation method cards."""
+    from evidence_calc.registry import cards_dir, load_card
+
     cards = [load_card(p.stem) for p in sorted(cards_dir().glob("*.json"))]
     if _wants_json(json_out):
         _emit_json({"methods": cards})
@@ -393,6 +355,15 @@ def calc_run_cmd(
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """Execute deterministic Decimal math + Flint interval bounds + optional SMT proof."""
+    from evidence_calc.diagnostics import classify_numeric_delta
+    from evidence_calc.errors import AbstainError
+    from evidence_calc.registry import load_card, run_method
+    from evidence_kernel.orchestrator import record
+
+    from evidence_api.app import _now, open_ledger
+    from evidence_api.mcp_server import run_formal_proof_for_method
+    from evidence_api.wizard import prompt_method_inputs
+
     try:
         parsed_inputs = _load_json_arg(inputs) if inputs else {}
         parsed_inputs.update(_parse_kv_pairs(set_values))
@@ -516,6 +487,12 @@ def verify_case_cmd(
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """Run the full supervised multi-agent verification pipeline (citations + math + proof)."""
+    from evidence_ingest.router import ingest_bytes
+    from evidence_kernel.gateway import gateway_from_env
+    from evidence_kernel.supervisor import CaseSpec, run_case
+
+    from evidence_api.app import _now, open_ledger
+
     checked = _tenant_or_exit(tenant)
     if file is not None:
         parsed = ingest_bytes(file.read_bytes(), file.name)
@@ -609,6 +586,10 @@ def bundle_export(
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """Export a 100% DSSE Ed25519 signed audit dossier ZIP and immediately verify it."""
+    from evidence_kernel.__main__ import verify_zip_bundle
+
+    from evidence_api.app import _zip_bytes, open_ledger
+
     checked = _tenant_or_exit(tenant)
     ledger = open_ledger(checked)
     blob = _zip_bytes(ledger.events())
@@ -650,6 +631,9 @@ def bundle_verify(
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """Off-line verification of ledger hash chain, Merkle root, and DSSE Ed25519 signature."""
+    from evidence_kernel.__main__ import verify_zip_bundle
+    from evidence_kernel.ledger import verify_chain_document
+
     if path.suffix.lower() == ".zip" or zipfile.is_zipfile(path):
         pub_pem = public_key.read_bytes() if public_key else None
         ok, report = verify_zip_bundle(path, public_key_pem=pub_pem)
@@ -686,6 +670,8 @@ def ledger_status(
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """Show ledger integrity, head hash, Merkle root, and review counts."""
+    from evidence_api.app import open_ledger
+
     checked = _tenant_or_exit(tenant)
     ledger = open_ledger(checked)
     events = ledger.events()
@@ -711,6 +697,8 @@ def ledger_log(
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """Display recent tamper-evident ledger events."""
+    from evidence_api.app import open_ledger
+
     checked = _tenant_or_exit(tenant)
     events = open_ledger(checked).events()[-limit:]
     rows = [
@@ -753,6 +741,10 @@ def ledger_signoff_cmd(
 ) -> None:
     """Record an immutable human engineer sign-off event with optional review timing."""
     from evidence_kernel.envelope import make_envelope, project_source
+    from evidence_kernel.ledger import GENESIS, SIGN_OFF_STATEMENT, LedgerError
+    from evidence_kernel.orchestrator import record
+
+    from evidence_api.app import _now, open_ledger
 
     checked = _tenant_or_exit(tenant)
     ledger = open_ledger(checked)
@@ -808,6 +800,8 @@ def ledger_metrics_cmd(
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """Display human pilot sign-off counts and review latency summary."""
+    from evidence_api.app import open_ledger
+
     checked = _tenant_or_exit(tenant)
     events = open_ledger(checked).events()
     signoffs = [ev for ev in events if ev["body"]["event_type"] == "human_signoff"]
@@ -839,6 +833,8 @@ def security_scan(
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """Scan prompts, documents, or LLM outputs for injection, secrets, or PII."""
+    from evidence_kernel.guardrails import check_output_safety, check_text_safety
+
     content = file.read_text(encoding="utf-8") if file else (text or "")
     if not content:
         err_console.print("[red]Provide --text or --file.[/red]")
@@ -899,6 +895,13 @@ def _bench_gw_factory(
     timeout_s: float,
 ):
     from evidence_kernel.constrained import OutlinesGuidedGateway
+    from evidence_kernel.gateway import (
+        BudgetedGateway,
+        FixtureGateway,
+        HybridAgentRouter,
+        OllamaEdgeGateway,
+        OpenAICompatibleGateway,
+    )
 
     def _make():
         if mode == "fixture":
@@ -993,6 +996,8 @@ def bench_live(
 @mcp_app.command("serve")
 def mcp_serve() -> None:
     """Start the Model Context Protocol (MCP) JSON-RPC 2.0 server on stdin/stdout."""
+    from evidence_api.mcp_server import serve_stdio
+
     raise typer.Exit(code=serve_stdio())
 
 
@@ -1001,6 +1006,8 @@ def mcp_inspect(
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """List all exposed MCP tools, resources, and certification prompts."""
+    from evidence_api.mcp_server import MCP_PROMPTS, MCP_RESOURCES, MCP_TOOLS
+
     payload = {
         "tools": [{"name": t["name"], "description": t["description"]} for t in MCP_TOOLS],
         "resources": list(MCP_RESOURCES),
@@ -1043,6 +1050,10 @@ def mcp_config(
     json_out: bool = typer.Option(False, "--json", help="Emit raw JSON."),
 ) -> None:
     """Generate (or write) ready-to-paste MCP client configuration for AI IDEs & hosts."""
+    from rich.syntax import Syntax
+
+    from evidence_api.mcp_server import build_mcp_client_config
+
     cfg = build_mcp_client_config(client=client, server_url=url)
     rendered = json.dumps(cfg, indent=2)
     if write is not None:
@@ -1076,6 +1087,10 @@ def serve_cmd(
     ),
 ) -> None:
     """Start the FastAPI HTTP API + Web UI + Streamable HTTP MCP endpoint."""
+    import uvicorn
+
+    from evidence_api.app import _secret
+
     if _secret() is None:
         if not dev_secret:
             err_console.print(
@@ -1101,6 +1116,12 @@ def quickstart_cmd(
     output_zip: Path | None = typer.Option(None, "--output", help="Optional ZIP path."),
 ) -> None:
     """Run an end-to-end guided walkthrough (ingest -> calc -> verify -> DSSE ZIP -> verify)."""
+    from evidence_kernel.__main__ import verify_zip_bundle
+    from evidence_kernel.gateway import gateway_from_env
+    from evidence_kernel.supervisor import CaseSpec, run_case
+
+    from evidence_api.app import _now, _zip_bytes, evidence_home, open_ledger
+
     checked = _tenant_or_exit(tenant)
     console.print(
         Panel(
@@ -1158,6 +1179,11 @@ def coverage_status_cmd(
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """Show flight-envelope gap counts and certification traceability gate readiness."""
+    from evidence_coverage.gate import evaluate_traceability_gate
+    from evidence_coverage.status import gap_report, list_cells_with_status
+
+    from evidence_api.app import open_ledger
+
     checked = _tenant_or_exit(tenant)
     ledger = open_ledger(checked)
     events = ledger.events()
@@ -1186,6 +1212,10 @@ def coverage_sweep_cmd(
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """Run deterministic flight-envelope verification across pending cells."""
+    from evidence_coverage.status import run_coverage_sweep
+
+    from evidence_api.app import _now, open_ledger
+
     checked = _tenant_or_exit(tenant)
     ledger = open_ledger(checked)
     summary = run_coverage_sweep(
@@ -1211,6 +1241,14 @@ def dossier_export_cmd(
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """Export certification dossier as JSON summary, StrictDOC (.sdoc), or NIST OSCAL SAR."""
+    from evidence_coverage.dossier import (
+        build_enterprise_dossier,
+        export_oscal_sar,
+        export_strictdoc,
+    )
+
+    from evidence_api.app import open_ledger
+
     checked = _tenant_or_exit(tenant)
     ledger = open_ledger(checked)
     dossier = build_enterprise_dossier(ledger.events(), chain_verified=ledger.verify())
@@ -1236,6 +1274,8 @@ def dossier_export_cmd(
 @app.command("wizard")
 def wizard_cmd() -> None:
     """Interactive guided assistant (menu 0..9) — zero CLI commands or JSON required."""
+    from evidence_api.wizard import run_interactive_hub
+
     run_interactive_hub(
         console,
         lambda: quickstart_cmd(tenant="quickstart-demo", output_zip=None),
@@ -1249,6 +1289,10 @@ def ui_cmd(
     open_browser: bool = typer.Option(True, "--open/--no-open", help="Open default web browser."),
 ) -> None:
     """Launch the visual Web UI + HTTP API + /mcp endpoint in one command."""
+    import uvicorn
+
+    from evidence_api.app import _secret
+
     if _secret() is None:
         os.environ["EVIDENCE_SESSION_SECRET"] = secrets.token_urlsafe(32)
         console.print(
@@ -1261,9 +1305,103 @@ def ui_cmd(
     uvicorn.run("evidence_api.app:app", host=host, port=port)
 
 
+@cad_app.command("inspect")
+def cad_inspect_cmd(
+    file: Path = typer.Argument(
+        ...,
+        help="STEP, IGES, CATIA XML/.CATPart/.CATProduct, .bdf/.dat, or .inp",
+    ),
+    auto_run: bool = typer.Option(True, "--auto-run/--no-auto-run", help="Auto-run ready cards."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    """Inspect a CAD/CAE model and resolve automatic Knowledgeware/FEM card bindings."""
+    from evidence_calc.cad_bindings import bind_parameters_to_cards
+    from evidence_ingest.blocks import IngestAbstain
+    from evidence_ingest.router import ingest_bytes
+
+    from evidence_api.app import MAX_INGEST_BYTES
+
+    resolved = file.expanduser().resolve()
+    if not resolved.is_file():
+        console.print(f"[red]File not found:[/red] {resolved}")
+        raise typer.Exit(1)
+    raw = resolved.read_bytes()
+    if len(raw) > MAX_INGEST_BYTES:
+        console.print("[red]File exceeds MAX_INGEST_BYTES.[/red]")
+        raise typer.Exit(1)
+    try:
+        parsed = ingest_bytes(raw, resolved.name)
+    except IngestAbstain as exc:
+        if _wants_json(json_out):
+            _emit_json({"status": "abstain", "reason": exc.reason, "filename": resolved.name})
+        else:
+            console.print(f"[yellow]Abstain:[/yellow] {exc.reason}")
+        raise typer.Exit(1)
+    cad_cae = parsed.get("cad_cae")
+    if not isinstance(cad_cae, dict):
+        console.print("[red]Not a CAD/CAE file.[/red]")
+        raise typer.Exit(1)
+    bindings = bind_parameters_to_cards(
+        list(cad_cae.get("parameters") or []),
+        formulas=list(cad_cae.get("formulas") or []),
+        auto_run=auto_run,
+    )
+    payload = {"filename": parsed["filename"], "cad_cae": cad_cae, "bindings": bindings}
+    if _wants_json(json_out):
+        _emit_json(payload)
+        return
+    tbl = Table(title=f"CAD/CAE Bindings ({cad_cae.get('format')})", box=box.ROUNDED)
+    tbl.add_column("Method Card", style="cyan")
+    tbl.add_column("Bound")
+    tbl.add_column("Ready")
+    tbl.add_column("Auto Run")
+    for mid, info in (bindings.get("cards") or {}).items():
+        exec_info = info.get("execution") or {}
+        tbl.add_row(
+            mid,
+            f"{info.get('matched_count', 0)}/{info.get('required_count', 0)}",
+            "yes"
+            if info.get("ready_to_run")
+            else "missing: " + ",".join(info.get("missing_required", [])),
+            str(exec_info.get("confidence", "-")),
+        )
+    console.print(tbl)
+
+
+@coverage_app.command("envelope-3d")
+def coverage_envelope_3d_cmd(
+    tenant: str = typer.Option("demo", "--tenant"),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Export 3D V-n envelope & [X_cg, Y_cg, Z_cg] cloud summary."""
+    from evidence_coverage.envelope_3d import build_vn_cg_envelope_3d
+
+    from evidence_api.app import open_ledger
+
+    checked = _tenant_or_exit(tenant)
+    ledger = open_ledger(checked)
+    payload = build_vn_cg_envelope_3d(ledger.events())
+    if _wants_json(json_out):
+        _emit_json(payload)
+        return
+    cloud = payload["cg_cloud"]
+    console.print(
+        Panel(
+            f"Slices: {len(payload['vn_envelope']['mass_slices'])}\n"
+            f"Triangles: {payload['vn_envelope']['surface_mesh']['triangle_count']}\n"
+            f"CG Cloud Points: {cloud['total_points']} (CAD refs: {cloud['cad_cae_points']})\n"
+            f"SMT Envelope Proved: {payload['smt_proof']['envelope_proved']}",
+            title=f"3D V-n & CG Cloud ({checked})",
+            border_style="cyan",
+        )
+    )
+
+
 @app.command("examples")
 def examples_cmd() -> None:
     """Show beginner-friendly recipes for calculations, PDF audits, Red-Team, and MCP."""
+    from rich.syntax import Syntax
+
     recipes = (
         "# 1. Asistente visual en terminal (sin memorizar nada)\n"
         "aeroregu wizard\n\n"
@@ -1275,7 +1413,9 @@ def examples_cmd() -> None:
         "-s tensile_allowable_mpa=250 --formal\n\n"
         "# 4. Verificar documento o norma con citas pagina + bbox\n"
         'aeroregu verify-case --text "CS-27.301 Flight loads" --formal\n\n'
-        "# 5. Conectar con Antigravity / Claude / Cursor (17 tools MCP)\n"
+        "# 5. Conectores CAD/CAE (STEP, IGES, CATIA XML, NASTRAN, ABAQUS)\n"
+        "aeroregu cad inspect model.stp --json\n\n"
+        "# 6. Conectar con Antigravity / Claude / Cursor (19 tools MCP)\n"
         "aeroregu mcp inspect\n"
         "aeroregu mcp config --client antigravity\n"
     )
