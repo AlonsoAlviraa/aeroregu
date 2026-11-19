@@ -1,0 +1,60 @@
+{
+  "method_id": "net_section_yielding_fracture",
+  "method_version": "net_section_yielding_fracture@1.0.0",
+  "title": "Net-Section Yielding vs Feddersen Finite-Width LEFM Fracture",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "sigma_net = P / ((W - 2a)*t); K_I = (P/(W*t)) * sqrt(pi*a * sec(pi*a/W)); MS = min(F_ty/sigma_net - 1, K_Ic/K_I - 1)",
+  "note": "Feddersen finite-width center-cracked panel LEFM coupled with net-section plastic collapse screening.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "applied_load_n": "newton",
+    "plate_width_mm": "millimeter",
+    "thickness_mm": "millimeter",
+    "half_crack_mm": "millimeter",
+    "yield_strength_mpa": "megapascal",
+    "fracture_toughness_mpa_sqrt_m": "megapascal * meter ** 0.5"
+  },
+  "required": [
+    "applied_load_n",
+    "plate_width_mm",
+    "thickness_mm",
+    "half_crack_mm",
+    "yield_strength_mpa",
+    "fracture_toughness_mpa_sqrt_m"
+  ],
+  "limits": {
+    "applied_load_n": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "plate_width_mm": {
+      "min_exclusive": "0",
+      "max": "50000"
+    },
+    "thickness_mm": {
+      "min_exclusive": "0",
+      "max": "500"
+    },
+    "half_crack_mm": {
+      "min_exclusive": "0",
+      "max": "25000"
+    },
+    "yield_strength_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "fracture_toughness_mpa_sqrt_m": {
+      "min_exclusive": "0",
+      "max": "500"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "feddersen-net-section-lefm",
+      "uri": "https://aeroregu.local/cards/net_section_yielding_fracture",
+      "content_hash": "237f56b3a1867a118faaa4e4d22903b75abc12afd5db5cd94889f7d99b3861f9",
+      "label": "VERIFIED"
+    }
+  ]
+}

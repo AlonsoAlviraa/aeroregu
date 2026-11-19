@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from evidence_calc.allowables import lookup_allowable
 from evidence_calc.bolt_screen import run_bolt_screen
 from evidence_calc.errors import AbstainError
 from evidence_calc.hover_power_screen import run_hover_power_screen
@@ -14,7 +15,14 @@ from evidence_calc.plugins import (
     register_plugin_card,
     run_declarative_card,
 )
+from evidence_calc.quotation_costing import (
+    run_aerospace_quotation_costing,
+    run_engineering_workpackage_quote,
+    run_rotorcraft_archetype_quote,
+    run_rotorcraft_historical_calibration,
+)
 from evidence_calc.rigid_body_point_mass import run_rigid_body_point_mass
+from evidence_calc.stress_manual import STRESS_MANUAL_CARD_RUNNERS
 from evidence_calc.structural_sizing import (
     run_column_plate_buckling,
     run_composite_failure_criteria,
@@ -31,6 +39,11 @@ _RUNNERS = {
     "column_plate_buckling": run_column_plate_buckling,
     "palmgren_miner_fatigue": run_palmgren_miner_fatigue,
     "composite_failure_criteria": run_composite_failure_criteria,
+    "aerospace_quotation_costing": run_aerospace_quotation_costing,
+    "engineering_workpackage_quote": run_engineering_workpackage_quote,
+    "rotorcraft_archetype_quote": run_rotorcraft_archetype_quote,
+    "rotorcraft_historical_calibration": run_rotorcraft_historical_calibration,
+    **STRESS_MANUAL_CARD_RUNNERS,
 }
 _CARDS: dict[str, dict[str, Any]] = {}
 
@@ -92,15 +105,47 @@ def run_method(
         if not (card.get("plugin") and card.get("formulas")):
             raise AbstainError("unknown_method")
         runner = run_declarative_card
-    check_declared_units(inputs, card)
+    raw_inputs = dict(inputs)
+    lookup_spec = raw_inputs.pop("material_lookup", None)
+    allowable_provenance: dict[str, dict[str, Any]] = {}
+    if isinstance(lookup_spec, dict):
+        # Support either {field_name: {material_id, ...}} or flat {target_field, material_id, ...}
+        if "material_id" in lookup_spec:
+            target = str(lookup_spec.get("target_field") or "allowable_mpa")
+            specs: dict[str, dict[str, Any]] = {target: lookup_spec}
+        else:
+            specs = {str(k): v for k, v in lookup_spec.items() if isinstance(v, dict)}
+        in_units = (
+            dict(raw_inputs.get("_input_units") or {})
+            if isinstance(raw_inputs.get("_input_units"), dict)
+            else {}
+        )
+        for field_name, spec in specs.items():
+            mat_res = lookup_allowable(
+                str(spec["material_id"]),
+                basis=str(spec.get("basis", "A")),
+                property_name=str(spec.get("property_name", "fty_mpa")),
+                thickness_mm=str(spec.get("thickness_mm", "10")),
+                temp_c=str(spec.get("temp_c", "23")),
+                environment=str(spec.get("environment", "RTD")),
+            )
+            raw_inputs[field_name] = str(mat_res["allowable_value_mpa"])
+            if "_input_units" in raw_inputs:
+                in_units.setdefault(field_name, "megapascal")
+            allowable_provenance[field_name] = mat_res
+        if "_input_units" in raw_inputs:
+            raw_inputs["_input_units"] = in_units
+    check_declared_units(raw_inputs, card)
     conversions: list[dict[str, str]] = []
-    effective_inputs = inputs
+    effective_inputs = raw_inputs
     if normalize_units:
-        effective_inputs, conversions = convert_inputs_to_card_units(inputs, card)
+        effective_inputs, conversions = convert_inputs_to_card_units(raw_inputs, card)
     numeric_inputs = {
         key: value for key, value in effective_inputs.items() if key != "_input_units"
     }
     outcome = runner(numeric_inputs, card)
+    if allowable_provenance:
+        outcome = {**outcome, "allowable_provenance": allowable_provenance}
     if include_intervals:
         intervals = evaluate_method_intervals(
             method_id, numeric_inputs, outcome["outputs"], card=card

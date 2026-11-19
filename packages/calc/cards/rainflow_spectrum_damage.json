@@ -1,0 +1,66 @@
+{
+  "method_id": "rainflow_spectrum_damage",
+  "method_version": "rainflow_spectrum_damage@1.0.0",
+  "title": "3-Band Rainflow Spectrum Palmgren-Miner Cumulative Damage",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "D_raw = sum(n_i / N_i); D_fact = SF * D_raw; MS = 1 / D_fact - 1",
+  "note": "Multi-band rainflow cycle-counting Palmgren-Miner cumulative damage rule with certification scatter factor.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "cycles_band1": "dimensionless",
+    "allowable_cycles_band1": "dimensionless",
+    "cycles_band2": "dimensionless",
+    "allowable_cycles_band2": "dimensionless",
+    "cycles_band3": "dimensionless",
+    "allowable_cycles_band3": "dimensionless",
+    "scatter_factor": "dimensionless"
+  },
+  "required": [
+    "cycles_band1",
+    "allowable_cycles_band1",
+    "cycles_band2",
+    "allowable_cycles_band2",
+    "cycles_band3",
+    "allowable_cycles_band3",
+    "scatter_factor"
+  ],
+  "limits": {
+    "cycles_band1": {
+      "min": "0",
+      "max": "10000000000"
+    },
+    "allowable_cycles_band1": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "cycles_band2": {
+      "min": "0",
+      "max": "10000000000"
+    },
+    "allowable_cycles_band2": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "cycles_band3": {
+      "min": "0",
+      "max": "10000000000"
+    },
+    "allowable_cycles_band3": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "scatter_factor": {
+      "min": "1",
+      "max": "100"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "rainflow-miner-spectrum",
+      "uri": "https://aeroregu.local/cards/rainflow_spectrum_damage",
+      "content_hash": "a8c0581ff8ef9583480ea7cbb044258f144c8d2a035e3cd2e3fbf0117228de63",
+      "label": "VERIFIED"
+    }
+  ]
+}

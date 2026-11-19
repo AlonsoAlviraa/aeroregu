@@ -15,7 +15,7 @@ from flint import arb, ctx
 
 from evidence_calc.errors import AbstainError
 from evidence_calc.quantize import format_quantum, parse_limited_decimal, quantize
-from evidence_calc.units import _unit
+from evidence_calc.units import _unit, check_expression_dimensional_homogeneity
 
 _CARD_ID_RE = re.compile(r"^[a-z][a-z0-9_]{2,63}$")
 _VAR_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
@@ -28,6 +28,31 @@ _RESERVED_BUILTIN_IDS = frozenset(
         "column_plate_buckling",
         "palmgren_miner_fatigue",
         "composite_failure_criteria",
+        "nasgro_paris_crack_growth",
+        "goodman_haigh_mean_stress",
+        "neuber_notch_plasticity",
+        "net_section_yielding_fracture",
+        "rainflow_spectrum_damage",
+        "tsai_wu_ply_failure",
+        "hashin_composite_modes",
+        "puck_interfiber_fracture",
+        "open_hole_tension_oht",
+        "open_hole_compression_ohc",
+        "compression_after_impact_cai",
+        "huth_fastener_flexibility",
+        "bearing_bypass_interaction",
+        "eccentric_bolt_group_cg",
+        "lug_axial_transverse_interaction",
+        "bolt_preload_thermal_relaxation",
+        "fastener_pull_through_composite",
+        "adhesive_single_lap_volkersen",
+        "johnson_euler_column",
+        "needham_crippling_section",
+        "shear_web_diagonal_tension",
+        "curved_panel_compression_shear",
+        "inter_rivet_buckling",
+        "thin_walled_bredt_batho_torsion",
+        "sandwich_core_shear_wrinkling",
     }
 )
 _PI_DEC = Decimal("3.141592653589793238462643383279502884197")
@@ -356,6 +381,10 @@ def validate_plugin_card(
     formulas = card.get("formulas")
     if not isinstance(formulas, list) or not formulas:
         raise AbstainError("invalid_plugin_formula")
+    has_explicit_units = bool(card.get("input_units")) or any(
+        isinstance(s, dict) and s.get("unit") for s in formulas
+    )
+    dim_env: dict[str, Any] = dict(clean_units)
     known_symbols = set(clean_required) | {"pi"}
     clean_formulas: list[dict[str, str]] = []
     output_names: set[str] = set()
@@ -376,10 +405,17 @@ def validate_plugin_card(
                 # Permit referencing previously defined formula outputs in order
                 if node.id not in output_names:
                     raise AbstainError("unknown_plugin_symbol")
-        output_names.add(out_name)
         clean_step: dict[str, str] = {"output": out_name, "expr": expr}
         if step.get("unit"):
             clean_step["unit"] = str(step["unit"]).strip()
+        if has_explicit_units:
+            inferred_dims = check_expression_dimensional_homogeneity(
+                expr,
+                dim_env,
+                expected_output_unit=clean_step.get("unit"),
+            )
+            dim_env[out_name] = inferred_dims
+        output_names.add(out_name)
         clean_formulas.append(clean_step)
 
     method_version = str(card.get("method_version") or f"{method_id}@1.0.0").strip()

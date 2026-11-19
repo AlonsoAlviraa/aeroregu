@@ -44,87 +44,49 @@ def _pair_bounds(val: Any, fallback: tuple[str, str]) -> tuple[str, str]:
 
 def run_formal_proof_for_method(
     method_id: str,
-    inputs: dict[str, Any],
+    inputs: dict[str, Any] | None = None,
     formal_bounds: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run dual Z3+cvc5 formal proof matching the calculation method and inputs."""
-    from evidence_coverage.formal_bounds import prove_continuous_flight_envelope
-    from evidence_kernel.formal import SMTSolverProofEngine
+    """Run dual Z3+cvc5 formal proof matching any catalog method, plugin card, and bounds."""
+    from evidence_api.formal_methods import (
+        run_formal_proof_for_method as _dispatch_formal_proof,
+    )
 
-    bounds = formal_bounds or {}
-    if method_id == "rigid_body_point_mass":
-        mass_range = _pair_bounds(
-            bounds.get("mass_range_kg") or bounds.get("mass_bounds") or inputs.get("mass_kg"),
-            ("800.000", "1200.000"),
-        )
-        cg_range = _pair_bounds(
-            bounds.get("cg_range_m") or inputs.get("cg_x_m"),
-            ("-0.200", "0.200"),
-        )
-        lf_range = _pair_bounds(
-            bounds.get("load_factor_range")
-            or bounds.get("load_factor_bounds")
-            or inputs.get("load_factor"),
-            ("-1.000", "2.500"),
-        )
-        stations_raw = bounds.get("station_positions_m") or inputs.get("unit_x_m")
-        stations = [str(x) for x in stations_raw] if stations_raw else None
-        max_thrust = str(
-            bounds.get("max_station_thrust_n") or bounds.get("lift_capacity_n") or "15000.000"
-        )
-        gravity = str(inputs.get("gravity_m_s2") or bounds.get("gravity_m_s2") or "9.807")
-        min_active = int(bounds.get("min_active_units", 3))
-        return prove_continuous_flight_envelope(
-            mass_range_kg=mass_range,
-            cg_range_m=cg_range,
-            load_factor_range=lf_range,
-            station_positions_m=stations,
-            max_station_thrust_n=max_thrust,
-            gravity_m_s2=gravity,
-            min_active_units=min_active,
-        )
+    return _dispatch_formal_proof(method_id, inputs or {}, formal_bounds=formal_bounds)
 
-    engine = SMTSolverProofEngine()
-    if method_id == "bolt_screen":
-        proof = engine.prove_structural_margin(
-            bounds={
-                "area_mm2": _pair_bounds(
-                    bounds.get("area_mm2") or inputs.get("area_mm2"), ("100.000", "120.000")
-                ),
-                "shear_force_n": _pair_bounds(
-                    bounds.get("shear_force_n") or inputs.get("shear_force_n"),
-                    ("1000.000", "2000.000"),
-                ),
-                "tensile_force_n": _pair_bounds(
-                    bounds.get("tensile_force_n") or inputs.get("tensile_force_n"),
-                    ("2000.000", "3000.000"),
-                ),
-            },
-            allowables={
-                "shear_allowable_mpa": str(inputs.get("shear_allowable_mpa") or "150.000"),
-                "tensile_allowable_mpa": str(inputs.get("tensile_allowable_mpa") or "250.000"),
-            },
-            safety_factor=str(bounds.get("safety_factor") or "1.500"),
-        )
-        return proof.to_dict()
 
-    if method_id == "hover_power_screen":
-        proof = engine.prove_hover_power_envelope(
-            thrust_bounds_n=_pair_bounds(
-                bounds.get("thrust_n") or inputs.get("thrust_n"), ("2000.000", "10500.000")
-            ),
-            disk_area_m2=str(inputs.get("disk_area_m2") or "10.000"),
-            air_density_kg_m3=str(inputs.get("air_density_kg_m3") or "1.225"),
-            figure_of_merit=str(inputs.get("figure_of_merit") or "0.700"),
-            max_power_available_kw=str(inputs.get("power_available_kw") or "350.000"),
-        )
-        return proof.to_dict()
+def get_mcp_inventory_counts() -> dict[str, int]:
+    """Return live counts of exposed MCP tools, resources, prompts, and formal methods."""
+    from evidence_api.formal_methods import METHOD_DEFAULT_INPUTS
 
     return {
-        "property_name": f"{method_id}_formal_bounds",
-        "proved": False,
-        "status": "UNSUPPORTED_METHOD",
-        "method_id": method_id,
+        "tools": len(MCP_TOOLS),
+        "resources": len(MCP_RESOURCES),
+        "prompts": len(MCP_PROMPTS),
+        "formal_methods": len(METHOD_DEFAULT_INPUTS),
+    }
+
+
+def get_mcp_catalog() -> dict[str, Any]:
+    """Return the full live MCP catalog alongside certified method defaults and families."""
+    from evidence_api.formal_methods import METHOD_DEFAULT_INPUTS, METHOD_FAMILIES
+
+    return {
+        "server": SERVER_INFO,
+        "protocol_versions": list(SUPPORTED_PROTOCOL_VERSIONS),
+        "counts": get_mcp_inventory_counts(),
+        "tools": [
+            {
+                "name": t["name"],
+                "description": t.get("description", ""),
+                "inputSchema": t.get("inputSchema", {}),
+            }
+            for t in MCP_TOOLS
+        ],
+        "resources": list(MCP_RESOURCES),
+        "prompts": list(MCP_PROMPTS),
+        "method_families": dict(METHOD_FAMILIES),
+        "method_default_inputs": dict(METHOD_DEFAULT_INPUTS),
     }
 
 
@@ -380,7 +342,8 @@ MCP_TOOLS: tuple[dict[str, Any], ...] = (
         "name": "evidence_formal_prove",
         "description": (
             "Run standalone dual-solver (Z3 + cvc5) continuous mathematical proofs across "
-            "interval bounds: flight_envelope, structural_margin, or hover_power."
+            "interval bounds: flight_envelope, structural_margin, hover_power, or any certified "
+            "method/plugin ID (kind='method' with method_id)."
         ),
         "inputSchema": {
             "type": "object",
@@ -388,9 +351,15 @@ MCP_TOOLS: tuple[dict[str, Any], ...] = (
             "properties": {
                 "kind": {
                     "type": "string",
-                    "enum": ["flight_envelope", "structural_margin", "hover_power"],
+                    "description": (
+                        "Proof kind: flight_envelope, structural_margin, hover_power, method, "
+                        "or a direct calculation method_id."
+                    ),
                     "default": "flight_envelope",
                 },
+                "method_id": {"type": "string"},
+                "inputs": {"type": "object"},
+                "formal_bounds": {"type": "object"},
                 "bounds": {"type": "object"},
                 "allowables": {"type": "object"},
                 "safety_factor": {"type": "string", "default": "1.500"},
@@ -596,6 +565,47 @@ MCP_TOOLS: tuple[dict[str, Any], ...] = (
         },
     },
     {
+        "name": "evidence_nafems_audit",
+        "description": (
+            "Run NAFEMS V&V manifest, BDF-vs-Report table property drift, regulatory SUBCASE "
+            "completeness, and SOL 103 rotor harmonic separation audit."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "bdf_text": {"type": "string"},
+                "f06_text": {"type": "string"},
+                "unit_system": {"type": "string"},
+                "require_unit_system": {"type": "boolean", "default": False},
+                "report_blocks": {"type": "array"},
+                "report_claims": {"type": "object"},
+                "required_load_families": {"type": "array"},
+                "rotor_rpm": {"type": "string"},
+                "blade_count": {"type": "integer", "default": 4},
+                "guard_band_pct": {"type": "string", "default": "10.0"},
+                "min_effective_mass_frac": {"type": "string", "default": "0"},
+            },
+            "required": ["bdf_text"],
+        },
+    },
+    {
+        "name": "evidence_nafems_bdf_diff",
+        "description": (
+            "Diff two Nastran BDF revisions (PSHELL/PCOMP/SUBCASE/CONM2) and invalidate affected "
+            "Ledger cells."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tenant_id": {"type": "string", "default": "demo"},
+                "rev_a_bdf_text": {"type": "string"},
+                "rev_b_bdf_text": {"type": "string"},
+                "invalidate_cells": {"type": "boolean", "default": True},
+            },
+            "required": ["rev_a_bdf_text", "rev_b_bdf_text"],
+        },
+    },
+    {
         "name": "evidence_adversarial_fuzz",
         "description": (
             "Run envelope_critic (Z3+cvc5) and bench_attacker red-team "
@@ -670,6 +680,103 @@ MCP_TOOLS: tuple[dict[str, Any], ...] = (
             "properties": {
                 "tenant_id": {"type": "string", "default": "demo"},
                 "delivery_ids": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+    },
+    {
+        "name": "generate_multiagent_quotation",
+        "description": (
+            "Run the 8-agent supervised quotation pipeline generating deterministic Decimal + Arb "
+            "costing, 3-point PERT P50/P80/P90, exhaustive 7-dimension assumptions, Tornado "
+            "sensitivity, and Z3 SMT formal margin proof sealed in the Ledger."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["rfq_text"],
+            "properties": {
+                "rfq_text": {"type": "string", "minLength": 1},
+                "quotation_kind": {
+                    "type": "string",
+                    "enum": [
+                        "hybrid_turnkey",
+                        "aerospace_manufacturing",
+                        "engineering_workpackage",
+                    ],
+                    "default": "hybrid_turnkey",
+                },
+                "tenant_id": {"type": "string", "default": "demo"},
+                "actor_id": {"type": "string", "default": "author"},
+                "currency": {"type": "string", "default": "EUR"},
+                "target_margin_pct": {"type": "string", "default": "22.000"},
+                "min_acceptable_margin_pct": {"type": "string", "default": "10.000"},
+                "explicit_params": {"type": "object"},
+                "assumption_overrides": {"type": "object"},
+                "enable_formal_smt": {"type": "boolean", "default": True},
+                "export_control_restricted": {"type": "boolean", "default": False},
+            },
+        },
+    },
+    {
+        "name": "scrape_global_quotation_repos",
+        "description": (
+            "Scrape and compare global GitHub multi-agent RFQ/quotation repositories and "
+            "commercial quoting web platforms against aeroregu across 8 capability axes."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "live_network": {"type": "boolean", "default": False},
+                "queries": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+    },
+    {
+        "name": "generate_rotorcraft_archetype_quotation",
+        "description": (
+            "Generate a helicopter engineering design/stress quotation across 18 archetypes "
+            "(Q-DES-01..Q-TST-02), 9 country rate profiles (EU_DEFAULT + 8 countries), "
+            "6 academic costing models, 10 assumption dimensions, FLINT/Arb, and Z3 SMT proof."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["rfq_text"],
+            "properties": {
+                "rfq_text": {"type": "string"},
+                "country_code": {"type": "string", "default": "EU_DEFAULT"},
+                "archetype_id": {"type": "string"},
+                "cert_basis": {"type": "string", "default": "CS-29"},
+                "material_family": {"type": "string", "default": "HYBRID_AL_CFRP"},
+                "cosysmo_complexity": {"type": "string", "default": "NOMINAL"},
+                "idp_maturity": {"type": "string", "default": "COMPLETE"},
+                "nearshore_country": {"type": "string", "default": "ES"},
+                "target_margin_pct": {"type": "string", "default": "22.000"},
+                "min_acceptable_margin_pct": {"type": "string", "default": "10.000"},
+                "tenant_id": {"type": "string", "default": "demo"},
+                "actor_id": {"type": "string", "default": "author"},
+                "enable_formal_smt": {"type": "boolean", "default": True},
+                "export_control_restricted": {"type": "boolean", "default": False},
+            },
+        },
+    },
+    {
+        "name": "calibrate_and_match_historical_quotations",
+        "description": (
+            "Ingest 2,000+ historical rotorcraft quotations, inspect physical CAD/FEM IDP "
+            "artifacts, compute Decimal + FLINT/Arb PERT calibration & 80/20 backtest MAPE, "
+            "and retrieve top-k nearest past bids."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "archetype_id": {"type": "string", "default": "Q-STR-03"},
+                "country_code": {"type": "string", "default": "EU_DEFAULT"},
+                "cert_basis": {"type": "string", "default": "CS-29"},
+                "material_family": {"type": "string", "default": "HYBRID_AL_CFRP"},
+                "corpus_path": {"type": "string"},
+                "records": {"type": "array", "items": {"type": "object"}},
+                "synthetic_count": {"type": "integer", "default": 2160},
+                "idp_attachments": {"type": "object"},
+                "top_k": {"type": "integer", "default": 3},
             },
         },
     },
@@ -878,23 +985,32 @@ def _call_tool(
     )
 
     if require_auth_for_writes and not is_authenticated:
-        mutating = name in {
-            "evidence_bundle_export",
-            "evidence_bundle_verify",
-            "evidence_verify_case",
-            "evidence_ledger_signoff",
-            "evidence_coverage_sweep",
-            "evidence_formal_prove",
-            "evidence_calc_register_plugin",
-            "evidence_webhooks_register",
-            "evidence_dossier_pdf_export",
-            "evidence_cross_artifact_audit",
-            "evidence_overnight_watch",
-            "evidence_batch_signoff",
-            "evidence_webhooks_dlq_replay",
-        } or (
-            name in {"evidence_calc_run", "evidence_ingest_document"}
-            and bool(arguments.get("record"))
+        mutating = (
+            name
+            in {
+                "evidence_bundle_export",
+                "evidence_bundle_verify",
+                "evidence_verify_case",
+                "evidence_ledger_signoff",
+                "evidence_coverage_sweep",
+                "evidence_formal_prove",
+                "evidence_calc_register_plugin",
+                "evidence_webhooks_register",
+                "evidence_dossier_pdf_export",
+                "evidence_cross_artifact_audit",
+                "evidence_overnight_watch",
+                "evidence_batch_signoff",
+                "evidence_webhooks_dlq_replay",
+                "generate_multiagent_quotation",
+                "generate_rotorcraft_archetype_quotation",
+            }
+            or (
+                name in {"evidence_calc_run", "evidence_ingest_document"}
+                and bool(arguments.get("record"))
+            )
+            or (
+                name == "evidence_nafems_bdf_diff" and bool(arguments.get("invalidate_cells", True))
+            )
         )
         if mutating:
             return True, {
@@ -1368,6 +1484,24 @@ def _call_tool(
                 max_power_available_kw=str(arguments.get("max_power_available_kw") or "350.000"),
             )
             return False, res.to_dict()
+        target_method = str(arguments.get("method_id") or "")
+        if kind == "method" or target_method:
+            if not target_method:
+                return True, {"error": "method_id is required when kind == 'method'"}
+            res_dict = run_formal_proof_for_method(
+                target_method,
+                dict(arguments.get("inputs") or {}),
+                formal_bounds=dict(arguments.get("formal_bounds") or bounds),
+            )
+            return res_dict.get("status") == "UNSUPPORTED_METHOD", res_dict
+        if kind not in {"flight_envelope", "structural_margin", "hover_power"}:
+            res_dict = run_formal_proof_for_method(
+                kind,
+                dict(arguments.get("inputs") or {}),
+                formal_bounds=dict(arguments.get("formal_bounds") or bounds),
+            )
+            if res_dict.get("status") != "UNSUPPORTED_METHOD":
+                return False, res_dict
         return True, {"error": f"unsupported formal proof kind: {kind}"}
 
     if name == "evidence_agents_runtime":
@@ -1403,6 +1537,8 @@ def _call_tool(
         return True, {"error": f"unsupported agents action: {action}"}
 
     if name == "evidence_ledger_signoff":
+        from evidence_coverage.collaboration_ecn import get_review_thread_store
+
         tenant_id = _validate_tenant(arguments.get("tenant_id"))
         if tenant_id is None:
             return True, {"error": "invalid_tenant"}
@@ -1411,6 +1547,14 @@ def _call_tool(
         known_hashes = {str(ev["event_hash"]) for ev in ledger.events()}
         if target not in known_hashes:
             return True, {"error": "target_event_not_found", "target_event_hash": target}
+        review_store = get_review_thread_store()
+        blocking = review_store.unresolved_blocking_threads(tenant_id, target_event_hash=target)
+        if blocking:
+            return True, {
+                "error": "unresolved_review_threads",
+                "target_event_hash": target,
+                "blocking_threads": [b["thread_id"] for b in blocking],
+            }
         actor_id = str(arguments.get("actor_id") or "reviewer")
         statement = str(arguments.get("statement") or SIGN_OFF_STATEMENT)
         duration_ms = arguments.get("review_duration_ms")
@@ -1444,10 +1588,17 @@ def _call_tool(
             )
         except LedgerError as exc:
             return True, {"error": str(exc)}
+        locked_threads = review_store.lock_threads_on_signoff(
+            tenant_id,
+            target_event_hash=target,
+            signoff_event_hash=ev_hash,
+            signed_by=actor_id,
+        )
         return False, {
             "event_hash": ev_hash,
             "target_event_hash": target,
             "merkle_root": ledger.merkle_root(),
+            "locked_review_threads": [item["thread_id"] for item in locked_threads],
         }
 
     if name == "evidence_notes_check":
@@ -1570,10 +1721,11 @@ def _call_tool(
         out_path_raw = arguments.get("output_path")
         saved_path = None
         if out_path_raw:
+            exports_root = (evidence_home() / "exports").resolve()
             confined = _confine_path(
                 str(out_path_raw),
-                allowed_roots=(repo_root(), evidence_home()),
-                default_dir=evidence_home(),
+                allowed_roots=(exports_root, evidence_home()),
+                default_dir=exports_root,
             )
             if confined is None:
                 return True, {"error": "output_path_outside_workspace"}
@@ -1640,6 +1792,74 @@ def _call_tool(
             report=src.get("report") or arguments.get("report"),
         )
         return False, res
+
+    if name == "evidence_nafems_audit":
+        import hashlib as _hl
+
+        from evidence_coverage.nafems_audit import run_full_nafems_audit
+        from evidence_ingest.blocks import IngestAbstain
+        from evidence_ingest.fem_parsers import parse_nastran_bdf, parse_nastran_f06
+
+        bdf_text = str(arguments.get("bdf_text") or "")
+        if not bdf_text.strip():
+            return True, {"error": "missing_bdf_text"}
+        bdf_bytes = bdf_text.encode("utf-8")
+        bdf_hash = _hl.sha256(bdf_bytes).hexdigest()
+        try:
+            bdf_parsed = parse_nastran_bdf(
+                bdf_bytes, bdf_hash, unit_system=arguments.get("unit_system")
+            )
+            f06_parsed = None
+            f06_hash = ""
+            f06_text = str(arguments.get("f06_text") or "")
+            if f06_text.strip():
+                f06_bytes = f06_text.encode("utf-8")
+                f06_hash = _hl.sha256(f06_bytes).hexdigest()
+                f06_parsed = parse_nastran_f06(f06_bytes, f06_hash)
+        except IngestAbstain as exc:
+            return True, {"error": exc.reason}
+
+        res = run_full_nafems_audit(
+            bdf_parsed=bdf_parsed,
+            bdf_hash=bdf_hash,
+            f06_parsed=f06_parsed,
+            f06_hash=f06_hash,
+            report_blocks=arguments.get("report_blocks"),
+            report_claims=arguments.get("report_claims"),
+            required_load_families=arguments.get("required_load_families"),
+            rotor_rpm=arguments.get("rotor_rpm"),
+            blade_count=int(arguments.get("blade_count", 4)),
+            guard_band_pct=str(arguments.get("guard_band_pct", "10.0")),
+            min_effective_mass_frac=str(arguments.get("min_effective_mass_frac", "0")),
+            require_unit_system=bool(arguments.get("require_unit_system", False)),
+        )
+        return bool(res.get("abstain")), res
+
+    if name == "evidence_nafems_bdf_diff":
+        import hashlib as _hl
+
+        from evidence_coverage.nafems_audit import diff_bdf_revisions_and_invalidate
+        from evidence_ingest.blocks import IngestAbstain
+        from evidence_ingest.fem_parsers import parse_nastran_bdf
+
+        tenant_id = _validate_tenant(arguments.get("tenant_id") or "demo")
+        if tenant_id is None:
+            return True, {"error": "invalid_tenant"}
+        rev_a = str(arguments.get("rev_a_bdf_text") or "")
+        rev_b = str(arguments.get("rev_b_bdf_text") or "")
+        if not rev_a.strip() or not rev_b.strip():
+            return True, {"error": "missing_bdf_text"}
+        try:
+            a_b = rev_a.encode("utf-8")
+            b_b = rev_b.encode("utf-8")
+            bdf_a = parse_nastran_bdf(a_b, _hl.sha256(a_b).hexdigest())
+            bdf_b = parse_nastran_bdf(b_b, _hl.sha256(b_b).hexdigest())
+        except IngestAbstain as exc:
+            return True, {"error": exc.reason}
+        ledger = open_ledger(tenant_id) if arguments.get("invalidate_cells", True) else None
+        return False, diff_bdf_revisions_and_invalidate(
+            rev_a_bdf=bdf_a, rev_b_bdf=bdf_b, ledger=ledger
+        )
 
     if name == "evidence_adversarial_fuzz":
         from evidence_coverage.adversarial import run_bench_attacker, run_envelope_critic
@@ -1726,6 +1946,102 @@ def _call_tool(
             delivery_ids=[str(x) for x in dids] if isinstance(dids, list) else None,
         )
         return False, {"replayed_count": len(res), "results": res}
+
+    if name == "generate_multiagent_quotation":
+        from evidence_coverage.quotation_multiagent import (
+            QuotationRequestSpec,
+            run_multiagent_quotation,
+        )
+
+        tenant_id = _validate_tenant(arguments.get("tenant_id") or "demo")
+        if tenant_id is None:
+            return True, {"error": "invalid_tenant"}
+        ledger = open_ledger(tenant_id)
+        spec = QuotationRequestSpec(
+            rfq_text=str(arguments.get("rfq_text") or ""),
+            quotation_kind=str(arguments.get("quotation_kind") or "hybrid_turnkey"),  # type: ignore[arg-type]
+            tenant_id=tenant_id,
+            actor_id=str(arguments.get("actor_id") or "author"),
+            created_at=_now(),
+            currency=str(arguments.get("currency") or "EUR"),
+            target_margin_pct=str(arguments.get("target_margin_pct") or "22.000"),
+            min_acceptable_margin_pct=str(arguments.get("min_acceptable_margin_pct") or "10.000"),
+            explicit_params=dict(arguments.get("explicit_params") or {}),
+            assumption_overrides=dict(arguments.get("assumption_overrides") or {}),
+            enable_formal_smt=bool(arguments.get("enable_formal_smt", True)),
+            export_control_restricted=bool(arguments.get("export_control_restricted", False)),
+        )
+        dossier = run_multiagent_quotation(ledger, spec)
+        return False, dossier.to_dict()
+
+    if name == "scrape_global_quotation_repos":
+        from evidence_coverage.repo_web_scraper import QuotationIntelligenceScraper
+
+        live = bool(arguments.get("live_network", False))
+        queries = arguments.get("queries")
+        scraper = QuotationIntelligenceScraper()
+        gh = scraper.scrape_github_repositories(
+            queries=[str(q) for q in queries] if isinstance(queries, list) else None,
+            live_network=live,
+        )
+        web = scraper.scrape_web_platforms(live_network=live)
+        cmp = scraper.compare_against_aeroregu()
+        return False, {
+            "github": gh,
+            "web_platforms": web,
+            "comparison": cmp,
+            "markdown_report": scraper.export_intelligence_report_markdown(
+                github_res=gh, web_res=web, comparison=cmp
+            ),
+        }
+
+    if name == "generate_rotorcraft_archetype_quotation":
+        from evidence_coverage.rotorcraft_quotation_catalog import (
+            RotorcraftQuotationSpec,
+            run_rotorcraft_department_quotation,
+        )
+
+        tenant = _validate_tenant(arguments.get("tenant_id"))
+        if tenant is None:
+            return True, {"error": "invalid_tenant"}
+        ledger = open_ledger(tenant)
+        spec = RotorcraftQuotationSpec(
+            rfq_text=str(arguments.get("rfq_text") or ""),
+            country_code=str(arguments.get("country_code") or "EU_DEFAULT"),
+            archetype_id=(
+                str(arguments["archetype_id"]) if arguments.get("archetype_id") else None
+            ),
+            cert_basis=str(arguments.get("cert_basis") or "CS-29"),
+            material_family=str(arguments.get("material_family") or "HYBRID_AL_CFRP"),
+            cosysmo_complexity=str(arguments.get("cosysmo_complexity") or "NOMINAL"),
+            idp_maturity=str(arguments.get("idp_maturity") or "COMPLETE"),
+            nearshore_country=str(arguments.get("nearshore_country") or "ES"),
+            target_margin_pct=str(arguments.get("target_margin_pct") or "22.000"),
+            min_acceptable_margin_pct=str(arguments.get("min_acceptable_margin_pct") or "10.000"),
+            tenant_id=tenant,
+            actor_id=str(arguments.get("actor_id") or "author"),
+            created_at=str(arguments.get("created_at") or _now()),
+            enable_formal_smt=bool(arguments.get("enable_formal_smt", True)),
+            export_control_restricted=bool(arguments.get("export_control_restricted", False)),
+        )
+        return False, run_rotorcraft_department_quotation(ledger, spec)
+
+    if name == "calibrate_and_match_historical_quotations":
+        from evidence_coverage.historical_quotation_calibrator import (
+            run_historical_calibration_and_matching,
+        )
+
+        return False, run_historical_calibration_and_matching(
+            archetype_id=str(arguments.get("archetype_id") or "Q-STR-03"),
+            country_code=str(arguments.get("country_code") or "EU_DEFAULT"),
+            cert_basis=str(arguments.get("cert_basis") or "CS-29"),
+            material_family=str(arguments.get("material_family") or "HYBRID_AL_CFRP"),
+            corpus_path=(str(arguments["corpus_path"]) if arguments.get("corpus_path") else None),
+            records=(arguments["records"] if isinstance(arguments.get("records"), list) else None),
+            synthetic_count=int(arguments.get("synthetic_count") or 2160),
+            idp_attachments=arguments.get("idp_attachments"),
+            top_k=int(arguments.get("top_k") or 3),
+        )
 
     return True, {"error": f"unknown_tool: {name}"}
 

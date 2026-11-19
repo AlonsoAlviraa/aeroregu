@@ -1,0 +1,66 @@
+{
+  "method_id": "johnson_euler_column",
+  "method_version": "johnson_euler_column@1.0.0",
+  "title": "Johnson Parabolic / Euler Column Buckling Transition",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "lambda = (L / sqrt(c)) / sqrt(I / A); lambda_c = sqrt(2*pi^2*E/F_cy); sigma_cr = euler if lambda >= lambda_c else johnson",
+  "note": "MMPDS-16 / Bruhn primary column global instability transition between inelastic Johnson parabola and elastic Euler hyperbola.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "compressive_load_n": "newton",
+    "section_area_mm2": "millimeter ** 2",
+    "min_inertia_mm4": "millimeter ** 4",
+    "column_length_mm": "millimeter",
+    "end_fixity_c": "dimensionless",
+    "modulus_mpa": "megapascal",
+    "compressive_yield_mpa": "megapascal"
+  },
+  "required": [
+    "compressive_load_n",
+    "section_area_mm2",
+    "min_inertia_mm4",
+    "column_length_mm",
+    "end_fixity_c",
+    "modulus_mpa",
+    "compressive_yield_mpa"
+  ],
+  "limits": {
+    "compressive_load_n": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "section_area_mm2": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "min_inertia_mm4": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "column_length_mm": {
+      "min_exclusive": "0",
+      "max": "50000"
+    },
+    "end_fixity_c": {
+      "min": "0.25",
+      "max": "4.0"
+    },
+    "modulus_mpa": {
+      "min_exclusive": "0",
+      "max": "1000000"
+    },
+    "compressive_yield_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "bruhn-johnson-euler",
+      "uri": "https://aeroregu.local/cards/johnson_euler_column",
+      "content_hash": "89eaf8c6e597046bfc4a707f9a45059731b5045f79cb5ed7b83abee404e74bf1",
+      "label": "VERIFIED"
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "method_id": "lug_axial_transverse_interaction",
+  "method_version": "lug_axial_transverse_interaction@1.0.0",
+  "title": "Aircraft Fitting Lug Axial-Transverse Power Interaction (R_a^1.6 + R_t^1.6 <= 1)",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "R_a = P_ax / P_ax_allow; R_t = P_tr / P_tr_allow; MS = (R_a^1.6 + R_t^1.6)^(-1/1.6) - 1",
+  "note": "Melcon-Hoblit / Bruhn D1.11 lug combined axial and transverse ultimate interaction curve.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "axial_load_n": "newton",
+    "transverse_load_n": "newton",
+    "axial_allowable_n": "newton",
+    "transverse_allowable_n": "newton"
+  },
+  "required": [
+    "axial_load_n",
+    "transverse_load_n",
+    "axial_allowable_n",
+    "transverse_allowable_n"
+  ],
+  "limits": {
+    "axial_load_n": {
+      "min": "0",
+      "max": "10000000000"
+    },
+    "transverse_load_n": {
+      "min": "0",
+      "max": "10000000000"
+    },
+    "axial_allowable_n": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "transverse_allowable_n": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "melcon-hoblit-lug-interaction",
+      "uri": "https://aeroregu.local/cards/lug_axial_transverse_interaction",
+      "content_hash": "154a0b6771bb2e3b9c712e4eec058cbc141902af14e27056977886a68c43a8de",
+      "label": "VERIFIED"
+    }
+  ]
+}

@@ -4,11 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-import secrets
 import sys
-import webbrowser
-import zipfile
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
@@ -29,19 +25,34 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 calc_app = typer.Typer(help="Deterministic engineering calculations (Decimal + Flint + Z3/cvc5).")
-bundle_app = typer.Typer(help="Export and off-line verify DSSE Ed25519 audit dossiers.")
+bundle_app = typer.Typer(help="Export and off-line verify DSSE Ed25519 / eIDAS QES audit dossiers.")
 ledger_app = typer.Typer(help="Inspect tamper-evident ledger, Merkle proofs, and pilot metrics.")
 coverage_app = typer.Typer(help="Flight-envelope coverage matrix, sweep & traceability gate.")
 dossier_app = typer.Typer(help="Enterprise certification dossier, StrictDOC & NIST OSCAL SAR.")
-security_app = typer.Typer(help="Guardrail scanner and Red-Team adversarial benchmark.")
+security_app = typer.Typer(help="Guardrail scanner, SBOM/CVE verification & Red-Team audit.")
 bench_app = typer.Typer(help="Run B2 baseline comparisons and live/edge agent benchmarks.")
 mcp_app = typer.Typer(help="Model Context Protocol (MCP) stdio server, inspector & client configs.")
-cad_app = typer.Typer(help="CAD/CAE connectors (STEP AP242, IGES, CATIA, NASTRAN, ABAQUS).")
+cad_app = typer.Typer(help="CAD/B-Rep STEP AP242, IGES, CATIA & legacy CAE inspection.")
+cae_app = typer.Typer(
+    help="CAE binary stream parsers (NASTRAN .op2, HDF5 .h5, sandboxed .odb/.rst)."
+)
+materials_app = typer.Typer(help="Pinned MMPDS-16 & CMH-17 Rev H allowable catalog & lookup.")
+plm_app = typer.Typer(
+    help="Enterprise PLM sync & ECN writeback (3DEXPERIENCE/Teamcenter/Windchill)."
+)
+ecn_app = typer.Typer(help="Engineering Change Notice (ECN) deterministic revision diffing.")
+review_app = typer.Typer(
+    help="Collaborative engineering review threads linked to ledger artifacts."
+)
+qualification_app = typer.Typer(help="DO-330 / TQL-5 IQ/OQ qualification test aid.")
 overnight_app = typer.Typer(
     help="Overnight continuous verification, cross-artifact audit & 08:00 AM briefing."
 )
 db_app = typer.Typer(help="PostgreSQL / SQLite persistence status & automated migrations.")
 webhooks_app = typer.Typer(help="Webhook dead-letter queue (DLQ) inspection & replay.")
+quote_app = typer.Typer(
+    help="Multi-agent automated quotation, 7-axis assumptions & global GitHub/web scraper."
+)
 
 app.add_typer(calc_app, name="calc")
 app.add_typer(bundle_app, name="bundle")
@@ -52,9 +63,52 @@ app.add_typer(security_app, name="security")
 app.add_typer(bench_app, name="bench")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(cad_app, name="cad")
+app.add_typer(cae_app, name="cae")
+app.add_typer(materials_app, name="materials")
+app.add_typer(plm_app, name="plm")
+app.add_typer(ecn_app, name="ecn")
+app.add_typer(review_app, name="review")
+app.add_typer(qualification_app, name="qualification")
 app.add_typer(overnight_app, name="overnight")
 app.add_typer(db_app, name="db")
 app.add_typer(webhooks_app, name="webhooks")
+app.add_typer(quote_app, name="quote")
+
+
+def _complete_method_id(incomplete: str) -> list[str]:
+    try:
+        from evidence_calc.registry import list_method_ids
+
+        needle = incomplete.lower()
+        return [m for m in list_method_ids() if needle in m.lower()]
+    except Exception:
+        return []
+
+
+def _complete_tenant(incomplete: str) -> list[str]:
+    candidates = ["demo", "quickstart-demo"]
+    try:
+        from evidence_kernel.paths import evidence_home
+
+        tdir = evidence_home() / "tenants"
+        if tdir.is_dir():
+            for p in sorted(tdir.glob("*.sqlite3")):
+                name = p.stem
+                if name not in candidates:
+                    candidates.append(name)
+    except Exception:
+        pass
+    return [c for c in candidates if incomplete in c]
+
+
+def _complete_material(incomplete: str) -> list[str]:
+    try:
+        from evidence_calc.allowables import list_materials
+
+        needle = incomplete.upper()
+        return [m for m in list_materials() if needle in m.upper()]
+    except Exception:
+        return []
 
 
 @app.callback(invoke_without_command=True)
@@ -108,6 +162,8 @@ def _load_json_arg(raw: str | None) -> dict[str, Any]:
 
 
 def _pkg_ver(name: str) -> str:
+    from importlib.metadata import PackageNotFoundError, version
+
     try:
         return version(name)
     except PackageNotFoundError:
@@ -362,7 +418,11 @@ def _parse_kv_pairs(pairs: list[str] | None) -> dict[str, Any]:
 
 @calc_app.command("run")
 def calc_run_cmd(
-    method_id: str = typer.Argument(..., help="Method ID (see `aeroregu calc list`)."),
+    method_id: str = typer.Argument(
+        ...,
+        autocompletion=_complete_method_id,
+        help="Method ID (see `aeroregu calc list`).",
+    ),
     inputs: str | None = typer.Option(
         None,
         "--inputs",
@@ -382,7 +442,9 @@ def calc_run_cmd(
     ),
     formal: bool = typer.Option(False, "--formal", help="Run Z3 + cvc5 SMT proof."),
     record_to_ledger: bool = typer.Option(False, "--record", help="Append calc event to ledger."),
-    tenant: str = typer.Option("demo", "--tenant", help="Tenant ledger ID."),
+    tenant: str = typer.Option(
+        "demo", "--tenant", autocompletion=_complete_tenant, help="Tenant ledger ID."
+    ),
     actor: str = typer.Option("author", "--actor", help="Actor ID when recording."),
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
@@ -508,13 +570,17 @@ def verify_case_cmd(
         None, "--file", "-f", exists=True, help="Source document path."
     ),
     text: str | None = typer.Option(None, "--text", "-t", help="Raw source clause text."),
-    method_id: str | None = typer.Option(None, "--method", "-m", help="Optional calc method ID."),
+    method_id: str | None = typer.Option(
+        None, "--method", "-m", autocompletion=_complete_method_id, help="Optional calc method ID."
+    ),
     inputs: str | None = typer.Option(None, "--inputs", "-i", help="Calc inputs JSON or @file."),
     mode: str = typer.Option("auto", "--mode", help="auto|fixture|edge|api|hybrid"),
     edge_model: str | None = typer.Option(None, "--edge-model", help="Edge model name."),
     formal: bool = typer.Option(False, "--formal", help="Verify bounds via Z3+cvc5."),
     gate: bool = typer.Option(False, "--gate", help="Enable SLM decision gate."),
-    tenant: str = typer.Option("demo", "--tenant", help="Tenant ledger ID."),
+    tenant: str = typer.Option(
+        "demo", "--tenant", autocompletion=_complete_tenant, help="Tenant ledger ID."
+    ),
     actor: str = typer.Option("author", "--actor", help="Actor ID."),
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
@@ -575,10 +641,25 @@ def verify_case_cmd(
             raise typer.Exit(code=2)
         return
 
-    with console.status(
-        "[cyan]Running supervised pipeline (reader -> checker -> refuter -> scribe)...[/cyan]"
-    ):
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        task_id = progress.add_task("[cyan]Ingesting blocks & preparing ledger...[/cyan]", total=3)
+        progress.advance(task_id, 1)
+        progress.update(
+            task_id,
+            description="[cyan]Running pipeline (reader -> checker -> refuter -> scribe)...[/cyan]",
+        )
         outcome = run_case(ledger, gw, case)
+        progress.advance(task_id, 1)
+        progress.update(task_id, description="[green]Ledger & citations verified[/green]")
+        progress.advance(task_id, 1)
 
     conf = str(outcome.envelope.get("confidence", ""))
     if conf == "abstain":
@@ -614,10 +695,14 @@ def verify_case_cmd(
 @bundle_app.command("export")
 def bundle_export(
     output: Path = typer.Argument(..., help="Output .zip bundle file path."),
-    tenant: str = typer.Option("demo", "--tenant", help="Tenant ledger ID."),
+    tenant: str = typer.Option(
+        "demo", "--tenant", autocompletion=_complete_tenant, help="Tenant ledger ID."
+    ),
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """Export a 100% DSSE Ed25519 signed audit dossier ZIP and immediately verify it."""
+    import zipfile
+
     from evidence_kernel.__main__ import verify_zip_bundle
 
     from evidence_api.app import _zip_bytes, open_ledger
@@ -663,6 +748,8 @@ def bundle_verify(
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """Off-line verification of ledger hash chain, Merkle root, and DSSE Ed25519 signature."""
+    import zipfile
+
     from evidence_kernel.__main__ import verify_zip_bundle
     from evidence_kernel.ledger import verify_chain_document
 
@@ -724,15 +811,26 @@ def ledger_status(
 
 @ledger_app.command("log")
 def ledger_log(
-    tenant: str = typer.Option("demo", "--tenant", help="Tenant ledger ID."),
+    tenant: str = typer.Option(
+        "demo", "--tenant", autocompletion=_complete_tenant, help="Tenant ledger ID."
+    ),
     limit: int = typer.Option(20, "--limit", "-n", help="Tail count."),
+    event_type: str | None = typer.Option(
+        None, "--event-type", "-e", help="Filter by event_type (e.g. calc, ingest, human_signoff)."
+    ),
+    actor: str | None = typer.Option(None, "--actor", help="Filter by actor_id."),
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """Display recent tamper-evident ledger events."""
     from evidence_api.app import open_ledger
 
     checked = _tenant_or_exit(tenant)
-    events = open_ledger(checked).events()[-limit:]
+    events = open_ledger(checked).events()
+    if event_type:
+        events = [ev for ev in events if str(ev["body"].get("event_type")) == event_type]
+    if actor:
+        events = [ev for ev in events if str(ev["body"].get("actor_id")) == actor]
+    events = events[-limit:]
     rows = [
         {
             "event_hash": ev["event_hash"],
@@ -769,14 +867,20 @@ def ledger_signoff_cmd(
     actor: str = typer.Option("reviewer", "--actor", help="Human reviewer actor ID."),
     target: str | None = typer.Option(None, "--target", help="Target event hash (defaults head)."),
     duration_ms: int | None = typer.Option(None, "--duration-ms", help="Review duration in ms."),
+    allow_self_signoff: bool = typer.Option(
+        False,
+        "--allow-self-signoff",
+        help="Allow self sign-off in local dev mode (disallowed in production).",
+    ),
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
-    """Record an immutable human engineer sign-off event with optional review timing."""
+    """Record an immutable human engineer sign-off event with governance checks."""
+    from evidence_coverage.collaboration_ecn import get_review_thread_store
     from evidence_kernel.envelope import make_envelope, project_source
     from evidence_kernel.ledger import GENESIS, SIGN_OFF_STATEMENT, LedgerError
     from evidence_kernel.orchestrator import record
 
-    from evidence_api.app import _now, open_ledger
+    from evidence_api.app import _is_production_mode, _now, open_ledger
 
     checked = _tenant_or_exit(tenant)
     ledger = open_ledger(checked)
@@ -784,6 +888,27 @@ def ledger_signoff_cmd(
     if target_hash == GENESIS:
         err_console.print("[red]Ledger is empty; cannot sign off GENESIS.[/red]")
         raise typer.Exit(code=1)
+
+    events = ledger.events()
+    target_ev = next((ev for ev in events if ev["event_hash"] == target_hash), None)
+    if target_ev is None:
+        err_console.print(f"[red]Target event not found:[/red] {target_hash}")
+        raise typer.Exit(code=1)
+
+    target_author = str(target_ev["body"].get("actor_id") or "")
+    if target_author == actor and (_is_production_mode() or not allow_self_signoff):
+        err_console.print(
+            "[red]Separation of Duties violation:[/red] "
+            f"reviewer '{actor}' cannot sign off own artifact."
+        )
+        raise typer.Exit(code=2)
+
+    review_store = get_review_thread_store()
+    blocking = review_store.unresolved_blocking_threads(checked, target_event_hash=target_hash)
+    if blocking:
+        ids = ", ".join(str(b["thread_id"]) for b in blocking)
+        err_console.print(f"[red]Sign-off blocked by unresolved review threads:[/red] {ids}")
+        raise typer.Exit(code=2)
 
     payload: dict[str, Any] = {
         "actor_id": actor,
@@ -815,10 +940,17 @@ def ledger_signoff_cmd(
         err_console.print(f"[red]Sign-off rejected:[/red] {exc}")
         raise typer.Exit(code=1)
 
+    locked_threads = review_store.lock_threads_on_signoff(
+        checked,
+        target_event_hash=target_hash,
+        signoff_event_hash=ev_hash,
+        signed_by=actor,
+    )
     res = {
         "event_hash": ev_hash,
         "target_event_hash": target_hash,
         "merkle_root": ledger.merkle_root(),
+        "locked_review_threads": [item["thread_id"] for item in locked_threads],
     }
     if _wants_json(json_out):
         _emit_json(res)
@@ -1119,6 +1251,8 @@ def serve_cmd(
     ),
 ) -> None:
     """Start the FastAPI HTTP API + Web UI + Streamable HTTP MCP endpoint."""
+    import secrets
+
     import uvicorn
 
     from evidence_api.app import _secret
@@ -1205,9 +1339,12 @@ def quickstart_cmd(
 
 @coverage_app.command("status")
 def coverage_status_cmd(
-    tenant: str = typer.Option("demo", "--tenant", help="Tenant ledger ID."),
-    status: str | None = typer.Option(None, "--status", help="Filter cell status."),
+    tenant: str = typer.Option(
+        "demo", "--tenant", autocompletion=_complete_tenant, help="Tenant ledger ID."
+    ),
+    status: str | None = typer.Option(None, "--status", "-s", help="Filter cell status."),
     stale_only: bool = typer.Option(False, "--stale-only", help="Show invalidated cells only."),
+    limit: int = typer.Option(15, "--limit", "-l", help="Max sample cells to include."),
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
     """Show flight-envelope gap counts and certification traceability gate readiness."""
@@ -1221,8 +1358,15 @@ def coverage_status_cmd(
     events = ledger.events()
     gaps = gap_report(events)
     gate = evaluate_traceability_gate(events, chain_verified=ledger.verify())
-    cells = list_cells_with_status(events, status_filter=status, stale_only=stale_only)[:15]
-    payload = {"tenant_id": checked, "gaps": gaps, "gate": gate, "sample_cells": cells}
+    matched_cells = list_cells_with_status(events, status_filter=status, stale_only=stale_only)
+    cells = matched_cells[:limit]
+    payload = {
+        "tenant_id": checked,
+        "gaps": gaps,
+        "gate": gate,
+        "matched_count": len(matched_cells),
+        "sample_cells": cells,
+    }
     if _wants_json(json_out):
         _emit_json(payload)
         return
@@ -1231,13 +1375,16 @@ def coverage_status_cmd(
     table.add_column("Value")
     for k, v in gaps.items():
         table.add_row(str(k), str(v))
+    table.add_row("matched_cells", str(len(matched_cells)))
     table.add_row("traceability_gate_ready", f"[bold]{gate.get('ready')}[/bold]")
     console.print(table)
 
 
 @coverage_app.command("sweep")
 def coverage_sweep_cmd(
-    tenant: str = typer.Option("demo", "--tenant", help="Tenant ledger ID."),
+    tenant: str = typer.Option(
+        "demo", "--tenant", autocompletion=_complete_tenant, help="Tenant ledger ID."
+    ),
     limit: int = typer.Option(15, "--limit", help="Max cells to verify in this sweep."),
     stale_only: bool = typer.Option(False, "--stale-only", help="Re-verify stale cells only."),
     actor: str = typer.Option("author", "--actor", help="Actor ID."),
@@ -1250,14 +1397,37 @@ def coverage_sweep_cmd(
 
     checked = _tenant_or_exit(tenant)
     ledger = open_ledger(checked)
-    summary = run_coverage_sweep(
-        ledger,
-        actor_id=actor,
-        created_at=_now(),
-        target_status="gap",
-        stale_only=stale_only,
-        limit=limit,
-    )
+    if _wants_json(json_out):
+        summary = run_coverage_sweep(
+            ledger,
+            actor_id=actor,
+            created_at=_now(),
+            target_status="gap",
+            stale_only=stale_only,
+            limit=limit,
+        )
+    else:
+        from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            TimeElapsedColumn(),
+            console=console,
+        ) as progress:
+            tid = progress.add_task(
+                f"[cyan]Sweeping up to {limit} coverage cells for {checked}...[/cyan]",
+                total=None,
+            )
+            summary = run_coverage_sweep(
+                ledger,
+                actor_id=actor,
+                created_at=_now(),
+                target_status="gap",
+                stale_only=stale_only,
+                limit=limit,
+            )
+            progress.update(tid, description="[green]Coverage sweep completed[/green]")
     res = {**summary, "merkle_root": ledger.merkle_root()}
     if _wants_json(json_out):
         _emit_json(res)
@@ -1419,6 +1589,9 @@ def ui_cmd(
     open_browser: bool = typer.Option(True, "--open/--no-open", help="Open default web browser."),
 ) -> None:
     """Launch the visual Web UI + HTTP API + /mcp endpoint in one command."""
+    import secrets
+    import webbrowser
+
     import uvicorn
 
     from evidence_api.app import _secret
@@ -1702,6 +1875,1108 @@ def webhooks_dlq_cmd(
         _emit_json(out)
     else:
         console.print(out)
+
+
+@materials_app.command("list")
+def materials_list_cmd(
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """List pinned MMPDS-16 and CMH-17 engineering materials in the catalog."""
+    from evidence_calc.allowables import (
+        allowable_catalog_sha256,
+        list_materials,
+        lookup_allowable,
+    )
+
+    mats = list_materials()
+    cat_hash = allowable_catalog_sha256()
+    if _wants_json(json_out):
+        _emit_json({"materials": mats, "catalog_sha256": cat_hash})
+        return
+    tbl = Table(title=f"Pinned Material Catalog ({cat_hash[:12]}...)", box=box.ROUNDED)
+    tbl.add_column("Material ID", style="bold cyan", no_wrap=True)
+    tbl.add_column("Standard")
+    tbl.add_column("Form")
+    tbl.add_column("B-Basis Fty [MPa]", justify="right")
+    for mat_id in mats:
+        info = lookup_allowable(mat_id, basis="B", property_name="fty_mpa")
+        tbl.add_row(
+            mat_id,
+            str(info.get("standard", "-")),
+            str(info.get("form", "-")),
+            str(info.get("allowable_value_mpa", "-")),
+        )
+    console.print(tbl)
+
+
+@materials_app.command("lookup")
+def materials_lookup_cmd(
+    material_id: str = typer.Argument(
+        ..., autocompletion=_complete_material, help="Material ID (e.g. 7075-T651)."
+    ),
+    basis: str = typer.Option("B", "--basis", "-b", help="Statistical basis: A or B."),
+    property_name: str = typer.Option(
+        "fty_mpa", "--property", "-p", help="Property key (fty_mpa, ftu_mpa, fcy_mpa, fsu_mpa)."
+    ),
+    thickness_mm: str = typer.Option("10", "--thickness", help="Section thickness [mm]."),
+    temp_c: str = typer.Option("23", "--temp", help="Operating temperature [C]."),
+    environment: str = typer.Option("RTD", "--env", help="Environment: CTD, RTD, ETW."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Lookup pinned A-Basis / B-Basis allowable with thickness, temperature & env knockdowns."""
+    from evidence_calc.allowables import lookup_allowable
+
+    res = lookup_allowable(
+        material_id,
+        basis=basis,
+        property_name=property_name,
+        thickness_mm=thickness_mm,
+        temp_c=temp_c,
+        environment=environment,
+    )
+    if _wants_json(json_out):
+        _emit_json(res)
+        if res.get("abstain"):
+            raise typer.Exit(code=2)
+        return
+    if res.get("abstain"):
+        err_console.print(f"[red]Material lookup abstained:[/red] {res.get('abstain')}")
+        raise typer.Exit(code=2)
+    console.print(Panel(json.dumps(res, indent=2), title=f"Allowable: {material_id} ({basis})"))
+
+
+@cad_app.command("brep")
+def cad_brep_cmd(
+    file: Path = typer.Argument(..., exists=True, help="STEP AP203/AP214/AP242 file (.stp/.step)."),
+    density: float = typer.Option(2810.0, "--density", help="Material density [kg/m^3]."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Run deterministic 3D STEP B-Rep geometry, mass, CG, web thickness & clearance audit."""
+    import hashlib
+
+    from evidence_ingest.blocks import IngestAbstain
+    from evidence_ingest.cad_brep import analyze_step_brep
+
+    raw = file.expanduser().read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    try:
+        res = analyze_step_brep(raw, digest, default_density_kg_m3=density)
+    except IngestAbstain as exc:
+        err_console.print(f"[red]STEP B-Rep analysis abstained:[/red] {exc.reason}")
+        raise typer.Exit(code=2) from exc
+    payload = {"filename": file.name, "source_hash": digest, **res}
+    if _wants_json(json_out):
+        _emit_json(payload)
+        return
+    console.print(
+        Panel(json.dumps(payload, indent=2, default=str), title=f"CAD B-Rep: {file.name}")
+    )
+
+
+@cae_app.command("parse-binary")
+def cae_parse_binary_cmd(
+    file: Path = typer.Argument(..., exists=True, help="CAE result binary (.op2/.h5/.odb/.rst)."),
+    sandbox: bool = typer.Option(
+        False, "--sandbox", help="Force isolated worker (automatic for .odb/.rst)."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Parse NASTRAN .op2, HDF5 .h5, or sandboxed .odb/.rst FEA binaries into viewer meshes."""
+    import hashlib
+
+    from evidence_ingest.blocks import IngestAbstain
+    from evidence_ingest.cae_binary import (
+        parse_cae_h5_bytes,
+        parse_nastran_op2_bytes,
+        run_sandboxed_cae_worker,
+    )
+
+    raw = file.expanduser().read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    suffix = file.suffix.lower() or ".op2"
+    try:
+        if sandbox or suffix in {".odb", ".rst"}:
+            parsed = run_sandboxed_cae_worker(raw, digest, suffix)
+        elif suffix in {".h5", ".hdf5"}:
+            parsed = parse_cae_h5_bytes(raw, digest)
+        else:
+            parsed = parse_nastran_op2_bytes(raw, digest)
+    except IngestAbstain as exc:
+        err_console.print(f"[red]CAE binary parser abstained:[/red] {exc.reason}")
+        raise typer.Exit(code=2) from exc
+
+    blocks_out = [b.as_dict() if hasattr(b, "as_dict") else b for b in (parsed.get("blocks") or [])]
+    out = {**parsed, "blocks": blocks_out, "filename": file.name}
+    if _wants_json(json_out):
+        _emit_json(out)
+        return
+    vmesh = out.get("viewer_mesh") or {}
+    console.print(
+        Panel(
+            f"File: {file.name}\nSource SHA-256: {digest[:16]}...\n"
+            f"Nodes: {len(vmesh.get('nodes') or [])} | "
+            f"Elements: {len(vmesh.get('elements') or [])} | Blocks: {len(blocks_out)}",
+            title="CAE Binary Parse",
+            border_style="cyan",
+        )
+    )
+
+
+@cae_app.command("nafems-audit")
+def cae_nafems_audit_cmd(
+    bdf: Path = typer.Argument(..., exists=True, help="NASTRAN .bdf/.dat file."),
+    f06: Path | None = typer.Option(None, "--f06", exists=True, help="Optional .f06 solver log."),
+    report: Path | None = typer.Option(
+        None, "--report", exists=True, help="Optional Stress Report PDF/DOCX to cross-check."
+    ),
+    unit_system: str | None = typer.Option(
+        None, "--units", help="Explicit unit system (SI | MM_T_N_MPA)."
+    ),
+    require_units: bool = typer.Option(
+        False, "--require-units", help="Abstain if unit system is unspecified."
+    ),
+    rotor_rpm: str | None = typer.Option(None, "--rotor-rpm", help="Rotor RPM for SOL 103 guard."),
+    blade_count: int = typer.Option(4, "--blades", help="Number of rotor blades."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Run NAFEMS V&V manifest, BDF-vs-Report table drift & rotor modal guard on Nastran files."""
+    import hashlib
+
+    from evidence_coverage.nafems_audit import run_full_nafems_audit
+    from evidence_ingest.blocks import IngestAbstain
+    from evidence_ingest.fem_parsers import parse_nastran_bdf, parse_nastran_f06
+    from evidence_ingest.router import ingest_bytes
+
+    bdf_bytes = bdf.expanduser().read_bytes()
+    bdf_hash = hashlib.sha256(bdf_bytes).hexdigest()
+    try:
+        bdf_parsed = parse_nastran_bdf(
+            bdf_bytes, bdf_hash, base_dir=bdf.expanduser().parent, unit_system=unit_system
+        )
+        f06_parsed = None
+        f06_hash = ""
+        if f06 is not None:
+            f06_bytes = f06.expanduser().read_bytes()
+            f06_hash = hashlib.sha256(f06_bytes).hexdigest()
+            f06_parsed = parse_nastran_f06(f06_bytes, f06_hash)
+        report_blocks = None
+        report_hash = None
+        if report is not None:
+            rep_bytes = report.expanduser().read_bytes()
+            report_hash = hashlib.sha256(rep_bytes).hexdigest()
+            rep_ing = ingest_bytes(rep_bytes, report.name)
+            report_blocks = [
+                b.as_dict() if hasattr(b, "as_dict") else b for b in (rep_ing.get("blocks") or [])
+            ]
+    except IngestAbstain as exc:
+        err_console.print(f"[red]NAFEMS audit abstained:[/red] {exc.reason}")
+        raise typer.Exit(code=2) from exc
+
+    res = run_full_nafems_audit(
+        bdf_parsed=bdf_parsed,
+        bdf_hash=bdf_hash,
+        f06_parsed=f06_parsed,
+        f06_hash=f06_hash,
+        report_blocks=report_blocks,
+        report_hash=report_hash,
+        rotor_rpm=rotor_rpm,
+        blade_count=blade_count,
+        require_unit_system=require_units,
+    )
+    if _wants_json(json_out):
+        _emit_json(res)
+        return
+    status_str = "[green]PASS[/green]" if res["overall_pass"] else "[red]FAIL / ABSTAIN[/red]"
+    console.print(
+        Panel(
+            f"Overall: {status_str} | Manifest: {res['manifest']['manifest_sha256'][:16]}...\n"
+            f"Property drift count: {res['property_drift']['discrepancy_count']}",
+            title="NAFEMS V&V Audit",
+            border_style="cyan",
+        )
+    )
+
+
+@cae_app.command("bdf-diff")
+def cae_bdf_diff_cmd(
+    rev_a: Path = typer.Argument(..., exists=True, help="Baseline Rev A .bdf file."),
+    rev_b: Path = typer.Argument(..., exists=True, help="Updated Rev B .bdf file."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Compare two Nastran BDF revisions across PSHELL, PCOMP, SUBCASE, and CONM2 masses."""
+    import hashlib
+
+    from evidence_coverage.nafems_audit import diff_bdf_revisions_and_invalidate
+    from evidence_ingest.fem_parsers import parse_nastran_bdf
+
+    a_bytes = rev_a.expanduser().read_bytes()
+    b_bytes = rev_b.expanduser().read_bytes()
+    bdf_a = parse_nastran_bdf(
+        a_bytes, hashlib.sha256(a_bytes).hexdigest(), base_dir=rev_a.expanduser().parent
+    )
+    bdf_b = parse_nastran_bdf(
+        b_bytes, hashlib.sha256(b_bytes).hexdigest(), base_dir=rev_b.expanduser().parent
+    )
+    res = diff_bdf_revisions_and_invalidate(rev_a_bdf=bdf_a, rev_b_bdf=bdf_b, ledger=None)
+    if _wants_json(json_out):
+        _emit_json(res)
+        return
+    _emit_json(res)
+
+
+@plm_app.command("sync")
+def plm_sync_cmd(
+    system: str = typer.Option(
+        "3dexperience", "--system", help="3dexperience | teamcenter | windchill"
+    ),
+    item_id: str = typer.Option("WING-SPAR-ASM-01", "--item", help="PLM item/part ID."),
+    revision: str = typer.Option("Rev A", "--revision", help="Revision label."),
+    msn: int = typer.Option(1, "--msn", help="Aircraft MSN effectivity."),
+    use_mock: bool = typer.Option(True, "--mock/--no-mock", help="Use offline mock transport."),
+    base_url: str = typer.Option("https://plm.aeroregu.local", "--base-url"),
+    token_url: str = typer.Option("https://plm.aeroregu.local/oauth/token", "--token-url"),
+    client_id: str = typer.Option("aeroregu-svc", "--client-id"),
+    client_secret: str = typer.Option("svc-secret", "--client-secret"),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Pull Effectivity/EBOM tree from 3DEXPERIENCE, Teamcenter, or Windchill."""
+    from evidence_ingest.plm_connectors import (
+        MockPLMServerTransport,
+        PLMConnectorError,
+        build_plm_connector,
+    )
+
+    transport = MockPLMServerTransport() if use_mock else None
+    conn = build_plm_connector(
+        system.lower(),  # type: ignore[arg-type]
+        base_url=base_url,
+        token_url=token_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        transport=transport,
+    )
+    try:
+        bom = conn.fetch_ebom(item_id, revision=revision, msn=msn)
+    except PLMConnectorError as exc:
+        err_console.print(f"[red]PLM sync failed:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    finally:
+        conn.close()
+    if _wants_json(json_out):
+        _emit_json(bom)
+        return
+    console.print(Panel(json.dumps(bom, indent=2), title=f"PLM EBOM Sync ({system})"))
+
+
+@plm_app.command("writeback")
+def plm_writeback_cmd(
+    change_action_id: str = typer.Option(
+        "ECN-2026-001", "--change-action", help="ECN / Change Action ID."
+    ),
+    system: str = typer.Option(
+        "3dexperience", "--system", help="3dexperience | teamcenter | windchill"
+    ),
+    tenant: str = typer.Option(
+        "demo", "--tenant", autocompletion=_complete_tenant, help="Tenant ledger ID."
+    ),
+    use_mock: bool = typer.Option(True, "--mock/--no-mock", help="Use offline mock transport."),
+    base_url: str = typer.Option("https://plm.aeroregu.local", "--base-url"),
+    token_url: str = typer.Option("https://plm.aeroregu.local/oauth/token", "--token-url"),
+    client_id: str = typer.Option("aeroregu-svc", "--client-id"),
+    client_secret: str = typer.Option("svc-secret", "--client-secret"),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Write back cryptographic Merkle root attestation onto a PLM Change Action / ECN."""
+    from evidence_ingest.plm_connectors import (
+        MockPLMServerTransport,
+        PLMConnectorError,
+        build_plm_connector,
+    )
+
+    from evidence_api.app import open_ledger
+
+    checked = _tenant_or_exit(tenant)
+    ledger = open_ledger(checked)
+    transport = MockPLMServerTransport() if use_mock else None
+    conn = build_plm_connector(
+        system.lower(),  # type: ignore[arg-type]
+        base_url=base_url,
+        token_url=token_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        transport=transport,
+    )
+    try:
+        wb = conn.writeback_merkle_attestation(
+            change_action_id=change_action_id,
+            merkle_root=ledger.merkle_root(),
+            head_hash=ledger.head_hash(),
+            chain_verified=ledger.verify(),
+        )
+    except PLMConnectorError as exc:
+        err_console.print(f"[red]PLM writeback failed:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    finally:
+        conn.close()
+    if _wants_json(json_out):
+        _emit_json(wb)
+        return
+    console.print(Panel(json.dumps(wb, indent=2), title=f"PLM Attestation Writeback ({system})"))
+
+
+@ecn_app.command("diff")
+def ecn_diff_cmd(
+    rev_a: str = typer.Option(..., "--rev-a", "-a", help="Rev A dossier JSON or @file.json."),
+    rev_b: str = typer.Option(..., "--rev-b", "-b", help="Rev B dossier JSON or @file.json."),
+    ecn_id: str = typer.Option("ECN-2026-001", "--ecn-id", help="Change notice ID."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Compare Rev A vs Rev B certification dossiers (requirements, CAD, FEM, Margins)."""
+    from evidence_coverage.collaboration_ecn import compute_ecn_revision_diff
+
+    a_data = _load_json_arg(rev_a)
+    b_data = _load_json_arg(rev_b)
+    diff = compute_ecn_revision_diff(a_data, b_data, ecn_id=ecn_id)
+    if _wants_json(json_out):
+        _emit_json(diff)
+        return
+    console.print(Panel(json.dumps(diff, indent=2), title=f"ECN Revision Diff ({ecn_id})"))
+
+
+@review_app.command("list")
+def review_list_cmd(
+    tenant: str = typer.Option(
+        "demo", "--tenant", autocompletion=_complete_tenant, help="Tenant ledger ID."
+    ),
+    target_hash: str | None = typer.Option(
+        None, "--target-hash", help="Optional target ledger event hash."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """List review threads and blocking status for a tenant ledger."""
+    from evidence_coverage.collaboration_ecn import get_review_thread_store
+
+    checked = _tenant_or_exit(tenant)
+    store = get_review_thread_store()
+    threads = store.list_threads(checked, target_event_hash=target_hash)
+    blocking = store.unresolved_blocking_threads(checked, target_event_hash=target_hash)
+    payload = {"tenant_id": checked, "blocking_count": len(blocking), "threads": threads}
+    if _wants_json(json_out):
+        _emit_json(payload)
+        return
+    tbl = Table(title=f"Review Threads ({checked} | blocking={len(blocking)})", box=box.ROUNDED)
+    tbl.add_column("Thread ID", style="bold cyan", no_wrap=True)
+    tbl.add_column("Status")
+    tbl.add_column("Author")
+    tbl.add_column("Category")
+    tbl.add_column("Target Event")
+    for thr in threads:
+        tbl.add_row(
+            str(thr["thread_id"]),
+            str(thr["status"]),
+            str(thr["author_id"]),
+            str(thr["category"]),
+            str(thr["target_event_hash"])[:16] + "...",
+        )
+    console.print(tbl)
+
+
+@review_app.command("create")
+def review_create_cmd(
+    target_hash: str = typer.Option(..., "--target-hash", "-t", help="Ledger event hash."),
+    body: str = typer.Option(..., "--body", "-b", help="Review comment body."),
+    author: str = typer.Option("author", "--actor", "-a", help="Author / CVE actor ID."),
+    category: str = typer.Option("review_comment", "--category", help="Comment category."),
+    initial_status: str = typer.Option("OPEN", "--status", help="OPEN or CHANGES_REQUESTED."),
+    tenant: str = typer.Option(
+        "demo", "--tenant", autocompletion=_complete_tenant, help="Tenant ledger ID."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Create a review thread anchored to a ledger event hash."""
+    from evidence_coverage.collaboration_ecn import get_review_thread_store
+
+    checked = _tenant_or_exit(tenant)
+    try:
+        thr = get_review_thread_store().create_thread(
+            checked,
+            target_event_hash=target_hash,
+            author_id=author,
+            body=body,
+            category=category,
+            initial_status=initial_status,
+        )
+    except ValueError as exc:
+        err_console.print(f"[red]Failed to create thread:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    if _wants_json(json_out):
+        _emit_json(thr)
+        return
+    console.print(
+        f"[green]Created thread[/green] [bold]{thr['thread_id']}[/bold] ({thr['status']})"
+    )
+
+
+@review_app.command("reply")
+def review_reply_cmd(
+    thread_id: str = typer.Argument(..., help="Review thread ID (e.g. thr-...)."),
+    body: str = typer.Option(..., "--body", "-b", help="Reply text."),
+    actor: str = typer.Option("author", "--actor", "-a", help="Actor ID."),
+    request_changes: bool = typer.Option(
+        False, "--request-changes", help="Mark thread as CHANGES_REQUESTED."
+    ),
+    tenant: str = typer.Option(
+        "demo", "--tenant", autocompletion=_complete_tenant, help="Tenant ledger ID."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Reply to an existing review thread."""
+    from evidence_coverage.collaboration_ecn import get_review_thread_store
+
+    checked = _tenant_or_exit(tenant)
+    try:
+        thr = get_review_thread_store().reply_thread(
+            checked,
+            thread_id,
+            actor_id=actor,
+            body=body,
+            request_changes=request_changes,
+        )
+    except (KeyError, ValueError) as exc:
+        err_console.print(f"[red]Reply failed:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    if _wants_json(json_out):
+        _emit_json(thr)
+        return
+    console.print(
+        f"[green]Updated thread[/green] [bold]{thr['thread_id']}[/bold] ({thr['status']})"
+    )
+
+
+@review_app.command("resolve")
+def review_resolve_cmd(
+    thread_id: str = typer.Argument(..., help="Review thread ID to resolve."),
+    actor: str = typer.Option("cve", "--actor", "-a", help="Resolver actor ID."),
+    note: str = typer.Option("Verified and resolved", "--note", help="Resolution note."),
+    tenant: str = typer.Option(
+        "demo", "--tenant", autocompletion=_complete_tenant, help="Tenant ledger ID."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Resolve a blocking review thread so sign-off can proceed."""
+    from evidence_coverage.collaboration_ecn import get_review_thread_store
+
+    checked = _tenant_or_exit(tenant)
+    try:
+        thr = get_review_thread_store().resolve_thread(
+            checked,
+            thread_id,
+            resolver_id=actor,
+            resolution_note=note,
+        )
+    except (KeyError, ValueError) as exc:
+        err_console.print(f"[red]Resolve failed:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    if _wants_json(json_out):
+        _emit_json(thr)
+        return
+    console.print(f"[green]Resolved thread[/green] [bold]{thr['thread_id']}[/bold] by {actor}")
+
+
+@qualification_app.command("run")
+def qualification_run_cmd(
+    repo_root: Path | None = typer.Option(None, "--repo-root", help="Repository root override."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Run DO-330 / TQL-5 IQ/OQ qualification suite and return attested report."""
+    from evidence_coverage.qualification_aid import run_iq_oq_qualification_suite
+
+    root = repo_root.expanduser().resolve() if repo_root else Path(__file__).resolve().parents[4]
+    report = run_iq_oq_qualification_suite(repo_root=root)
+    if _wants_json(json_out):
+        _emit_json(report)
+        if not report.get("passed", report.get("all_passed", True)):
+            raise typer.Exit(code=1)
+        return
+    console.print(Panel(json.dumps(report, indent=2), title="DO-330 / TQL-5 IQ/OQ Qualification"))
+
+
+@security_app.command("sbom")
+def security_sbom_cmd(
+    repo_root: Path | None = typer.Option(None, "--repo-root", help="Repository root override."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Generate CycloneDX 1.5 dependency SBOM and CVE verification report."""
+    from evidence_kernel.hsm_eidas_scim import verify_sbom_and_dependencies
+
+    root = repo_root.expanduser().resolve() if repo_root else Path(__file__).resolve().parents[4]
+    report = verify_sbom_and_dependencies(root)
+    if _wants_json(json_out):
+        _emit_json(report)
+        return
+    console.print(Panel(json.dumps(report, indent=2), title="CycloneDX 1.5 SBOM & CVE Gate"))
+
+
+@security_app.command("ma-readiness")
+def security_ma_readiness_cmd(
+    repo_root: Path | None = typer.Option(None, "--repo-root", help="Repository root override."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Evaluate enterprise M&A IP, license & security technical readiness."""
+    from evidence_coverage.ma_readiness import evaluate_ma_technical_readiness
+
+    root = repo_root.expanduser().resolve() if repo_root else Path(__file__).resolve().parents[4]
+    report = evaluate_ma_technical_readiness(root)
+    if _wants_json(json_out):
+        _emit_json(report)
+        return
+    console.print(Panel(json.dumps(report, indent=2), title="M&A Technical Readiness"))
+
+
+@bundle_app.command("export-qes")
+def bundle_export_qes_cmd(
+    output: Path = typer.Argument(..., help="Output .zip bundle file path (writes .qes.json too)."),
+    tenant: str = typer.Option(
+        "demo", "--tenant", autocompletion=_complete_tenant, help="Tenant ledger ID."
+    ),
+    profile: str = typer.Option("CAdES-B-LT", "--profile", help="CAdES-B-LT or PAdES-B-LT."),
+    actor: str = typer.Option("cve", "--actor", help="Qualified signer actor ID."),
+    key_uri: str | None = typer.Option(None, "--key-uri", help="Optional HSM key URI."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Export DSSE bundle ZIP sealed with eIDAS Qualified Electronic Signature (CAdES/PAdES)."""
+    import hashlib
+
+    from evidence_kernel.hsm_eidas_scim import (
+        EidasQESEnvelope,
+        get_hsm_signer,
+        get_qes_envelope_service,
+    )
+
+    from evidence_api.app import _zip_bytes, open_ledger
+
+    if profile not in {"CAdES-B-LT", "PAdES-B-LT"}:
+        err_console.print(f"[red]Unsupported QES profile:[/red] {profile}")
+        raise typer.Exit(code=1)
+    checked = _tenant_or_exit(tenant)
+    ledger = open_ledger(checked)
+    bundle_bytes = _zip_bytes(ledger.events())
+    out_path = output.expanduser().resolve()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(bundle_bytes)
+
+    qes_svc = get_qes_envelope_service()
+    envelope = qes_svc.build_envelope(
+        bundle_bytes,
+        signer_id=actor,
+        profile=profile,
+        key_uri=key_uri,
+    )
+    verification = EidasQESEnvelope.verify_envelope(envelope, bundle_bytes)
+    slot_info = get_hsm_signer().get_slot_info(key_uri)
+    qes_sidecar = out_path.with_name(out_path.name + ".qes.json")
+    payload = {
+        "tenant_id": checked,
+        "output_path": str(out_path),
+        "qes_path": str(qes_sidecar),
+        "profile": profile,
+        "signer_id": actor,
+        "bundle_sha256": hashlib.sha256(bundle_bytes).hexdigest(),
+        "bundle_size_bytes": len(bundle_bytes),
+        "qes_envelope": envelope,
+        "verification": verification,
+        "hsm_slot": slot_info,
+    }
+    qes_sidecar.write_text(json.dumps(envelope, indent=2), encoding="utf-8")
+    ok = bool(verification.get("verified"))
+    if _wants_json(json_out):
+        _emit_json(payload)
+        if not ok:
+            raise typer.Exit(code=1)
+        return
+    console.print(
+        Panel(
+            f"Bundle: {out_path}\nQES Envelope: {qes_sidecar}\n"
+            f"Profile: {profile} | Verified: [bold]{ok}[/bold]\n"
+            f"Bundle SHA-256: {payload['bundle_sha256']}",
+            title="eIDAS QES Dossier Export",
+            border_style="green" if ok else "red",
+        )
+    )
+    if not ok:
+        raise typer.Exit(code=1)
+
+
+@quote_app.command("generate")
+def quote_generate_cmd(
+    text: str | None = typer.Option(
+        None, "--text", "-t", help="Raw RFQ / tender specification text."
+    ),
+    file: Path | None = typer.Option(None, "--file", "-f", exists=True, help="RFQ document path."),
+    kind: str = typer.Option(
+        "hybrid_turnkey",
+        "--kind",
+        help="hybrid_turnkey | aerospace_manufacturing | engineering_workpackage",
+    ),
+    material: str | None = typer.Option(None, "--material", help="Override material grade."),
+    quantity: str | None = typer.Option(None, "--quantity", help="Override part quantity."),
+    mass_kg: str | None = typer.Option(None, "--mass-kg", help="Override finished mass (kg)."),
+    calc_notes: str | None = typer.Option(None, "--calc-notes", help="Override calc notes count."),
+    fem_models: str | None = typer.Option(None, "--fem-models", help="Override FEM models count."),
+    target_margin: str = typer.Option("22.000", "--target-margin", help="Target gross margin (%)."),
+    min_margin: str = typer.Option("10.000", "--min-margin", help="Minimum Z3 floor margin (%)."),
+    currency: str = typer.Option("EUR", "--currency", help="Quote currency."),
+    tenant: str = typer.Option(
+        "demo", "--tenant", autocompletion=_complete_tenant, help="Tenant ledger ID."
+    ),
+    actor: str = typer.Option("author", "--actor", help="Actor ID."),
+    output: Path | None = typer.Option(
+        None, "--output", "-o", help="Optional .md or .json file output path."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Generate a full 8-agent automated quotation with all 7-dimension assumptions & Z3 proof."""
+    from evidence_coverage.quotation_multiagent import (
+        QuotationRequestSpec,
+        run_multiagent_quotation,
+    )
+
+    from evidence_api.app import _now, open_ledger
+
+    if file is not None:
+        raw_text = file.read_text(encoding="utf-8")
+    elif text is not None:
+        raw_text = text
+    else:
+        err_console.print("[red]Provide --text or --file with RFQ content.[/red]")
+        raise typer.Exit(code=1)
+
+    explicit: dict[str, Any] = {}
+    if material:
+        explicit["material_grade"] = material
+    if quantity:
+        explicit["part_quantity"] = quantity
+    if mass_kg:
+        explicit["finished_mass_kg"] = mass_kg
+    if calc_notes:
+        explicit["calc_notes_count"] = calc_notes
+    if fem_models:
+        explicit["fem_models_count"] = fem_models
+
+    checked = _tenant_or_exit(tenant)
+    ledger = open_ledger(checked)
+    spec = QuotationRequestSpec(
+        rfq_text=raw_text,
+        quotation_kind=kind,  # type: ignore[arg-type]
+        tenant_id=checked,
+        actor_id=actor,
+        created_at=_now(),
+        currency=currency,
+        target_margin_pct=target_margin,
+        min_acceptable_margin_pct=min_margin,
+        explicit_params=explicit,
+    )
+    dossier = run_multiagent_quotation(ledger, spec)
+    payload = dossier.to_dict()
+
+    if output is not None:
+        out_path = output.expanduser().resolve()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        if out_path.suffix.lower() == ".json":
+            out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        else:
+            out_path.write_text(dossier.markdown_report, encoding="utf-8")
+
+    if _wants_json(json_out):
+        _emit_json(payload)
+        if dossier.confidence == "abstain":
+            raise typer.Exit(code=2)
+        return
+
+    if dossier.confidence == "abstain":
+        console.print(
+            Panel(
+                f"[bold yellow]ABSTAIN: {dossier.abstain_reason}[/bold yellow]\n"
+                f"Escalate to: {dossier.escalate_to}",
+                title="Quotation Gate Halted",
+            )
+        )
+        raise typer.Exit(code=2)
+
+    pert = dossier.pert_summary
+    summary_table = Table(
+        title=f"Multi-Agent Quotation Summary — {dossier.rfq_id}", box=box.ROUNDED
+    )
+    summary_table.add_column("Percentile", style="bold cyan")
+    summary_table.add_column("Total Cost", justify="right")
+    summary_table.add_column("Quoted Price", style="bold green", justify="right")
+    summary_table.add_row(
+        "P50 (Expected)",
+        f"{pert['total_cost_p50_eur']} {currency}",
+        f"{pert['quoted_price_p50_eur']} {currency}",
+    )
+    summary_table.add_row(
+        "P80 (Recommended)",
+        f"{pert['total_cost_p80_eur']} {currency}",
+        f"{pert['quoted_price_p80_eur']} {currency}",
+    )
+    summary_table.add_row(
+        "P90 (Conservative)",
+        f"{pert['total_cost_p90_eur']} {currency}",
+        f"{pert['quoted_price_p90_eur']} {currency}",
+    )
+    console.print(summary_table)
+
+    asm_table = Table(
+        title=f"Exhaustive Assumptions Register ({len(dossier.assumptions)} items across 7 axes)",
+        box=box.ROUNDED,
+    )
+    asm_table.add_column("ID", style="bold cyan")
+    asm_table.add_column("Category")
+    asm_table.add_column("Label")
+    asm_table.add_column("Assumed Value")
+    asm_table.add_column("Sensitivity", justify="right")
+    for a in dossier.assumptions:
+        asm_table.add_row(
+            str(a["assumption_id"]),
+            str(a["category"]),
+            str(a["label"]),
+            str(a["assumed_value"])[:48],
+            f"+{a['cost_sensitivity_pct']}%",
+        )
+    console.print(asm_table)
+
+    fp = dossier.formal_margin_proof or {}
+    console.print(
+        Panel(
+            f"Decision: {dossier.decision_status}\n"
+            f"Z3 Margin Proof: {fp.get('status', 'SKIPPED')} ({fp.get('proof_hash', '')[:16]}...)\n"
+            f"Merkle Root: {dossier.merkle_root} | Events: {len(dossier.event_hashes)}",
+            title="Cryptographic & Formal Verification",
+            border_style="green",
+        )
+    )
+
+
+@quote_app.command("assumptions")
+def quote_assumptions_cmd(
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """List the 7-dimension assumption taxonomy, aerospace materials, and rate cards."""
+    from evidence_coverage.quotation_multiagent import get_quotation_catalog
+
+    catalog = get_quotation_catalog()
+    if _wants_json(json_out):
+        _emit_json(catalog)
+        return
+
+    table = Table(title="7-Dimension Quotation Assumption Taxonomy", box=box.ROUNDED)
+    table.add_column("Category", style="bold cyan")
+    table.add_column("Description")
+    for item in catalog["assumption_categories"]:
+        table.add_row(item["category"], item["description"])
+    console.print(table)
+
+
+@quote_app.command("scrape")
+def quote_scrape_cmd(
+    live: bool = typer.Option(
+        False,
+        "--live/--offline",
+        help="Query live GitHub API & commercial sites in addition to verified catalog.",
+    ),
+    output: Path | None = typer.Option(
+        None, "--output", "-o", help="Optional .md or .json report output path."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Scrape & benchmark global GitHub repositories and web platforms for automated quoting."""
+    from evidence_coverage.repo_web_scraper import QuotationIntelligenceScraper
+
+    res = QuotationIntelligenceScraper().run_full_harvest(live_network=live)
+    if output is not None:
+        out_path = output.expanduser().resolve()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        if out_path.suffix.lower() == ".json":
+            out_path.write_text(json.dumps(res, indent=2), encoding="utf-8")
+        else:
+            out_path.write_text(res["markdown_report"], encoding="utf-8")
+
+    if _wants_json(json_out):
+        _emit_json(res)
+        return
+
+    gh = res["github"]
+    wb = res["web_platforms"]
+    cmp = res["comparison"]
+    table = Table(
+        title=(
+            f"Global Quoting Landscape (GitHub: {gh['total_repositories']} | "
+            f"Web Platforms: {wb['total_platforms']} | Mode: {gh['network_mode']})"
+        ),
+        box=box.ROUNDED,
+    )
+    table.add_column("Repository", style="bold cyan")
+    table.add_column("Category")
+    table.add_column("Axes Covered", justify="right")
+    for item in cmp["top_github_comparables"]:
+        table.add_row(
+            str(item["repo_full_name"]),
+            str(item["category"]),
+            f"{item['axes_covered']}/{item['axes_total']}",
+        )
+    console.print(table)
+    console.print(
+        f"[green]aeroregu capability coverage:[/green] "
+        f"{cmp['aeroregu_axes_covered']}/{cmp['aeroregu_axes_total']} axes"
+    )
+
+
+@quote_app.command("archetypes")
+def quote_archetypes_cmd(
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """List the 18 helicopter engineering archetypes, 9 country rate cards & 6 studies."""
+    from evidence_coverage.rotorcraft_quotation_catalog import get_rotorcraft_catalog
+
+    cat = get_rotorcraft_catalog()
+    if _wants_json(json_out):
+        _emit_json(cat)
+        return
+
+    a_table = Table(
+        title=f"Rotorcraft Engineering Quotation Archetypes ({cat['archetypes_count']})",
+        box=box.ROUNDED,
+    )
+    a_table.add_column("ID", style="bold cyan")
+    a_table.add_column("Family")
+    a_table.add_column("Title")
+    a_table.add_column("FP / T&M")
+    a_table.add_column("PERT M (h)", justify="right")
+    for a in cat["archetypes"]:
+        a_table.add_row(
+            a["archetype_id"],
+            a["family"],
+            a["title"],
+            f"{a['fixed_price_share_pct']}% / {a['capped_tm_share_pct']}%",
+            a["pert_total_hours"]["most_likely"],
+        )
+    console.print(a_table)
+
+    c_table = Table(
+        title=f"Country Rate Profiles (Default={cat['default_country_code']} + 8 Countries)",
+        box=box.ROUNDED,
+    )
+    c_table.add_column("Code", style="bold cyan")
+    c_table.add_column("Country / Hubs")
+    c_table.add_column("Stress EUR/h", justify="right")
+    c_table.add_column("CVE EUR/h", justify="right")
+    c_table.add_column("OH / Cont", justify="right")
+    for c in cat["countries"]:
+        c_table.add_row(
+            c["country_code"],
+            f"{c['country_name']} ({c['cluster_hubs']})",
+            c["rates"]["stress_rate"],
+            c["rates"]["cve_rate"],
+            f"{c['overhead_pct']}% / {c['contingency_pct']}%",
+        )
+    console.print(c_table)
+
+
+@quote_app.command("helicopter")
+def quote_helicopter_cmd(
+    text: str | None = typer.Option(None, "--text", "-t", help="Helicopter RFQ text."),
+    file: Path | None = typer.Option(None, "--file", "-f", exists=True, help="RFQ document path."),
+    country: str = typer.Option(
+        "EU_DEFAULT",
+        "--country",
+        help="Rate card: EU_DEFAULT | FR | DE | ES | IT | UK | US | PL | IN",
+    ),
+    archetype: str | None = typer.Option(
+        None, "--archetype", help="Explicit archetype ID Q-DES-01 .. Q-TST-02."
+    ),
+    cert_basis: str = typer.Option(
+        "CS-29", "--cert-basis", help="CS-27 | CS-29 | STC | PART21J_REPAIR"
+    ),
+    material: str = typer.Option(
+        "HYBRID_AL_CFRP",
+        "--material",
+        help="ALUMINUM_2024_7075 | HYBRID_AL_CFRP | TI_6AL_4V | CFRP_PRIMARY_HONEYCOMB",
+    ),
+    cosysmo: str = typer.Option("NOMINAL", "--cosysmo", help="LOW | NOMINAL | ELEVATED | HIGH"),
+    idp: str = typer.Option("COMPLETE", "--idp", help="COMPLETE | PARTIAL | INCOMPLETE"),
+    nearshore: str = typer.Option(
+        "ES", "--nearshore", help="Nearshore execution comparison country."
+    ),
+    target_margin: str = typer.Option("22.000", "--target-margin", help="Target margin (%)."),
+    min_margin: str = typer.Option("10.000", "--min-margin", help="Z3 floor margin (%)."),
+    tenant: str = typer.Option(
+        "demo", "--tenant", autocompletion=_complete_tenant, help="Tenant ID."
+    ),
+    actor: str = typer.Option("author", "--actor", help="Actor ID."),
+    bdf_file: Path | None = typer.Option(None, "--bdf-file", exists=True, help="Nastran .bdf IDP."),
+    f06_file: Path | None = typer.Option(None, "--f06-file", exists=True, help="Nastran .f06 IDP."),
+    step_file: Path | None = typer.Option(None, "--step-file", exists=True, help="STEP .stp IDP."),
+    corpus_file: Path | None = typer.Option(
+        None, "--corpus-file", exists=True, help="Historical quotes CSV/JSON/JSONL path."
+    ),
+    output: Path | None = typer.Option(None, "--output", "-o", help="Optional .md or .json path."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Generate a 18-archetype, 9-country helicopter engineering & stress quote."""
+    from evidence_coverage.rotorcraft_quotation_catalog import (
+        RotorcraftQuotationSpec,
+        run_rotorcraft_department_quotation,
+    )
+
+    from evidence_api.app import _now, open_ledger
+
+    if file is not None:
+        raw_text = file.read_text(encoding="utf-8")
+    elif text is not None:
+        raw_text = text
+    else:
+        err_console.print("[red]Provide --text or --file with rotorcraft RFQ text.[/red]")
+        raise typer.Exit(code=1)
+
+    idp_attachments: dict[str, Any] = {}
+    if bdf_file is not None:
+        idp_attachments["bdf_path"] = str(bdf_file)
+    if f06_file is not None:
+        idp_attachments["f06_path"] = str(f06_file)
+    if step_file is not None:
+        idp_attachments["step_path"] = str(step_file)
+
+    checked = _tenant_or_exit(tenant)
+    ledger = open_ledger(checked)
+    spec = RotorcraftQuotationSpec(
+        rfq_text=raw_text,
+        country_code=country,
+        archetype_id=archetype,
+        cert_basis=cert_basis,
+        material_family=material,
+        cosysmo_complexity=cosysmo,
+        idp_maturity=idp,
+        target_margin_pct=target_margin,
+        min_acceptable_margin_pct=min_margin,
+        nearshore_country=nearshore,
+        tenant_id=checked,
+        actor_id=actor,
+        created_at=_now(),
+        idp_attachments=idp_attachments,
+        historical_corpus_path=str(corpus_file) if corpus_file is not None else None,
+    )
+    dossier = run_rotorcraft_department_quotation(ledger, spec)
+    if output is not None:
+        out_path = output.expanduser().resolve()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        if out_path.suffix.lower() == ".json":
+            out_path.write_text(json.dumps(dossier, indent=2), encoding="utf-8")
+        else:
+            out_path.write_text(dossier["markdown_report"], encoding="utf-8")
+
+    if _wants_json(json_out):
+        _emit_json(dossier)
+        if dossier["confidence"] == "abstain":
+            raise typer.Exit(code=2)
+        return
+
+    if dossier["confidence"] == "abstain":
+        err_console.print(f"[red]ABSTAIN:[/red] {dossier.get('abstain_reason')}")
+        raise typer.Exit(code=2)
+
+    arch = dossier["archetype"]
+    calc = dossier["deterministic_quote"]
+    pert = dossier["pert_envelope"]
+    comp = dossier["multi_country_comparison"]
+    console.print(
+        f"[green]Archetype {arch['archetype_id']}[/green] "
+        f"({dossier['country_profile']['country_code']}): "
+        f"M={calc['quote_price_eur']} EUR | P80={pert['price_p80_eur']} EUR | "
+        f"Z3={dossier['formal_margin_proof'].get('status')} | "
+        f"Assumptions={dossier['assumptions_total_count']} "
+        f"({dossier['assumptions_dimensions_count']} dims)"
+    )
+    t = Table(title="9-Country Rotorcraft Comparison (EUR)", box=box.ROUNDED)
+    t.add_column("Country", style="bold cyan")
+    t.add_column("Blended Rate", justify="right")
+    t.add_column("Quote Price", justify="right")
+    t.add_column("Delta vs EU", justify="right")
+    for r in comp["countries"]:
+        t.add_row(
+            r["country_code"],
+            r["blended_hourly_rate_eur"],
+            r["quote_price_eur"],
+            f"{r['delta_vs_eu_default_pct']}%",
+        )
+    console.print(t)
+
+
+@quote_app.command("calibrate")
+def quote_calibrate_cmd(
+    archetype: str = typer.Option("Q-STR-03", "--archetype", help="Archetype ID."),
+    country: str = typer.Option("EU_DEFAULT", "--country", help="Country code."),
+    cert_basis: str = typer.Option("CS-29", "--cert-basis", help="CS-27 | CS-29 | STC."),
+    material: str = typer.Option("HYBRID_AL_CFRP", "--material", help="Material family."),
+    corpus_file: Path | None = typer.Option(
+        None, "--corpus-file", exists=True, help="Historical quotes CSV/JSON/JSONL file."
+    ),
+    synthetic_count: int = typer.Option(
+        2160, "--synthetic-count", help="Reference corpus size when no --corpus-file given."
+    ),
+    bdf_file: Path | None = typer.Option(None, "--bdf-file", exists=True, help="Nastran .bdf IDP."),
+    f06_file: Path | None = typer.Option(None, "--f06-file", exists=True, help="Nastran .f06 IDP."),
+    top_k: int = typer.Option(3, "--top-k", help="Number of nearest historical bids to match."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Ingest 2,000+ historical bids, run 80/20 PERT calibration, IDP parse & k-NN match."""
+    from evidence_coverage.historical_quotation_calibrator import (
+        run_historical_calibration_and_matching,
+    )
+
+    att: dict[str, Any] = {}
+    if bdf_file is not None:
+        att["bdf_path"] = str(bdf_file)
+    if f06_file is not None:
+        att["f06_path"] = str(f06_file)
+    payload = run_historical_calibration_and_matching(
+        archetype_id=archetype,
+        country_code=country,
+        cert_basis=cert_basis,
+        material_family=material,
+        corpus_path=corpus_file,
+        synthetic_count=synthetic_count,
+        idp_attachments=att,
+        top_k=top_k,
+    )
+    cal = payload["historical_calibration"]
+    nearest = payload["nearest_historical_quotes"]
+    if _wants_json(json_out):
+        _emit_json(payload)
+        return
+
+    co = cal["calibration_outputs"]
+    bt = cal["backtesting"]
+    console.print(
+        f"[green]Calibrated {archetype} ({country})[/green]: N={cal['sample_size']}/"
+        f"{cal['corpus_total_records']} | PERT Expected={co['calibrated_pert_expected_hours']}h "
+        f"| Backtest MAPE {bt['pre_calibration_mape_pct']}% -> {bt['post_calibration_mape_pct']}%"
+    )
+    kt = Table(title=f"Top-{top_k} Nearest Historical Quotations", box=box.ROUNDED)
+    kt.add_column("Quote ID", style="bold cyan")
+    kt.add_column("Similarity", justify="right")
+    kt.add_column("Quoted h", justify="right")
+    kt.add_column("Burned h", justify="right")
+    kt.add_column("Overrun", justify="right")
+    for r in nearest:
+        kt.add_row(
+            r["quote_id"],
+            r["similarity_score"],
+            r["quoted_hours"],
+            r["actual_burned_hours"],
+            f"{r['overrun_pct']}%",
+        )
+    console.print(kt)
 
 
 def main() -> None:

@@ -1,0 +1,54 @@
+{
+  "method_id": "inter_rivet_buckling",
+  "method_version": "inter_rivet_buckling@1.0.0",
+  "title": "Skin Inter-Rivet Buckling Between Fastener Rows",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "sigma_ir = (C * pi^2 * E_tan / 12) * (t / p)^2; MS = sigma_ir / sigma_comp - 1",
+  "note": "Bruhn inter-rivet local skin column buckling between discrete fastener pitch points.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "compressive_stress_mpa": "megapascal",
+    "rivet_pitch_mm": "millimeter",
+    "skin_thickness_mm": "millimeter",
+    "rivet_head_fixity_c": "dimensionless",
+    "tangent_modulus_mpa": "megapascal"
+  },
+  "required": [
+    "compressive_stress_mpa",
+    "rivet_pitch_mm",
+    "skin_thickness_mm",
+    "rivet_head_fixity_c",
+    "tangent_modulus_mpa"
+  ],
+  "limits": {
+    "compressive_stress_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "rivet_pitch_mm": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "skin_thickness_mm": {
+      "min_exclusive": "0",
+      "max": "500"
+    },
+    "rivet_head_fixity_c": {
+      "min": "0.5",
+      "max": "4.0"
+    },
+    "tangent_modulus_mpa": {
+      "min_exclusive": "0",
+      "max": "1000000"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "bruhn-inter-rivet",
+      "uri": "https://aeroregu.local/cards/inter_rivet_buckling",
+      "content_hash": "de96f7c4c3145db651f1320e5c92b02a20d6a99219729640708722f65b37d835",
+      "label": "VERIFIED"
+    }
+  ]
+}

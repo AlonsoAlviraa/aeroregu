@@ -146,6 +146,50 @@ def _extract_from_report(report_artifact: dict[str, Any] | None) -> dict[str, An
     evidence_by_key: dict[str, dict[str, Any]] = {}
     if isinstance(blocks, list):
         for blk in blocks:
+            rows = blk.get("table_rows")
+            if isinstance(rows, list):
+                for row in rows:
+                    row_txt = " ".join(str(c) for c in row)
+                    if "mass" not in out:
+                        m = _MASS_RE.search(row_txt)
+                        if m:
+                            val = _norm_dec(m.group(1), m.group(2), "kg")
+                            if val is not None:
+                                out["mass"] = val
+                                evidence_by_key["mass"] = {
+                                    "raw_value": m.group(1),
+                                    "raw_unit": m.group(2),
+                                    "quotation": row_txt[:200],
+                                    "page_no": blk.get("page_no"),
+                                    "bbox": blk.get("bbox"),
+                                }
+                    if "cg_x" not in out:
+                        mc = _CG_X_RE.search(row_txt)
+                        if mc:
+                            val = _norm_dec(mc.group(1), mc.group(2), "m")
+                            if val is not None:
+                                out["cg_x"] = val
+                                evidence_by_key["cg_x"] = {
+                                    "raw_value": mc.group(1),
+                                    "raw_unit": mc.group(2),
+                                    "quotation": row_txt[:200],
+                                    "page_no": blk.get("page_no"),
+                                    "bbox": blk.get("bbox"),
+                                }
+                    if "force" not in out:
+                        mf = _LOAD_RE.search(row_txt)
+                        if mf:
+                            val = _norm_dec(mf.group(1), mf.group(2), "N")
+                            if val is not None:
+                                out["force"] = val
+                                evidence_by_key["force"] = {
+                                    "raw_value": mf.group(1),
+                                    "raw_unit": mf.group(2),
+                                    "quotation": row_txt[:200],
+                                    "page_no": blk.get("page_no"),
+                                    "bbox": blk.get("bbox"),
+                                }
+
             txt = str(blk.get("text") or "")
             if "mass" not in out:
                 m = _MASS_RE.search(txt)
@@ -500,7 +544,7 @@ def audit_cross_artifact_consistency(
         cells: list[Cell] = generate_cells()
         statuses = list_cells_with_status(ledger.events(), cells=cells)
         calc_cells = [c["cell_id"] for c in statuses if c["status"] == "calc"]
-        target_cells = calc_cells[:8] if calc_cells else [c.cell_id for c in cells[:2]]
+        target_cells = calc_cells if calc_cells else [c.cell_id for c in cells[:2]]
         reason_ids = [d["discrepancy_id"] for d in discrepancies]
         for cid in target_cells:
             src_digest = hashlib.sha256(f"{cid}:{','.join(reason_ids)}".encode()).hexdigest()

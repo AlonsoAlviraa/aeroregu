@@ -1,0 +1,66 @@
+{
+  "method_id": "needham_crippling_section",
+  "method_version": "needham_crippling_section@1.0.0",
+  "title": "Needham Weighted Flange/Web Local Crippling Section Allowable",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "F_cc_i = 0.366 * (E * F_cy)^0.5 * (t / b)^0.75; F_cc_sec = sum(F_cc_i * A_i) / sum(A_i); MS = F_cc_sec / sigma_comp - 1",
+  "note": "Needham weighted-area crippling methodology for extruded / formed open thin-walled stiffener sections.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "compressive_load_n": "newton",
+    "flange_width_mm": "millimeter",
+    "flange_thickness_mm": "millimeter",
+    "web_width_mm": "millimeter",
+    "web_thickness_mm": "millimeter",
+    "modulus_mpa": "megapascal",
+    "compressive_yield_mpa": "megapascal"
+  },
+  "required": [
+    "compressive_load_n",
+    "flange_width_mm",
+    "flange_thickness_mm",
+    "web_width_mm",
+    "web_thickness_mm",
+    "modulus_mpa",
+    "compressive_yield_mpa"
+  ],
+  "limits": {
+    "compressive_load_n": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "flange_width_mm": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "flange_thickness_mm": {
+      "min_exclusive": "0",
+      "max": "500"
+    },
+    "web_width_mm": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "web_thickness_mm": {
+      "min_exclusive": "0",
+      "max": "500"
+    },
+    "modulus_mpa": {
+      "min_exclusive": "0",
+      "max": "1000000"
+    },
+    "compressive_yield_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "needham-crippling",
+      "uri": "https://aeroregu.local/cards/needham_crippling_section",
+      "content_hash": "ff91e1b4f22af31890c6ffea9fd040b1bb70aaea1650f40281da2e744b27e888",
+      "label": "VERIFIED"
+    }
+  ]
+}

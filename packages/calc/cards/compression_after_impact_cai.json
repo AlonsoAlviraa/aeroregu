@@ -1,0 +1,54 @@
+{
+  "method_id": "compression_after_impact_cai",
+  "method_version": "compression_after_impact_cai@1.0.0",
+  "title": "Compression After Impact (CAI) BVID Damage Tolerance",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "F_cai_eff = F_cai_BVID * k_env * min(1, sqrt(E_ref / E_impact)); MS = F_cai_eff / sigma_comp - 1",
+  "note": "CMH-17 BVID damage tolerance screening scaled by impact energy ratio and environmental knockdown.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "applied_compressive_mpa": "megapascal",
+    "cai_allowable_bvid_mpa": "megapascal",
+    "impact_energy_j": "joule",
+    "reference_bvid_j": "joule",
+    "environmental_knockdown": "dimensionless"
+  },
+  "required": [
+    "applied_compressive_mpa",
+    "cai_allowable_bvid_mpa",
+    "impact_energy_j",
+    "reference_bvid_j",
+    "environmental_knockdown"
+  ],
+  "limits": {
+    "applied_compressive_mpa": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "cai_allowable_bvid_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "impact_energy_j": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "reference_bvid_j": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "environmental_knockdown": {
+      "min_exclusive": "0",
+      "max": "2"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "cmh17-cai-bvid",
+      "uri": "https://aeroregu.local/cards/compression_after_impact_cai",
+      "content_hash": "1a3a337148e0f5152efbd32e05f43b40e4d5ce18b735a7009feec0cb188890dc",
+      "label": "VERIFIED"
+    }
+  ]
+}

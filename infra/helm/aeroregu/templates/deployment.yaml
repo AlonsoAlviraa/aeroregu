@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aeroregu-api
+  labels:
+    app: aeroregu-api
+    airgap: "true"
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: aeroregu-api
+  template:
+    metadata:
+      labels:
+        app: aeroregu-api
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: {{ .Values.security.runAsNonRoot }}
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: {{ .Values.security.allowPrivilegeEscalation }}
+            readOnlyRootFilesystem: {{ .Values.security.readOnlyRootFilesystem }}
+          env:
+            - name: EVIDENCE_AIRGAP_MODE
+              value: "1"
+            - name: EVIDENCE_REQUIRE_WEBAUTHN
+              value: "1"
+          ports:
+            - containerPort: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aeroregu-zero-internet-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: aeroregu-api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              aeroregu-zone: intranet
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: aeroregu-pg-worm
+    - to:
+        - podSelector:
+            matchLabels:
+              app: aeroregu-vllm-local

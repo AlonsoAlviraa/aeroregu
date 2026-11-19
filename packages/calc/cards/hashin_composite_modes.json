@@ -1,0 +1,78 @@
+{
+  "method_id": "hashin_composite_modes",
+  "method_version": "hashin_composite_modes@1.0.0",
+  "title": "Hashin 1980 Fiber & Matrix 4-Mode Failure Criteria",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "Fiber & matrix directional failure indices (FT/FC/MT/MC); RF = 1/sqrt(max(FI_f, FI_m)); MS = RF - 1",
+  "note": "Hashin directional failure mode separation (fiber tension/compression, matrix tension/compression).",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "sigma_1_mpa": "megapascal",
+    "sigma_2_mpa": "megapascal",
+    "tau_12_mpa": "megapascal",
+    "xt_mpa": "megapascal",
+    "xc_mpa": "megapascal",
+    "yt_mpa": "megapascal",
+    "yc_mpa": "megapascal",
+    "sl_mpa": "megapascal",
+    "st_mpa": "megapascal"
+  },
+  "required": [
+    "sigma_1_mpa",
+    "sigma_2_mpa",
+    "tau_12_mpa",
+    "xt_mpa",
+    "xc_mpa",
+    "yt_mpa",
+    "yc_mpa",
+    "sl_mpa",
+    "st_mpa"
+  ],
+  "limits": {
+    "sigma_1_mpa": {
+      "min": "-10000000000",
+      "max": "10000000000"
+    },
+    "sigma_2_mpa": {
+      "min": "-10000000000",
+      "max": "10000000000"
+    },
+    "tau_12_mpa": {
+      "min": "-10000000000",
+      "max": "10000000000"
+    },
+    "xt_mpa": {
+      "min_exclusive": "0",
+      "max": "10000"
+    },
+    "xc_mpa": {
+      "min_exclusive": "0",
+      "max": "10000"
+    },
+    "yt_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "yc_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "sl_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "st_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "hashin-1980-modes",
+      "uri": "https://aeroregu.local/cards/hashin_composite_modes",
+      "content_hash": "5cc077935c2ee093878e6cc867a761bfa775fcdaba37731d32d340ab023755ed",
+      "label": "VERIFIED"
+    }
+  ]
+}

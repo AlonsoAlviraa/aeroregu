@@ -1,0 +1,60 @@
+{
+  "method_id": "engineering_workpackage_quote",
+  "method_version": "engineering_workpackage_quote@1.0.0",
+  "title": "Deterministic Engineering & Stress Workpackage Quotation (3-Point PERT)",
+  "label": "ASSUMPTION",
+  "equation": "pert_expected = (O + 4*M + P)/6; pert_sigma = (P - O)/6; total_hours_p50 = calc_notes_count * pert_expected + fem_models_count * hours_per_fem_model; total_hours_p80 = total_hours_p50 + 0.84162123 * sqrt(calc_notes_count) * pert_sigma; total_hours_p90 = total_hours_p50 + 1.28155157 * sqrt(calc_notes_count) * pert_sigma; quoted_price_p80 = total_cost_p80 / (1 - target_margin_pct/100).",
+  "note": "Deterministic Decimal PERT 3-point estimation for calculation notes, FEM packages, and independent CVE verification hours. All rate cards and PERT bounds are explicit ASSUMPTION/ESTIMATE inputs.",
+  "quantum": "0.001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "calc_notes_count": "dimensionless",
+    "hours_per_calc_note_optimistic": "hour",
+    "hours_per_calc_note_likely": "hour",
+    "hours_per_calc_note_pessimistic": "hour",
+    "fem_models_count": "dimensionless",
+    "hours_per_fem_model": "hour",
+    "cve_review_ratio": "dimensionless",
+    "senior_rate_eur_hr": "dimensionless",
+    "cve_rate_eur_hr": "dimensionless",
+    "software_compute_surcharge_eur": "dimensionless",
+    "rework_contingency_pct": "dimensionless",
+    "target_margin_pct": "dimensionless"
+  },
+  "required": [
+    "calc_notes_count",
+    "hours_per_calc_note_optimistic",
+    "hours_per_calc_note_likely",
+    "hours_per_calc_note_pessimistic",
+    "fem_models_count",
+    "hours_per_fem_model",
+    "cve_review_ratio",
+    "senior_rate_eur_hr",
+    "cve_rate_eur_hr",
+    "software_compute_surcharge_eur",
+    "rework_contingency_pct",
+    "target_margin_pct"
+  ],
+  "limits": {
+    "calc_notes_count": {"min": "0", "max": "5000"},
+    "hours_per_calc_note_optimistic": {"min": "0", "max": "5000"},
+    "hours_per_calc_note_likely": {"min": "0", "max": "5000"},
+    "hours_per_calc_note_pessimistic": {"min": "0", "max": "10000"},
+    "fem_models_count": {"min": "0", "max": "5000"},
+    "hours_per_fem_model": {"min": "0", "max": "10000"},
+    "cve_review_ratio": {"min": "0", "max": "2.000"},
+    "senior_rate_eur_hr": {"min": "0", "max": "5000"},
+    "cve_rate_eur_hr": {"min": "0", "max": "5000"},
+    "software_compute_surcharge_eur": {"min": "0", "max": "10000000"},
+    "rework_contingency_pct": {"min": "0", "max": "200"},
+    "target_margin_pct": {"min": "0", "max": "90"}
+  },
+  "sources": [
+    {
+      "source_id": "project-engineering-workpackage-quote",
+      "uri": "https://aeroregu.local/cards/engineering_workpackage_quote",
+      "content_hash": "assumption",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

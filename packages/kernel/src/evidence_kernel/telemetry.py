@@ -1,12 +1,18 @@
-"""OpenTelemetry-compatible metrics and Prometheus 0.0.4 exposition for runtime telemetry."""
+"""OpenTelemetry OTLP traces/spans, metrics, and Prometheus 0.0.4 exposition."""
 
 from __future__ import annotations
 
+import json
+import secrets
 import threading
 import time
 from collections import defaultdict
+from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
+
+import httpx
 
 _DEFAULT_LATENCY_BUCKETS = (0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
 
@@ -30,7 +36,6 @@ class _HistogramState:
         for bound in _DEFAULT_LATENCY_BUCKETS:
             if val <= bound:
                 self.buckets[bound] += 1
-        # Keep bounded tail window for accurate p50/p95 computation without unbounded memory
         self.samples.append(val)
         if len(self.samples) > 1000:
             del self.samples[: len(self.samples) - 1000]
@@ -43,29 +48,194 @@ class _HistogramState:
         return ordered[idx]
 
 
+@dataclass(frozen=True)
+class OTLPSpan:
+    """OpenTelemetry OTLP-compatible trace span."""
+
+    trace_id: str
+    span_id: str
+    parent_span_id: str | None
+    name: str
+    stage: str
+    start_time_unix_nano: int
+    end_time_unix_nano: int
+    duration_ms: float
+    status: str
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+    def as_otlp_dict(self) -> dict[str, Any]:
+        return {
+            "traceId": self.trace_id,
+            "spanId": self.span_id,
+            "parentSpanId": self.parent_span_id or "",
+            "name": self.name,
+            "kind": 1,
+            "startTimeUnixNano": str(self.start_time_unix_nano),
+            "endTimeUnixNano": str(self.end_time_unix_nano),
+            "attributes": [
+                {"key": k, "value": {"stringValue": str(v)}}
+                for k, v in sorted({"stage": self.stage, **self.attributes}.items())
+            ],
+            "status": {"code": 1 if self.status == "OK" else 2, "message": self.status},
+        }
+
+
+class OTLPTraceExporter:
+    """Exports buffered OTLP HTTP/JSON or OTLP gRPC-equivalent trace batches."""
+
+    def __init__(
+        self,
+        *,
+        endpoint: str | None = None,
+        service_name: str = "evidence-layer",
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        self.endpoint = endpoint.rstrip("/") if endpoint else None
+        self.service_name = service_name
+        self._client = httpx.Client(transport=transport, timeout=10.0) if endpoint else None
+        self.exported_batches: list[dict[str, Any]] = []
+
+    def build_resource_spans(self, spans: list[OTLPSpan]) -> dict[str, Any]:
+        return {
+            "resourceSpans": [
+                {
+                    "resource": {
+                        "attributes": [
+                            {"key": "service.name", "value": {"stringValue": self.service_name}},
+                            {
+                                "key": "telemetry.sdk.name",
+                                "value": {"stringValue": "evidence-otlp"},
+                            },
+                        ]
+                    },
+                    "scopeSpans": [
+                        {
+                            "scope": {"name": "evidence_kernel.telemetry", "version": "1.0.0"},
+                            "spans": [s.as_otlp_dict() for s in spans],
+                        }
+                    ],
+                }
+            ],
+            "exported_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "span_count": len(spans),
+        }
+
+    def export(self, spans: list[OTLPSpan]) -> dict[str, Any]:
+        payload = self.build_resource_spans(spans)
+        self.exported_batches.append(payload)
+        if self._client is not None and self.endpoint:
+            resp = self._client.post(
+                f"{self.endpoint}/v1/traces",
+                content=json.dumps(payload, sort_keys=True),
+                headers={"content-type": "application/json"},
+            )
+            payload["http_status"] = resp.status_code
+        return payload
+
+
 class TelemetryRegistry:
-    """Thread-safe observability sink emitting OpenTelemetry-style snapshots & Prometheus text."""
+    """Thread-safe observability sink emitting OpenTelemetry spans/snapshots & Prometheus text."""
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._smt_histograms: dict[tuple[str, str], _HistogramState] = {}
+        self._stage_histograms: dict[str, _HistogramState] = {}
         self._abstain_counts: dict[tuple[str, str], int] = defaultdict(int)
         self._verification_total: int = 0
         self._llm_tokens: dict[tuple[str, str, str], int] = defaultdict(int)
         self._daemon_jobs: dict[tuple[str, str], int] = defaultdict(int)
         self._webhook_deliveries: dict[str, int] = defaultdict(int)
         self._discrepancies: dict[str, int] = defaultdict(int)
+        self._spans: list[OTLPSpan] = []
         self._created_monotonic = time.monotonic()
 
     def reset(self) -> None:
         with self._lock:
             self._smt_histograms.clear()
+            self._stage_histograms.clear()
             self._abstain_counts.clear()
             self._verification_total = 0
             self._llm_tokens.clear()
             self._daemon_jobs.clear()
             self._webhook_deliveries.clear()
             self._discrepancies.clear()
+            self._spans.clear()
+
+    @contextmanager
+    def start_span(
+        self,
+        name: str,
+        *,
+        stage: str = "api",
+        trace_id: str | None = None,
+        parent_span_id: str | None = None,
+        attributes: dict[str, Any] | None = None,
+    ):
+        """Record an OTLP-compatible span across API -> Worker -> Z3/cvc5 -> PG -> S3."""
+        tid = trace_id or secrets.token_hex(16)
+        sid = secrets.token_hex(8)
+        start_ns = time.time_ns()
+        start_mono = time.perf_counter()
+        status = "OK"
+        attrs = dict(attributes or {})
+        span_ctx = {"trace_id": tid, "span_id": sid, "parent_span_id": parent_span_id}
+        try:
+            yield span_ctx
+        except Exception as exc:
+            status = f"ERROR:{type(exc).__name__}"
+            attrs["error.message"] = str(exc)[:200]
+            raise
+        finally:
+            elapsed_s = max(0.0, time.perf_counter() - start_mono)
+            end_ns = time.time_ns()
+            span = OTLPSpan(
+                trace_id=tid,
+                span_id=sid,
+                parent_span_id=parent_span_id,
+                name=name,
+                stage=stage,
+                start_time_unix_nano=start_ns,
+                end_time_unix_nano=end_ns,
+                duration_ms=round(elapsed_s * 1000.0, 4),
+                status=status,
+                attributes=attrs,
+            )
+            with self._lock:
+                self._spans.append(span)
+                if len(self._spans) > 2000:
+                    del self._spans[: len(self._spans) - 2000]
+                hist = self._stage_histograms.get(stage)
+                if hist is None:
+                    hist = _HistogramState()
+                    self._stage_histograms[stage] = hist
+                hist.observe(elapsed_s)
+
+    def recent_spans(self, *, trace_id: str | None = None, limit: int = 200) -> list[OTLPSpan]:
+        with self._lock:
+            items = (
+                [s for s in self._spans if s.trace_id == trace_id]
+                if trace_id
+                else list(self._spans)
+            )
+        return items[-max(1, min(limit, 2000)) :]
+
+    def export_otlp(
+        self,
+        exporter: OTLPTraceExporter | None = None,
+        *,
+        trace_id: str | None = None,
+    ) -> dict[str, Any]:
+        spans = self.recent_spans(trace_id=trace_id, limit=500)
+        exp = exporter or OTLPTraceExporter()
+        return exp.export(spans)
+
+    def record_stage_latency(self, stage: str, duration_seconds: float) -> None:
+        with self._lock:
+            hist = self._stage_histograms.get(stage)
+            if hist is None:
+                hist = _HistogramState()
+                self._stage_histograms[stage] = hist
+            hist.observe(duration_seconds)
 
     def record_smt_latency(self, solver: str, status: str, duration_seconds: float) -> None:
         with self._lock:
@@ -159,6 +329,16 @@ class TelemetryRegistry:
                 bucket[tier] += val
                 bucket[direction] += val
 
+            stages_summary: dict[str, Any] = {}
+            for stage, hist in sorted(self._stage_histograms.items()):
+                stages_summary[stage] = {
+                    "count": hist.count,
+                    "p50_ms": round(hist.quantile(0.50) * 1000.0, 3),
+                    "p95_ms": round(hist.quantile(0.95) * 1000.0, 3),
+                    "p99_ms": round(hist.quantile(0.99) * 1000.0, 3),
+                    "max_ms": round(hist.max_seconds * 1000.0, 3),
+                }
+
             return {
                 "otel_service_name": "evidence-layer",
                 "uptime_seconds": round(time.monotonic() - self._created_monotonic, 2),
@@ -167,6 +347,8 @@ class TelemetryRegistry:
                     "global_p95_ms": global_p95_ms,
                     "total_checks": sum(h.count for h in self._smt_histograms.values()),
                 },
+                "pipeline_stages": stages_summary,
+                "spans_recorded": len(self._spans),
                 "abstain": {
                     "total": total_abstains,
                     "verifications_total": self._verification_total,
@@ -216,6 +398,21 @@ class TelemetryRegistry:
                     f'{metric}_sum{{solver="{s_esc}",status="{st_esc}"}} {hist.total_seconds:.6f}'
                 )
                 lines.append(f'{metric}_count{{solver="{s_esc}",status="{st_esc}"}} {hist.count}')
+
+            lines.append(
+                "# HELP aeroregu_pipeline_stage_duration_seconds End-to-end span stage latency."
+            )
+            lines.append("# TYPE aeroregu_pipeline_stage_duration_seconds histogram")
+            for stage, hist in sorted(self._stage_histograms.items()):
+                st_esc = self._esc(stage)
+                metric = "aeroregu_pipeline_stage_duration_seconds"
+                for bound in _DEFAULT_LATENCY_BUCKETS:
+                    lines.append(
+                        f'{metric}_bucket{{stage="{st_esc}",le="{bound}"}} {hist.buckets[bound]}'
+                    )
+                lines.append(f'{metric}_bucket{{stage="{st_esc}",le="+Inf"}} {hist.count}')
+                lines.append(f'{metric}_sum{{stage="{st_esc}"}} {hist.total_seconds:.6f}')
+                lines.append(f'{metric}_count{{stage="{st_esc}"}} {hist.count}')
 
             lines.append("# HELP aeroregu_verifications_total Total verification checks recorded.")
             lines.append("# TYPE aeroregu_verifications_total counter")

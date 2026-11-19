@@ -30,6 +30,10 @@ CAD_CAE_MEDIA_TYPES = {
     ".dat": "nastran_bdf",
     ".nas": "nastran_bdf",
     ".f06": "nastran_f06",
+    ".op2": "nastran_op2",
+    ".h5": "cae_h5",
+    ".odb": "sandboxed_odb",
+    ".rst": "sandboxed_rst",
     ".inp": "abaqus_inp",
 }
 
@@ -91,6 +95,27 @@ def ingest_bytes(raw: bytes, filename: str) -> dict[str, Any]:
         blocks = parsed.pop("blocks")
         cad_cae = parsed
         media_type = "abaqus_inp"
+    elif suffix == ".op2":
+        from evidence_ingest.cae_binary import parse_nastran_op2_bytes
+
+        parsed = parse_nastran_op2_bytes(raw, source_hash)
+        blocks = parsed.pop("blocks")
+        cad_cae = parsed
+        media_type = "nastran_op2"
+    elif suffix == ".h5":
+        from evidence_ingest.cae_binary import parse_cae_h5_bytes
+
+        parsed = parse_cae_h5_bytes(raw, source_hash)
+        blocks = parsed.pop("blocks")
+        cad_cae = parsed
+        media_type = "cae_h5"
+    elif suffix in {".odb", ".rst"}:
+        from evidence_ingest.cae_binary import run_sandboxed_cae_worker
+
+        parsed = run_sandboxed_cae_worker(raw, source_hash, suffix)
+        blocks = parsed.pop("blocks")
+        cad_cae = parsed
+        media_type = f"sandboxed_{suffix.lstrip('.')}"
     else:
         raise IngestAbstain("unsupported_media_type")
 

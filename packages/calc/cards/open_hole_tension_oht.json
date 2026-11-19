@@ -1,0 +1,54 @@
+{
+  "method_id": "open_hole_tension_oht",
+  "method_version": "open_hole_tension_oht@1.0.0",
+  "title": "Composite Open-Hole Tension (OHT) with Finite Width & Env Knockdown",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "F_oht_eff = F_oht_RTD * k_env * (1 - (D/W)^2); MS = F_oht_eff / sigma_far - 1",
+  "note": "CMH-17 open-hole tension notched laminate allowable with finite-width and ETW/EHW environmental knockdown.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "applied_far_field_mpa": "megapascal",
+    "oht_allowable_rtd_mpa": "megapascal",
+    "hole_diameter_mm": "millimeter",
+    "strip_width_mm": "millimeter",
+    "environmental_knockdown": "dimensionless"
+  },
+  "required": [
+    "applied_far_field_mpa",
+    "oht_allowable_rtd_mpa",
+    "hole_diameter_mm",
+    "strip_width_mm",
+    "environmental_knockdown"
+  ],
+  "limits": {
+    "applied_far_field_mpa": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "oht_allowable_rtd_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "hole_diameter_mm": {
+      "min_exclusive": "0",
+      "max": "500"
+    },
+    "strip_width_mm": {
+      "min_exclusive": "0",
+      "max": "10000"
+    },
+    "environmental_knockdown": {
+      "min_exclusive": "0",
+      "max": "2"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "cmh17-oht-knockdown",
+      "uri": "https://aeroregu.local/cards/open_hole_tension_oht",
+      "content_hash": "5d23cd3c35cec4043353c056a1fe0f79d423bd83b0820539153caef5eafcf6b6",
+      "label": "VERIFIED"
+    }
+  ]
+}

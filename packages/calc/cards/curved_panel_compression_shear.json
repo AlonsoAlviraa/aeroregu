@@ -1,0 +1,66 @@
+{
+  "method_id": "curved_panel_compression_shear",
+  "method_version": "curved_panel_compression_shear@1.0.0",
+  "title": "Curved Fuselage/Wing Panel Compression + Shear Buckling (Batdorf Z)",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "Z = (b^2/(R*t))*sqrt(1-nu^2); R_c*SF + R_s^2*SF^2 = 1; MS = SF - 1",
+  "note": "NASA SP-8007 / Batdorf curved panel critical compression + shear interaction buckling.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "compressive_stress_mpa": "megapascal",
+    "shear_stress_mpa": "megapascal",
+    "arc_width_mm": "millimeter",
+    "skin_thickness_mm": "millimeter",
+    "radius_curvature_mm": "millimeter",
+    "modulus_mpa": "megapascal",
+    "poisson_nu": "dimensionless"
+  },
+  "required": [
+    "compressive_stress_mpa",
+    "shear_stress_mpa",
+    "arc_width_mm",
+    "skin_thickness_mm",
+    "radius_curvature_mm",
+    "modulus_mpa",
+    "poisson_nu"
+  ],
+  "limits": {
+    "compressive_stress_mpa": {
+      "min": "0",
+      "max": "10000000000"
+    },
+    "shear_stress_mpa": {
+      "min": "0",
+      "max": "10000000000"
+    },
+    "arc_width_mm": {
+      "min_exclusive": "0",
+      "max": "10000"
+    },
+    "skin_thickness_mm": {
+      "min_exclusive": "0",
+      "max": "500"
+    },
+    "radius_curvature_mm": {
+      "min_exclusive": "0",
+      "max": "500000"
+    },
+    "modulus_mpa": {
+      "min_exclusive": "0",
+      "max": "1000000"
+    },
+    "poisson_nu": {
+      "min": "0",
+      "max_exclusive": "0.5"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "batdorf-curved-panel",
+      "uri": "https://aeroregu.local/cards/curved_panel_compression_shear",
+      "content_hash": "d8136436c72bafb24896a41dc9b5c28eb7389a4fe96fc827ad19a63c1436a546",
+      "label": "VERIFIED"
+    }
+  ]
+}

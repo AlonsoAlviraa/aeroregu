@@ -78,6 +78,8 @@ class Ledger:
         self._cached_seqs: list[int] = []
         self._cached_last_seq: int = 0
         self._cached_merkle_root: str | None = None
+        self._cached_head_hash: str | None = None
+        self._cached_head_fp: tuple[int, int, int, int] | None = None
         self._enable_wal()
         with self._connect(immediate=True) as conn:
             self._migrate(conn)
@@ -244,16 +246,67 @@ class Ledger:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ledger_checkpoints (
+                checkpoint_seq INTEGER PRIMARY KEY,
+                head_hash TEXT NOT NULL,
+                merkle_root TEXT NOT NULL,
+                event_count INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ledger_stats (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                event_count INTEGER NOT NULL DEFAULT 0,
+                max_seq INTEGER NOT NULL DEFAULT 0,
+                head_hash TEXT NOT NULL,
+                by_event_type_json TEXT NOT NULL,
+                abstain_count INTEGER NOT NULL DEFAULT 0,
+                negative_margin_count INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
         apply_versioned_migrations(conn.cursor(), "sqlite")
 
+    def _wal_fingerprint(self) -> tuple[int, int, int, int]:
+        try:
+            st_db = self.path.stat()
+            db_key = (int(st_db.st_mtime_ns), int(st_db.st_size))
+        except OSError:
+            db_key = (-1, -1)
+        try:
+            st_wal = Path(f"{self.path}-wal").stat()
+            wal_key = (int(st_wal.st_mtime_ns), int(st_wal.st_size))
+        except OSError:
+            wal_key = (-1, -1)
+        return (db_key[0], db_key[1], wal_key[0], wal_key[1])
+
     def head_hash(self) -> str:
+        fp = self._wal_fingerprint()
+        with self._lock:
+            if (
+                self._cached_head_hash is not None
+                and self._cached_head_fp == fp
+                and fp != (-1, -1, -1, -1)
+            ):
+                return self._cached_head_hash
         with self._connect() as conn:
             row = conn.execute("SELECT event_hash FROM events ORDER BY seq DESC LIMIT 1").fetchone()
-        return row["event_hash"] if row else GENESIS
+        val = row["event_hash"] if row else GENESIS
+        with self._lock:
+            self._cached_head_hash = val
+            self._cached_head_fp = fp
+        return val
 
     def append(self, body: dict[str, Any]) -> str:
         self._validate_body(body)
         canonical = canonicalize(body)
+        et, is_abs, is_neg = self._classify_event_stats(body)
         with self._lock:
             with self._connect(immediate=True) as conn:
                 row = conn.execute(
@@ -267,6 +320,15 @@ class Ledger:
                     (digest, prev, canonical),
                 )
                 new_seq = int(cursor.lastrowid or (prev_seq + 1))
+                self._update_stats_conn(
+                    conn,
+                    added_count=1,
+                    new_max_seq=new_seq,
+                    new_head_hash=digest,
+                    type_deltas={et: 1},
+                    abstain_delta=1 if is_abs else 0,
+                    neg_delta=1 if is_neg else 0,
+                )
             if prev_seq == self._cached_last_seq and new_seq > prev_seq:
                 self._cached_events.append(
                     {"event_hash": digest, "prev_hash": prev, "body": json.loads(canonical)}
@@ -277,6 +339,8 @@ class Ledger:
             else:
                 self._cached_last_seq = -1
             self._cached_merkle_root = None
+            self._cached_head_hash = digest
+            self._cached_head_fp = None
             return digest
 
     def append_many(self, bodies: list[dict[str, Any]]) -> list[str]:
@@ -287,6 +351,9 @@ class Ledger:
         for body, _ in prepared:
             self._validate_body(body)
         digests: list[str] = []
+        type_deltas: dict[str, int] = {}
+        abs_delta = 0
+        neg_delta = 0
         with self._lock:
             with self._connect(immediate=True) as conn:
                 row = conn.execute(
@@ -296,6 +363,7 @@ class Ledger:
                 prev_seq = int(row["seq"]) if row else 0
                 in_sync = prev_seq == self._cached_last_seq
                 new_items: list[tuple[int, str, str, str]] = []
+                last_seq = prev_seq
                 for body, canonical in prepared:
                     digest = event_hash(prev, body)
                     cursor = conn.execute(
@@ -306,6 +374,22 @@ class Ledger:
                     digests.append(digest)
                     new_items.append((new_seq, digest, prev, canonical))
                     prev = digest
+                    last_seq = new_seq
+                    et, is_abs, is_neg = self._classify_event_stats(body)
+                    type_deltas[et] = type_deltas.get(et, 0) + 1
+                    if is_abs:
+                        abs_delta += 1
+                    if is_neg:
+                        neg_delta += 1
+                self._update_stats_conn(
+                    conn,
+                    added_count=len(prepared),
+                    new_max_seq=last_seq,
+                    new_head_hash=prev,
+                    type_deltas=type_deltas,
+                    abstain_delta=abs_delta,
+                    neg_delta=neg_delta,
+                )
             if in_sync:
                 for new_seq, digest, prev_h, canonical in new_items:
                     self._cached_events.append(
@@ -317,10 +401,272 @@ class Ledger:
             else:
                 self._cached_last_seq = -1
             self._cached_merkle_root = None
+            self._cached_head_hash = None
+            self._cached_head_fp = None
         return digests
 
-    def _validate_body(self, body: dict[str, Any]) -> None:
-        validate_instance("ledger_event.schema.json", body)
+    def _classify_event_stats(self, body: dict[str, Any]) -> tuple[str, bool, bool]:
+        et = str(body.get("event_type") or "unknown")
+        env = body.get("envelope") or {}
+        is_abstain = str(env.get("confidence", "")) == "abstain"
+        neg_ms = False
+        result = env.get("result")
+        if isinstance(result, dict):
+            ms_raw = result.get("margin_of_safety")
+            if ms_raw is not None:
+                try:
+                    if float(str(ms_raw)) < 0.0:
+                        neg_ms = True
+                except ValueError:
+                    pass
+        return et, is_abstain, neg_ms
+
+    def _update_stats_conn(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        added_count: int,
+        new_max_seq: int,
+        new_head_hash: str,
+        type_deltas: dict[str, int],
+        abstain_delta: int,
+        neg_delta: int,
+    ) -> None:
+        row = conn.execute(
+            "SELECT event_count, by_event_type_json, abstain_count, negative_margin_count "
+            "FROM ledger_stats WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            cnt_row = conn.execute("SELECT COUNT(*) AS cnt FROM events").fetchone()
+            total = int(cnt_row["cnt"]) if cnt_row else added_count
+            by_type = dict(type_deltas)
+            abs_total = abstain_delta
+            neg_total = neg_delta
+        else:
+            total = int(row["event_count"]) + added_count
+            by_type = json.loads(row["by_event_type_json"])
+            for k, v in type_deltas.items():
+                by_type[k] = int(by_type.get(k, 0)) + v
+            abs_total = int(row["abstain_count"]) + abstain_delta
+            neg_total = int(row["negative_margin_count"]) + neg_delta
+        now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        conn.execute(
+            "INSERT OR REPLACE INTO ledger_stats "
+            "(id, event_count, max_seq, head_hash, by_event_type_json, "
+            "abstain_count, negative_margin_count, updated_at) "
+            "VALUES (1, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                total,
+                new_max_seq,
+                new_head_hash,
+                json.dumps(by_type, sort_keys=True),
+                abs_total,
+                neg_total,
+                now,
+            ),
+        )
+
+    def append_batch(
+        self,
+        bodies: list[dict[str, Any]],
+        *,
+        chunk_size: int = 2000,
+        checkpoint_interval: int = 1000,
+        validate_schema: bool = False,
+    ) -> list[str]:
+        """High-throughput chunked append with periodic checkpoints & low RSS for 100k+ events."""
+        if not bodies:
+            return []
+        digests: list[str] = []
+        type_deltas: dict[str, int] = {}
+        abs_delta = 0
+        neg_delta = 0
+        with self._lock:
+            with self._connect(immediate=True) as conn:
+                row = conn.execute(
+                    "SELECT seq, event_hash FROM events ORDER BY seq DESC LIMIT 1"
+                ).fetchone()
+                prev = str(row["event_hash"]) if row else GENESIS
+                prev_seq = int(row["seq"]) if row else 0
+                cnt_row = conn.execute("SELECT COUNT(*) AS cnt FROM events").fetchone()
+                running_count = int(cnt_row["cnt"]) if cnt_row else 0
+                running_seq = prev_seq
+                for start in range(0, len(bodies), max(1, chunk_size)):
+                    chunk = bodies[start : start + max(1, chunk_size)]
+                    rows_batch: list[tuple[str, str, str]] = []
+                    for i, body in enumerate(chunk):
+                        if validate_schema or (start == 0 and i < 5):
+                            self._validate_body(
+                                body,
+                                validate_schema=validate_schema or (start == 0 and i < 5),
+                            )
+                        canonical = canonicalize(body)
+                        inner_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+                        digest = hashlib.sha256((prev + inner_hash).encode("ascii")).hexdigest()
+                        rows_batch.append((digest, prev, canonical))
+                        digests.append(digest)
+                        prev = digest
+                        running_seq += 1
+                        et, is_abs, is_neg = self._classify_event_stats(body)
+                        type_deltas[et] = type_deltas.get(et, 0) + 1
+                        if is_abs:
+                            abs_delta += 1
+                        if is_neg:
+                            neg_delta += 1
+                    conn.executemany(
+                        "INSERT INTO events (event_hash, prev_hash, body_json) VALUES (?, ?, ?)",
+                        rows_batch,
+                    )
+                    running_count += len(chunk)
+                    if checkpoint_interval > 0 and (
+                        running_count % checkpoint_interval < len(chunk)
+                        or start + len(chunk) >= len(bodies)
+                    ):
+                        now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+                        conn.execute(
+                            "INSERT OR REPLACE INTO ledger_checkpoints "
+                            "(checkpoint_seq, head_hash, merkle_root, event_count, created_at) "
+                            "VALUES (?, ?, ?, ?, ?)",
+                            (running_seq, prev, prev, running_count, now),
+                        )
+                self._update_stats_conn(
+                    conn,
+                    added_count=len(bodies),
+                    new_max_seq=running_seq,
+                    new_head_hash=prev,
+                    type_deltas=type_deltas,
+                    abstain_delta=abs_delta,
+                    neg_delta=neg_delta,
+                )
+            # Reset cache so stale 100k dicts are not held in memory unnecessarily
+            self._cached_events = []
+            self._cached_hashes = []
+            self._cached_seqs = []
+            self._cached_last_seq = -1
+            self._cached_merkle_root = None
+            self._cached_head_hash = None
+            self._cached_head_fp = None
+        return digests
+
+    def create_checkpoint(self) -> dict[str, Any] | None:
+        with self._connect(immediate=True) as conn:
+            row = conn.execute(
+                "SELECT seq, event_hash FROM events ORDER BY seq DESC LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return None
+            seq = int(row["seq"])
+            head = str(row["event_hash"])
+            cnt = int(conn.execute("SELECT COUNT(*) AS c FROM events").fetchone()["c"])
+            now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            conn.execute(
+                "INSERT OR REPLACE INTO ledger_checkpoints "
+                "(checkpoint_seq, head_hash, merkle_root, event_count, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (seq, head, head, cnt, now),
+            )
+            return {"checkpoint_seq": seq, "head_hash": head, "event_count": cnt}
+
+    def verify_incremental(self, *, from_latest_checkpoint: bool = True) -> dict[str, Any]:
+        with self._connect() as conn:
+            prev = GENESIS
+            start_seq = 0
+            if from_latest_checkpoint:
+                ck = conn.execute(
+                    "SELECT checkpoint_seq, head_hash FROM ledger_checkpoints "
+                    "ORDER BY checkpoint_seq DESC LIMIT 1"
+                ).fetchone()
+                if ck is not None:
+                    ck_seq = int(ck["checkpoint_seq"])
+                    ck_hash = str(ck["head_hash"])
+                    anchor = conn.execute(
+                        "SELECT event_hash FROM events WHERE seq = ?",
+                        (ck_seq,),
+                    ).fetchone()
+                    if anchor is not None and str(anchor["event_hash"]) == ck_hash:
+                        start_seq = ck_seq
+                        prev = ck_hash
+            cur = conn.execute(
+                "SELECT seq, event_hash, prev_hash, body_json "
+                "FROM events WHERE seq > ? ORDER BY seq",
+                (start_seq,),
+            )
+            verified_tail = 0
+            last_seq = start_seq
+            while True:
+                batch = cur.fetchmany(2000)
+                if not batch:
+                    break
+                for row in batch:
+                    if str(row["prev_hash"]) != prev:
+                        return {
+                            "ok": False,
+                            "verified_from_seq": start_seq,
+                            "failed_seq": int(row["seq"]),
+                        }
+                    body = json.loads(row["body_json"])
+                    if event_hash(prev, body) != str(row["event_hash"]):
+                        return {
+                            "ok": False,
+                            "verified_from_seq": start_seq,
+                            "failed_seq": int(row["seq"]),
+                        }
+                    prev = str(row["event_hash"])
+                    last_seq = int(row["seq"])
+                    verified_tail += 1
+        return {
+            "ok": True,
+            "verified_from_seq": start_seq,
+            "tail_verified_events": verified_tail,
+            "head_seq": last_seq,
+            "head_hash": prev,
+        }
+
+    def coverage_summary_fast(self) -> dict[str, Any]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT event_count, max_seq, head_hash, by_event_type_json, "
+                "abstain_count, negative_margin_count, updated_at "
+                "FROM ledger_stats WHERE id = 1"
+            ).fetchone()
+            ck_row = conn.execute(
+                "SELECT COALESCE(MAX(checkpoint_seq), 0) AS m, COUNT(*) AS c "
+                "FROM ledger_checkpoints"
+            ).fetchone()
+            latest_ck = int(ck_row["m"]) if ck_row else 0
+            ck_cnt = int(ck_row["c"]) if ck_row else 0
+            if row is not None:
+                return {
+                    "tenant_id": self.tenant_id,
+                    "event_count": int(row["event_count"]),
+                    "max_seq": int(row["max_seq"]),
+                    "head_hash": str(row["head_hash"]),
+                    "by_event_type": json.loads(row["by_event_type_json"]),
+                    "abstain_count": int(row["abstain_count"]),
+                    "negative_margin_count": int(row["negative_margin_count"]),
+                    "latest_checkpoint_seq": latest_ck,
+                    "checkpoint_count": ck_cnt,
+                    "updated_at": str(row["updated_at"]),
+                }
+            cnt_row = conn.execute(
+                "SELECT COUNT(*) AS cnt, COALESCE(MAX(seq), 0) AS max_seq FROM events"
+            ).fetchone()
+            return {
+                "tenant_id": self.tenant_id,
+                "event_count": int(cnt_row["cnt"]) if cnt_row else 0,
+                "max_seq": int(cnt_row["max_seq"]) if cnt_row else 0,
+                "head_hash": self.head_hash(),
+                "by_event_type": {},
+                "abstain_count": 0,
+                "negative_margin_count": 0,
+                "latest_checkpoint_seq": latest_ck,
+                "checkpoint_count": ck_cnt,
+                "updated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+
+    def _validate_body(self, body: dict[str, Any], *, validate_schema: bool = True) -> None:
+        if validate_schema:
+            validate_instance("ledger_event.schema.json", body)
         if body["tenant_id"] != self.tenant_id:
             raise LedgerError("tenant mismatch")
         if not ISO_TIME.fullmatch(body["created_at"]):
@@ -415,10 +761,19 @@ class Ledger:
 
     def merkle_root(self) -> str:
         with self._lock:
-            self._sync_cache_locked()
-            if self._cached_merkle_root is None:
-                self._cached_merkle_root = merkle_root(self._cached_hashes)
-            return self._cached_merkle_root
+            head = self.head_hash()
+            cached = getattr(self, "_cached_merkle_by_head", None)
+            if cached is not None and cached[0] == head:
+                return str(cached[1])
+            with self._connect() as conn:
+                hashes = [
+                    str(r["event_hash"])
+                    for r in conn.execute("SELECT event_hash FROM events ORDER BY seq").fetchall()
+                ]
+            root = merkle_root(hashes)
+            self._cached_merkle_root = root
+            self._cached_merkle_by_head = (head, root)
+            return root
 
     def inclusion_proof(self, target_hash: str) -> dict[str, Any]:
         with self._lock:

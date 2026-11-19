@@ -1,0 +1,47 @@
+groups:
+  - name: evidence-layer-production-alerts
+    rules:
+      - alert: HighAPILatencyP95
+        expr: histogram_quantile(0.95, sum(rate(aeroregu_pipeline_stage_duration_seconds_bucket{stage="api"}[5m])) by (le)) > 0.150
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API p95 latency exceeded 150ms SLO"
+          description: "Evidence Layer API p95 latency exceeded 0.150s over a 5m window."
+
+      - alert: LedgerVerificationFailure
+        expr: increase(aeroregu_cross_artifact_discrepancies_total{severity="CRITICAL"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical discrepancy or ledger chain anomaly detected"
+          description: "Immediate inspection required by Lead CVE or Platform Admin."
+
+      - alert: PDFWorkerQueueBacklog
+        expr: increase(aeroregu_daemon_jobs_total{job_type="ingest_heavy_pdf",status="failed"}[10m]) > 2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Heavy PDF worker failures detected"
+          description: "Multiple ingest_heavy_pdf daemon jobs failed in the last 10m."
+
+      - alert: SMTSolverTimeoutSpike
+        expr: histogram_quantile(0.95, sum(rate(aeroregu_smt_solver_duration_seconds_bucket[5m])) by (le, solver)) > 2.0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Formal SMT solver (Z3/cvc5) p95 latency exceeded 2s"
+          description: "Check solver timeout bounds and interval proof workload."
+
+      - alert: WebhookDeadLetterSpike
+        expr: increase(aeroregu_webhook_deliveries_total{status="dead_letter"}[15m]) > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PLM webhook dead-letter queue accumulation"
+          description: "Downstream PLM webhook endpoint rejected deliveries repeatedly."

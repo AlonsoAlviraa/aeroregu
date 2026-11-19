@@ -726,6 +726,15 @@ def parse_step_ap242(raw: bytes, source_hash: str) -> dict[str, Any]:
         )
         offset += len(line) + 1
 
+    from evidence_ingest.cad_brep import analyze_step_brep
+
+    brep_report = analyze_step_brep(raw, source_hash)
+    if brep_report.get("solid_count", 0) > 0:
+        existing_names = {str(p.get("name", "")) for p in parameters}
+        for bp in brep_report.get("parameters", []):
+            if str(bp.get("name", "")) not in existing_names:
+                parameters.append(bp)
+
     return {
         "format": "step_ap242",
         "ap_level": ap_level,
@@ -739,5 +748,6 @@ def parse_step_ap242(raw: bytes, source_hash: str) -> dict[str, Any]:
         "cg_points": cg_points,
         "bbox": bbox,
         "cartesian_point_count": len(cartesian_points),
+        "brep": brep_report,
         "blocks": blocks,
     }

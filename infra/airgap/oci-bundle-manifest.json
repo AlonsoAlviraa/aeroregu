@@ -1,0 +1,30 @@
+{
+  "bundle_version": "1.0.0",
+  "airgap_verified": true,
+  "outbound_network_required": false,
+  "images": [
+    {
+      "name": "registry.airgap.local/aeroregu/evidence-api",
+      "tag": "1.0.0",
+      "digest": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+      "tar_archive": "images/aeroregu-api-1.0.0.oci.tar.zst"
+    },
+    {
+      "name": "registry.airgap.local/aeroregu/vllm-qwen25-coder-32b-awq",
+      "tag": "2026.11",
+      "digest": "sha256:4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
+      "tar_archive": "images/vllm-qwen25-coder-32b-awq.oci.tar.zst"
+    },
+    {
+      "name": "registry.airgap.local/aeroregu/postgres-16-worm",
+      "tag": "16.4-hardened",
+      "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tar_archive": "images/postgres-16-hardened.oci.tar.zst"
+    }
+  ],
+  "wheelhouse": {
+    "lockfile": "uv.lock",
+    "offline_index": "vendor/wheels/",
+    "cryptography_hsm_module": "pkcs11"
+  }
+}

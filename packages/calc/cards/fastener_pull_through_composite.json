@@ -1,0 +1,54 @@
+{
+  "method_id": "fastener_pull_through_composite",
+  "method_version": "fastener_pull_through_composite@1.0.0",
+  "title": "Composite Laminate Fastener Head Pull-Through Interlaminar Shear",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "tau_pt = P_t / (pi * D_head * t_lam); P_allow = pi * D_head * t_lam * ILSS * k_csk; MS = P_allow / P_t - 1",
+  "note": "CMH-17 fastener pull-through shear perimeter check with countersink knockdown factor.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "tensile_load_n": "newton",
+    "head_diameter_mm": "millimeter",
+    "laminate_thickness_mm": "millimeter",
+    "ilss_allowable_mpa": "megapascal",
+    "countersink_knockdown": "dimensionless"
+  },
+  "required": [
+    "tensile_load_n",
+    "head_diameter_mm",
+    "laminate_thickness_mm",
+    "ilss_allowable_mpa",
+    "countersink_knockdown"
+  ],
+  "limits": {
+    "tensile_load_n": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "head_diameter_mm": {
+      "min_exclusive": "0",
+      "max": "500"
+    },
+    "laminate_thickness_mm": {
+      "min_exclusive": "0",
+      "max": "500"
+    },
+    "ilss_allowable_mpa": {
+      "min_exclusive": "0",
+      "max": "1000"
+    },
+    "countersink_knockdown": {
+      "min_exclusive": "0",
+      "max": "1.5"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "cmh17-pull-through",
+      "uri": "https://aeroregu.local/cards/fastener_pull_through_composite",
+      "content_hash": "e30a74dd508915847356aea86ed5809929d951e252e2b47681874cfbf0c76dce",
+      "label": "VERIFIED"
+    }
+  ]
+}

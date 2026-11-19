@@ -1,0 +1,66 @@
+{
+  "method_id": "bearing_bypass_interaction",
+  "method_version": "bearing_bypass_interaction@1.0.0",
+  "title": "Fastener Bearing-Bypass Linear Interaction",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "sigma_brg = P_brg/(D*t); sigma_byp = P_byp/(W*t); U = sigma_brg/F_bru + sigma_byp/F_oht; MS = 1/U - 1",
+  "note": "CMH-17 / Bruhn conservative linear bearing-bypass interaction for bolted tension/compression joints.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "bearing_load_n": "newton",
+    "bypass_load_n": "newton",
+    "hole_diameter_mm": "millimeter",
+    "strip_width_mm": "millimeter",
+    "thickness_mm": "millimeter",
+    "bearing_allowable_mpa": "megapascal",
+    "bypass_oht_allowable_mpa": "megapascal"
+  },
+  "required": [
+    "bearing_load_n",
+    "bypass_load_n",
+    "hole_diameter_mm",
+    "strip_width_mm",
+    "thickness_mm",
+    "bearing_allowable_mpa",
+    "bypass_oht_allowable_mpa"
+  ],
+  "limits": {
+    "bearing_load_n": {
+      "min": "0",
+      "max": "10000000000"
+    },
+    "bypass_load_n": {
+      "min": "0",
+      "max": "10000000000"
+    },
+    "hole_diameter_mm": {
+      "min_exclusive": "0",
+      "max": "500"
+    },
+    "strip_width_mm": {
+      "min_exclusive": "0",
+      "max": "10000"
+    },
+    "thickness_mm": {
+      "min_exclusive": "0",
+      "max": "500"
+    },
+    "bearing_allowable_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "bypass_oht_allowable_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "cmh17-bearing-bypass",
+      "uri": "https://aeroregu.local/cards/bearing_bypass_interaction",
+      "content_hash": "4655055fa38d433c6d708d6453cb3321267e2bfccfc33563076671b08979f244",
+      "label": "VERIFIED"
+    }
+  ]
+}

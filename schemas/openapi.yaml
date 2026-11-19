@@ -1029,6 +1029,16 @@ paths:
             application/javascript:
               schema:
                 type: string
+  /static/q4_ux_modules.js:
+    get:
+      operationId: q4UxModulesScript
+      responses:
+        "200":
+          description: Interactive Q2-Q4 frontend UX controllers (dynamic 32+ methods, MMPDS/CMH-17 materials, FEA binary, PDF+BBox, PLM/ECN/Review/QES).
+          content:
+            application/javascript:
+              schema:
+                type: string
   /metrics:
     get:
       operationId: prometheusMetrics
@@ -1155,6 +1165,396 @@ paths:
       responses:
         "200":
           description: Audited batch human_signoff across selected briefing findings enforcing CVE SoD.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /metrics/prometheus:
+    get:
+      operationId: metricsPrometheus
+      responses:
+        "200":
+          description: Prometheus text exposition metrics for API latency, queue depth, and cache hit ratio.
+          content:
+            text/plain:
+              schema:
+                type: string
+  /telemetry/otlp:
+    get:
+      operationId: telemetryOtlp
+      responses:
+        "200":
+          description: OpenTelemetry JSON trace and span export.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /ingest/pdf/async:
+    post:
+      operationId: ingestPdfAsync
+      responses:
+        "200":
+          description: Enqueue heavy PDF ingestion job into background worker pool.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /daemon/jobs/run:
+    post:
+      operationId: daemonJobsRun
+      responses:
+        "200":
+          description: Execute pending persistent daemon jobs up to batch limit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /coverage/summary:
+    get:
+      operationId: coverageSummaryAlias
+      responses:
+        "200":
+          description: Coverage summary view alias backed by ledger head hash cache.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /coverage/signoff:
+    post:
+      operationId: coverageSignoff
+      responses:
+        "200":
+          description: Human signoff endpoint with SoD, optional WebAuthn FIDO2 step-up MFA, and review thread gate.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /cae/mesh/{model_id}:
+    post:
+      operationId: caeMeshRegister
+      parameters:
+        - in: path
+          name: model_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Register 3D CAE mesh and element margin results for viewer inspection.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+    get:
+      operationId: caeMeshGet
+      parameters:
+        - in: path
+          name: model_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Retrieve 3D CAE mesh geometry and margin field by model ID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /cae/element/{element_id}/evidence:
+    get:
+      operationId: caeElementEvidence
+      parameters:
+        - in: path
+          name: element_id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Retrieve click-to-evidence dossier trace for a FEM element.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /plm/sync:
+    post:
+      operationId: plmSync
+      responses:
+        "200":
+          description: Synchronize BOM, MSN, and CAD revisions from PLM connector.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /plm/webhook/ecn:
+    post:
+      operationId: plmWebhookEcn
+      responses:
+        "200":
+          description: Ingest signed Engineering Change Notice webhook from PLM.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /plm/writeback:
+    post:
+      operationId: plmWriteback
+      responses:
+        "200":
+          description: Write verification Merkle root and signoff state back to PLM.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /auth/webauthn/challenge:
+    post:
+      operationId: webauthnChallenge
+      responses:
+        "200":
+          description: Issue single-use FIDO2 WebAuthn step-up authentication challenge.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /auth/webauthn/verify:
+    post:
+      operationId: webauthnVerify
+      responses:
+        "200":
+          description: Verify signed FIDO2 WebAuthn step-up assertion and mint one-time step-up token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /scim/v2/Users:
+    post:
+      operationId: scimCreateUser
+      responses:
+        "200":
+          description: Provision directory user via SCIM 2.0.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /scim/v2/Users/{user_id}:
+    get:
+      operationId: scimGetUser
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Retrieve SCIM 2.0 directory user state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+    patch:
+      operationId: scimPatchUser
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Update SCIM 2.0 user attributes including instant active=false revocation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /export/bundle/qes:
+    post:
+      operationId: exportBundleQes
+      responses:
+        "200":
+          description: Export verification dossier signed with HSM-backed eIDAS QES (CAdES-B-LT / PAdES-B-LT).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /ecn/diff:
+    post:
+      operationId: ecnDiff
+      responses:
+        "200":
+          description: Compare Rev A vs Rev B dossier across requirements, CAD, FEM, and Margins of Safety.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /reviews/threads:
+    post:
+      operationId: createReviewThread
+      responses:
+        "200":
+          description: Open an inline Author<->CVE review thread tied to a ledger target event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+    get:
+      operationId: listReviewThreads
+      responses:
+        "200":
+          description: List Author<->CVE review threads for a tenant or target event hash.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /reviews/threads/{thread_id}/reply:
+    post:
+      operationId: replyReviewThread
+      parameters:
+        - in: path
+          name: thread_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Post reply or change request to an unlocked review thread.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /reviews/threads/{thread_id}/resolve:
+    post:
+      operationId: resolveReviewThread
+      parameters:
+        - in: path
+          name: thread_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Resolve an active review thread so signoff can proceed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /integrations/excel/sync:
+    post:
+      operationId: excelBridgeSync
+      responses:
+        "200":
+          description: Import Excel Stress Sheet named ranges, run deterministic calculation, and return verification stamps.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /integrations/catia/selection:
+    post:
+      operationId: catiaSelectionContext
+      responses:
+        "200":
+          description: Resolve CATIA part, feature, ply, or FEM element selection to verification evidence.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /qualification/iq-oq/run:
+    post:
+      operationId: qualificationIqOqRun
+      responses:
+        "200":
+          description: Run deterministic Qualification Aid Pack (ADR-018) IQ and OQ verification checks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /legal/ma-readiness:
+    get:
+      operationId: legalMaReadiness
+      responses:
+        "200":
+          description: Return M&A due-diligence technical closure and OSS license hygiene report (ADR-020).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /calc/materials:
+    get:
+      operationId: listCalcMaterials
+      responses:
+        "200":
+          description: List pinned MMPDS-16 and CMH-17 material specifications and catalog hash.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /calc/allowables:
+    post:
+      operationId: lookupCalcAllowable
+      responses:
+        "200":
+          description: Resolve deterministic A-Basis/B-Basis material allowable with environmental/thermal/thickness knockdowns.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /cad/brep/analyze:
+    post:
+      operationId: analyzeCadStepBrep
+      responses:
+        "200":
+          description: Execute deterministic STEP AP203/AP214/AP242 3D B-Rep volume, CG, inertia, web thickness, and clearance analysis.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /cae/binary/parse:
+    post:
+      operationId: parseCaeBinary
+      responses:
+        "200":
+          description: Stream-parse Nastran OP2, HDF5 (.h5), or sandboxed .odb/.rst binaries and index viewer mesh elements.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /security/sbom:
+    get:
+      operationId: securitySbom
+      responses:
+        "200":
+          description: Generate verified CycloneDX 1.5 dependency SBOM and CVE gate report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /ingest/document/{doc_id}/page/{page_no}:
+    get:
+      operationId: getIngestedDocumentPage
+      parameters:
+        - in: path
+          name: doc_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: page_no
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Render ingested document page preview alongside deterministic block bounding boxes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /mcp/catalog:
+    get:
+      operationId: getMcpCatalog
+      responses:
+        "200":
+          description: Return live MCP tools, resources, prompts, formal methods counts, families, and default inputs.
           content:
             application/json:
               schema:

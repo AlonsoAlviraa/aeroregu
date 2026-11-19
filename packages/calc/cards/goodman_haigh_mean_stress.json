@@ -1,0 +1,48 @@
+{
+  "method_id": "goodman_haigh_mean_stress",
+  "method_version": "goodman_haigh_mean_stress@1.0.0",
+  "title": "Modified Goodman-Haigh Mean Stress Fatigue Diagram",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "sigma_a / sigma_e + max(0, sigma_m) / F_tu = 1 / n_f; sigma_eq = sigma_a / (1 - max(0, sigma_m)/F_tu); MS = n_f - 1",
+  "note": "MMPDS-16 / Bruhn conservative modified Goodman infinite-life / S-N mean stress correction with flat compressive cutoff.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "alternating_stress_mpa": "megapascal",
+    "mean_stress_mpa": "megapascal",
+    "endurance_limit_mpa": "megapascal",
+    "ultimate_tensile_mpa": "megapascal"
+  },
+  "required": [
+    "alternating_stress_mpa",
+    "mean_stress_mpa",
+    "endurance_limit_mpa",
+    "ultimate_tensile_mpa"
+  ],
+  "limits": {
+    "alternating_stress_mpa": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "mean_stress_mpa": {
+      "min": "-5000",
+      "max": "5000"
+    },
+    "endurance_limit_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "ultimate_tensile_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "mmpds16-goodman-haigh",
+      "uri": "https://aeroregu.local/cards/goodman_haigh_mean_stress",
+      "content_hash": "ca41970c1064d939cc942d2547bed640466708235eb031f50afa4e81d9c6b4da",
+      "label": "VERIFIED"
+    }
+  ]
+}

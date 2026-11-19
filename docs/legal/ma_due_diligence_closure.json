@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0.0",
+  "adr_reference": "ADR-020",
+  "commercial_dual_licensed_exceptions": ["pymupdf"],
+  "note": "Technical and compliance readiness tracking record; does not supersede docs/legal/open_items.md counsel gates.",
+  "items": [
+    {
+      "id": "DD-01",
+      "workstream": "Cleanroom IP & Kernel Domain Isolation",
+      "status": "CLOSED",
+      "closed_date": "2026-11-14",
+      "evidence_paths": ["tools/security/denylist_kernel.py", "packages/kernel/src/evidence_kernel/ledger.py"]
+    },
+    {
+      "id": "DD-02",
+      "workstream": "Third-Party OSS License & CycloneDX 1.5 SBOM Hygiene (with Artifex Commercial License tracking for pymupdf)",
+      "status": "CLOSED",
+      "closed_date": "2026-11-14",
+      "commercial_license_exception": {
+        "package": "pymupdf",
+        "reason": "Dual Licensed (AGPL-3.0 or Artifex Commercial License); production commercial deployment requires Artifex OEM commercial agreement"
+      },
+      "evidence_paths": ["packages/kernel/src/evidence_kernel/hsm_eidas_scim.py", "packages/coverage/src/evidence_coverage/ma_readiness.py"]
+    },
+    {
+      "id": "DD-03",
+      "workstream": "Secret & Credential Zero-Leakage CI Scanning",
+      "status": "CLOSED",
+      "closed_date": "2026-11-14",
+      "evidence_paths": ["tools/security/secret_scan.py"]
+    },
+    {
+      "id": "DD-04",
+      "workstream": "Cryptographic Custody (HSM/KMS + eIDAS QES LTV + WebAuthn)",
+      "status": "CLOSED",
+      "closed_date": "2026-11-14",
+      "evidence_paths": ["packages/kernel/src/evidence_kernel/hsm_eidas_scim.py"]
+    },
+    {
+      "id": "DD-05",
+      "workstream": "Enterprise Multi-Tenant RLS & PostgreSQL High-Scale Ledger",
+      "status": "CLOSED",
+      "closed_date": "2026-11-14",
+      "evidence_paths": ["packages/kernel/src/evidence_kernel/pg_ledger.py"]
+    },
+    {
+      "id": "DD-06",
+      "workstream": "Immutable WORM Storage & Object Lock Retention",
+      "status": "CLOSED",
+      "closed_date": "2026-11-14",
+      "evidence_paths": ["packages/kernel/src/evidence_kernel/storage.py"]
+    },
+    {
+      "id": "DD-07",
+      "workstream": "Deterministic Stress Manual & FLINT/Arb Numerical Verification",
+      "status": "CLOSED",
+      "closed_date": "2026-11-14",
+      "evidence_paths": ["packages/calc/src/evidence_calc/stress_manual.py", "packages/calc/src/evidence_calc/intervals.py"]
+    },
+    {
+      "id": "DD-08",
+      "workstream": "Qualification Aid Pack & Standalone Offline Verifier",
+      "status": "CLOSED",
+      "closed_date": "2026-11-14",
+      "evidence_paths": ["packages/coverage/src/evidence_coverage/qualification_aid.py", "docs/qualification/requirement_trace_matrix_rtm.json"]
+    },
+    {
+      "id": "DD-09",
+      "workstream": "Air-Gapped Sovereign K8s/OCI & Windows MSIX Packaging",
+      "status": "CLOSED",
+      "closed_date": "2026-11-14",
+      "evidence_paths": ["infra/helm/aeroregu/values.yaml", "infra/airgap/oci-bundle-manifest.json", "infra/installer/windows-msix-manifest.xml"]
+    }
+  ]
+}

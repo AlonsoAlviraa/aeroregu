@@ -10,7 +10,7 @@ class IngestAbstain(Exception):
         self.reason = reason
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Block:
     text: str
     span_start: int
@@ -61,9 +61,9 @@ def blocks_from_text(
                     offset,
                     offset + len(line),
                     source_hash,
-                    page_no=page_no,
-                    bbox=bbox,
-                    block_kind=block_kind,
+                    page_no,
+                    bbox,
+                    block_kind,
                 )
             )
         offset += len(raw_line)

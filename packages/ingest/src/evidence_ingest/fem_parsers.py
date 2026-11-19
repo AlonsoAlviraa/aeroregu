@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import io
 import re
+from collections.abc import Iterator
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from evidence_ingest.blocks import Block, IngestAbstain
@@ -50,69 +53,200 @@ def _split_nastran_line_fields(line: str) -> tuple[str, list[str], str]:
     return head, fields, padded[72:80].strip()
 
 
-def _group_nastran_cards(lines: list[str]) -> list[tuple[str, list[str]]]:
-    """Assemble logical NASTRAN bulk cards across small/large/free-field continuations."""
-    cards: list[tuple[str, list[str]]] = []
-    cur_name = ""
-    cur_fields: list[str] = []
-    in_bulk = False
-    has_begin_bulk = any(ln.strip().upper().startswith("BEGIN BULK") for ln in lines)
-
-    for raw_line in lines:
-        code_part = raw_line.split("$", 1)[0].rstrip("\r\n")
-        if not code_part.strip():
-            continue
-        upper = code_part.strip().upper()
-        if has_begin_bulk and not in_bulk:
-            if upper.startswith("BEGIN BULK"):
-                in_bulk = True
-            continue
-        if upper.startswith("ENDDATA"):
-            break
-
-        head, fields, _ = _split_nastran_line_fields(code_part)
-        is_cont = (
-            head == ""
-            or head == "*"
-            or head.startswith("+")
-            or (head.startswith("*") and len(head) > 1 and not head[:-1].isalpha())
-        )
-        if is_cont and cur_name:
-            cur_fields.extend(fields)
-        else:
-            if cur_name:
-                cards.append((cur_name, cur_fields))
-            cur_name = head.rstrip("*").upper()
-            cur_fields = list(fields)
-
-    if cur_name:
-        cards.append((cur_name, cur_fields))
-    return cards
+_UNIT_COMMENT_RE = re.compile(
+    r"^\$\s*UNITS?\s*[:=]\s*([A-Z0-9_\-/]+)",
+    re.IGNORECASE,
+)
 
 
-def parse_nastran_bdf(raw: bytes, source_hash: str) -> dict[str, Any]:
-    """Parse NASTRAN .bdf/.dat bulk data (GRID, FORCE, MOMENT, PLOAD4, CONM2, elements)."""
+def _iter_nastran_lines(
+    raw: bytes,
+    *,
+    base_dir: Path | None = None,
+    _visited: set[Path] | None = None,
+) -> Iterator[str]:
+    """Stream physical NASTRAN lines and safely expand INCLUDE directives within base_dir."""
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
         text = raw.decode("latin-1")
 
-    cards = _group_nastran_cards(text.splitlines())
-    if not cards:
-        raise IngestAbstain("empty_nastran_bulk")
+    visited = _visited if _visited is not None else set()
+    resolved_base = base_dir.resolve() if base_dir is not None else None
+
+    for line in io.StringIO(text):
+        stripped = line.strip()
+        if stripped.upper().startswith("INCLUDE"):
+            if resolved_base is None:
+                continue
+            m_inc = re.match(r"^INCLUDE\s+['\"]?([^'\"]+)['\"]?", stripped, re.IGNORECASE)
+            if not m_inc:
+                continue
+            rel = m_inc.group(1).strip()
+            candidate = (resolved_base / rel).resolve()
+            if not str(candidate).startswith(str(resolved_base)) or not candidate.is_file():
+                continue
+            if candidate in visited:
+                continue
+            visited.add(candidate)
+            yield from _iter_nastran_lines(
+                candidate.read_bytes(),
+                base_dir=resolved_base,
+                _visited=visited,
+            )
+            continue
+        yield line
+
+
+def _iter_nastran_cards(
+    raw: bytes,
+    *,
+    base_dir: Path | None = None,
+) -> tuple[list[dict[str, Any]], str | None, Iterator[tuple[str, list[str]]]]:
+    """Stream Case Control SUBCASEs, optional unit comment, and bulk cards in O(1) card RAM."""
+    subcases: list[dict[str, Any]] = []
+    detected_unit_system: str | None = None
+    cur_sub: dict[str, Any] | None = None
+    in_bulk = False
+
+    # Peek Case Control until BEGIN BULK (or first bulk card if no BEGIN BULK)
+    header_lines: list[str] = []
+    stream = _iter_nastran_lines(raw, base_dir=base_dir)
+    for line in stream:
+        m_u = _UNIT_COMMENT_RE.match(line.strip())
+        if m_u and detected_unit_system is None:
+            detected_unit_system = m_u.group(1).upper()
+        code_part = line.split("$", 1)[0].strip()
+        if not code_part:
+            continue
+        upper = code_part.upper()
+        if upper.startswith("BEGIN BULK"):
+            in_bulk = True
+            break
+        m_sub = re.match(r"^SUBCASE\s+(\d+)", upper)
+        if m_sub:
+            if cur_sub is not None:
+                subcases.append(cur_sub)
+            cur_sub = {
+                "subcase_id": m_sub.group(1),
+                "label": "",
+                "load_sid": "",
+                "spc_sid": "",
+                "method": "",
+            }
+            continue
+        if cur_sub is not None:
+            if upper.startswith("LABEL"):
+                _, _, val = code_part.partition("=")
+                cur_sub["label"] = val.strip()
+                continue
+            if upper.startswith("LOAD"):
+                _, _, val = code_part.partition("=")
+                cur_sub["load_sid"] = val.strip()
+                continue
+            if upper.startswith("SPC"):
+                _, _, val = code_part.partition("=")
+                cur_sub["spc_sid"] = val.strip()
+                continue
+            if upper.startswith("METHOD"):
+                _, _, val = code_part.partition("=")
+                cur_sub["method"] = val.strip()
+                continue
+        # If this looks like a direct bulk card without BEGIN BULK, push back into bulk phase
+        head_tok = code_part.split(",")[0][:8].strip().rstrip("*").upper()
+        if (
+            head_tok
+            in {
+                "GRID",
+                "FORCE",
+                "MOMENT",
+                "PLOAD4",
+                "GRAV",
+                "LOAD",
+                "CONM2",
+                "PSHELL",
+                "PCOMP",
+                "PBUSH",
+                "MAT1",
+                "MAT8",
+            }
+            | _NASTRAN_ELEM_CARDS
+        ):
+            header_lines.append(line)
+            in_bulk = True
+            break
+
+    if cur_sub is not None:
+        subcases.append(cur_sub)
+
+    def _card_gen() -> Iterator[tuple[str, list[str]]]:
+        cur_name = ""
+        cur_fields: list[str] = []
+
+        def _chain() -> Iterator[str]:
+            yield from header_lines
+            if in_bulk:
+                yield from stream
+
+        for raw_line in _chain():
+            code_part = raw_line.split("$", 1)[0].rstrip("\r\n")
+            if not code_part.strip():
+                continue
+            upper = code_part.strip().upper()
+            if upper.startswith("ENDDATA"):
+                break
+            head, fields, _ = _split_nastran_line_fields(code_part)
+            is_cont = (
+                head == ""
+                or head == "*"
+                or head.startswith("+")
+                or (head.startswith("*") and len(head) > 1 and not head[:-1].isalpha())
+            )
+            if is_cont and cur_name:
+                cur_fields.extend(fields)
+            else:
+                if cur_name:
+                    yield cur_name, cur_fields
+                cur_name = head.rstrip("*").upper()
+                cur_fields = list(fields)
+        if cur_name:
+            yield cur_name, cur_fields
+
+    return subcases, detected_unit_system, _card_gen()
+
+
+def parse_nastran_bdf(
+    raw: bytes,
+    source_hash: str,
+    *,
+    base_dir: Path | None = None,
+    unit_system: str | None = None,
+) -> dict[str, Any]:
+    """Stream-parse NASTRAN .bdf/.dat bulk data (GRID, loads, GRAV/LOAD, CONM2, props, mats)."""
+    subcases, comment_units, cards_iter = _iter_nastran_cards(raw, base_dir=base_dir)
+    resolved_unit_system = unit_system or comment_units
 
     grids: dict[str, dict[str, str]] = {}
     grid_pts: list[tuple[Decimal, Decimal, Decimal]] = []
     forces: list[dict[str, Any]] = []
     moments: list[dict[str, Any]] = []
     pload4s: list[dict[str, Any]] = []
+    grav_cards: list[dict[str, Any]] = []
+    load_combos: list[dict[str, Any]] = []
     elements: list[dict[str, Any]] = []
     conm2_masses: list[dict[str, Any]] = []
+    pshells: list[dict[str, Any]] = []
+    pcomps: list[dict[str, Any]] = []
+    pbushes: list[dict[str, Any]] = []
+    mat1s: list[dict[str, Any]] = []
+    mat8s: list[dict[str, Any]] = []
+    card_count = 0
 
     def _f(fields: list[str], idx: int) -> str:
         return fields[idx].strip() if idx < len(fields) else ""
 
-    for name, fields in cards:
+    for name, fields in cards_iter:
+        card_count += 1
         if name == "GRID":
             gid = _f(fields, 0)
             cp = _f(fields, 1) or "0"
@@ -233,32 +367,184 @@ def parse_nastran_bdf(raw: bytes, source_hash: str) -> dict[str, Any]:
             if eid and node_ids:
                 elements.append({"eid": eid, "type": name, "pid": pid, "node_ids": node_ids})
 
-    if not grids and not forces and not moments and not pload4s:
+        elif name == "GRAV":
+            sid = _f(fields, 0) or "1"
+            cid = _f(fields, 1) or "0"
+            scale_a = _nastran_dec(_f(fields, 2))
+            n1 = _nastran_dec(_f(fields, 3)) or Decimal(0)
+            n2 = _nastran_dec(_f(fields, 4)) or Decimal(0)
+            n3 = _nastran_dec(_f(fields, 5)) or Decimal(0)
+            if scale_a is not None:
+                grav_cards.append(
+                    {
+                        "sid": sid,
+                        "cid": cid,
+                        "scale": decimal_str(scale_a),
+                        "direction": [decimal_str(n1), decimal_str(n2), decimal_str(n3)],
+                    }
+                )
+
+        elif name == "LOAD":
+            sid = _f(fields, 0)
+            global_s = _nastran_dec(_f(fields, 1)) or Decimal(1)
+            terms: list[dict[str, str]] = []
+            idx_l = 2
+            while idx_l + 1 < len(fields):
+                si = _nastran_dec(_f(fields, idx_l))
+                li = _f(fields, idx_l + 1)
+                if si is not None and li:
+                    terms.append({"scale": decimal_str(si), "sid": li})
+                idx_l += 2
+            if sid and terms:
+                load_combos.append(
+                    {"sid": sid, "global_scale": decimal_str(global_s), "terms": terms}
+                )
+
+        elif name == "PSHELL":
+            pid = _f(fields, 0)
+            mid1 = _f(fields, 1)
+            t = _nastran_dec(_f(fields, 2))
+            if pid and t is not None:
+                pshells.append({"pid": pid, "mid1": mid1, "thickness": decimal_str(t)})
+
+        elif name == "PCOMP":
+            pid = _f(fields, 0)
+            lam_opt = _f(fields, 7).upper()
+            symmetric = lam_opt == "SYM"
+            # Ply triplets/quads start at field index 8 (MID, T, THETA, SOUT)
+            plies: list[dict[str, Any]] = []
+            total_t = Decimal(0)
+            idx_p = 8
+            while idx_p + 1 < len(fields):
+                mid_p = _f(fields, idx_p)
+                t_p = _nastran_dec(_f(fields, idx_p + 1))
+                theta_p = _nastran_dec(_f(fields, idx_p + 2)) or Decimal(0)
+                if mid_p and t_p is not None:
+                    plies.append(
+                        {
+                            "mid": mid_p,
+                            "thickness": decimal_str(t_p),
+                            "theta_deg": decimal_str(theta_p),
+                        }
+                    )
+                    total_t += t_p
+                idx_p += 4
+            if pid:
+                eff_plies = len(plies) * 2 if symmetric else len(plies)
+                eff_total_t = total_t * Decimal(2) if symmetric else total_t
+                pcomps.append(
+                    {
+                        "pid": pid,
+                        "symmetric": symmetric,
+                        "lam": lam_opt or "FULL",
+                        "ply_count": eff_plies,
+                        "total_thickness": decimal_str(eff_total_t),
+                        "plies": plies,
+                    }
+                )
+
+        elif name == "PBUSH":
+            pid = _f(fields, 0)
+            # K values follow "K" keyword in fields[1:]
+            k_vals: list[str] = []
+            if len(fields) > 2 and _f(fields, 1).upper() == "K":
+                for kf in fields[2:8]:
+                    kd = _nastran_dec(kf)
+                    k_vals.append(decimal_str(kd) if kd is not None else "0")
+            if pid:
+                pbushes.append({"pid": pid, "stiffness_k": k_vals})
+
+        elif name == "MAT1":
+            mid = _f(fields, 0)
+            e_val = _nastran_dec(_f(fields, 1))
+            g_val = _nastran_dec(_f(fields, 2))
+            nu_val = _nastran_dec(_f(fields, 3))
+            rho_val = _nastran_dec(_f(fields, 4))
+            if mid:
+                mat1s.append(
+                    {
+                        "mid": mid,
+                        "e": decimal_str(e_val) if e_val is not None else None,
+                        "g": decimal_str(g_val) if g_val is not None else None,
+                        "nu": decimal_str(nu_val) if nu_val is not None else None,
+                        "rho": decimal_str(rho_val) if rho_val is not None else None,
+                    }
+                )
+
+        elif name == "MAT8":
+            mid = _f(fields, 0)
+            e1 = _nastran_dec(_f(fields, 1))
+            e2 = _nastran_dec(_f(fields, 2))
+            nu12 = _nastran_dec(_f(fields, 3))
+            g12 = _nastran_dec(_f(fields, 4))
+            rho_val = _nastran_dec(_f(fields, 7))
+            if mid:
+                mat8s.append(
+                    {
+                        "mid": mid,
+                        "e1": decimal_str(e1) if e1 is not None else None,
+                        "e2": decimal_str(e2) if e2 is not None else None,
+                        "nu12": decimal_str(nu12) if nu12 is not None else None,
+                        "g12": decimal_str(g12) if g12 is not None else None,
+                        "rho": decimal_str(rho_val) if rho_val is not None else None,
+                    }
+                )
+
+    if card_count == 0 or (
+        not grids
+        and not forces
+        and not moments
+        and not pload4s
+        and not grav_cards
+        and not pshells
+        and not pcomps
+    ):
         raise IngestAbstain("empty_nastran_bulk")
 
-    # Summarize loads per SID
-    sids = sorted(
-        {f["sid"] for f in forces} | {m["sid"] for m in moments} | {p["sid"] for p in pload4s}
+    # Mass & CG from CONM2 first so GRAV inertial forces can be evaluated
+    cg_points: list[dict[str, Any]] = []
+    parameters: list[dict[str, Any]] = []
+    total_mass = sum((Decimal(c["mass"]) for c in conm2_masses), Decimal(0))
+
+    # Summarize direct loads per SID (FORCE + MOMENT + PLOAD4 + GRAV)
+    direct_sids = sorted(
+        {f["sid"] for f in forces}
+        | {m["sid"] for m in moments}
+        | {p["sid"] for p in pload4s}
+        | {g["sid"] for g in grav_cards}
     )
+    direct_force_by_sid: dict[str, tuple[Decimal, Decimal, Decimal]] = {}
+    direct_moment_by_sid: dict[str, tuple[Decimal, Decimal, Decimal]] = {}
     load_cases: list[dict[str, Any]] = []
-    for sid in sids:
+
+    for sid in direct_sids:
         sf = [f for f in forces if f["sid"] == sid]
         sm = [m for m in moments if m["sid"] == sid]
         sp = [p for p in pload4s if p["sid"] == sid]
+        sg = [g for g in grav_cards if g["sid"] == sid]
         fx = sum((Decimal(f["vector_n"][0]) for f in sf), Decimal(0))
         fy = sum((Decimal(f["vector_n"][1]) for f in sf), Decimal(0))
         fz = sum((Decimal(f["vector_n"][2]) for f in sf), Decimal(0))
+        for g in sg:
+            g_scale = Decimal(g["scale"])
+            fx += total_mass * g_scale * Decimal(g["direction"][0])
+            fy += total_mass * g_scale * Decimal(g["direction"][1])
+            fz += total_mass * g_scale * Decimal(g["direction"][2])
         mx = sum((Decimal(m["vector_n_m"][0]) for m in sm), Decimal(0))
         my = sum((Decimal(m["vector_n_m"][1]) for m in sm), Decimal(0))
         mz = sum((Decimal(m["vector_n_m"][2]) for m in sm), Decimal(0))
+        direct_force_by_sid[sid] = (fx, fy, fz)
+        direct_moment_by_sid[sid] = (mx, my, mz)
         peak_f = max((Decimal(f["magnitude_n"]) for f in sf), default=Decimal(0))
         peak_p = max((Decimal(p["mean_pressure"]) for p in sp), default=Decimal(0))
         load_cases.append(
             {
                 "sid": sid,
+                "is_combination": False,
                 "force_count": len(sf),
                 "moment_count": len(sm),
                 "pload4_count": len(sp),
+                "grav_count": len(sg),
                 "total_force_n": [decimal_str(fx), decimal_str(fy), decimal_str(fz)],
                 "resultant_force_n": decimal_str(_decimal_hypot3(fx, fy, fz)),
                 "total_moment_n_m": [decimal_str(mx), decimal_str(my), decimal_str(mz)],
@@ -267,10 +553,39 @@ def parse_nastran_bdf(raw: bytes, source_hash: str) -> dict[str, Any]:
             }
         )
 
-    # Mass & CG from CONM2
-    cg_points: list[dict[str, Any]] = []
-    parameters: list[dict[str, Any]] = []
-    total_mass = sum((Decimal(c["mass"]) for c in conm2_masses), Decimal(0))
+    # Resolve linear LOAD combinations: F_total = S * sum(S_i * F_{L_i})
+    for combo in load_combos:
+        csid = combo["sid"]
+        gs = Decimal(combo["global_scale"])
+        fx, fy, fz = Decimal(0), Decimal(0), Decimal(0)
+        mx, my, mz = Decimal(0), Decimal(0), Decimal(0)
+        for term in combo["terms"]:
+            si = Decimal(term["scale"])
+            li = term["sid"]
+            df = direct_force_by_sid.get(li, (Decimal(0), Decimal(0), Decimal(0)))
+            dm = direct_moment_by_sid.get(li, (Decimal(0), Decimal(0), Decimal(0)))
+            fx += gs * si * df[0]
+            fy += gs * si * df[1]
+            fz += gs * si * df[2]
+            mx += gs * si * dm[0]
+            my += gs * si * dm[1]
+            mz += gs * si * dm[2]
+        load_cases.append(
+            {
+                "sid": csid,
+                "is_combination": True,
+                "terms": combo["terms"],
+                "force_count": 0,
+                "moment_count": 0,
+                "pload4_count": 0,
+                "grav_count": 0,
+                "total_force_n": [decimal_str(fx), decimal_str(fy), decimal_str(fz)],
+                "resultant_force_n": decimal_str(_decimal_hypot3(fx, fy, fz)),
+                "total_moment_n_m": [decimal_str(mx), decimal_str(my), decimal_str(mz)],
+                "peak_nodal_force_n": "0",
+                "peak_pload4_pressure": "0",
+            }
+        )
     if total_mass > 0:
         cx = (
             sum((Decimal(c["mass"]) * Decimal(c["cg"][0]) for c in conm2_masses), Decimal(0))
@@ -383,6 +698,8 @@ def parse_nastran_bdf(raw: bytes, source_hash: str) -> dict[str, Any]:
 
     return {
         "format": "nastran_bdf",
+        "unit_system": resolved_unit_system,
+        "subcases": subcases,
         "mesh": {
             "node_count": len(grids),
             "element_count": len(elements),
@@ -390,10 +707,21 @@ def parse_nastran_bdf(raw: bytes, source_hash: str) -> dict[str, Any]:
             "elements": elements[:2500],
             "bbox": bbox,
         },
+        "properties": {
+            "pshell": pshells,
+            "pcomp": pcomps,
+            "pbush": pbushes,
+        },
+        "materials": {
+            "mat1": mat1s,
+            "mat8": mat8s,
+        },
         "loads": {
             "forces": forces,
             "moments": moments,
             "pload4": pload4s,
+            "grav": grav_cards,
+            "load_combinations": load_combos,
             "load_cases": load_cases,
         },
         "masses": conm2_masses,
@@ -804,6 +1132,76 @@ def _extract_resultant_vectors(lines: list[str], section_marker: str) -> list[di
     return rows
 
 
+def _extract_modal_eigenvalues(lines: list[str]) -> list[dict[str, str]]:
+    """Extract SOL 103 REAL EIGENVALUES and optional MODAL EFFECTIVE MASS FRACTION from .f06."""
+    modes: list[dict[str, str]] = []
+    eff_mass_by_mode: dict[str, str] = {}
+    in_section = False
+    in_eff_mass = False
+
+    for line in lines:
+        compact = re.sub(r"\s+", "", line.upper())
+        if "REALEIGENVALUES" in compact:
+            in_section = True
+            in_eff_mass = False
+            continue
+        if "MODALEFFECTIVEMASSFRACTION" in compact:
+            in_eff_mass = True
+            in_section = False
+            continue
+
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("1") and "NASTRAN" in stripped.upper():
+            in_section = False
+            in_eff_mass = False
+            continue
+
+        if in_section:
+            if "MODE" in stripped.upper() or "NO." in stripped.upper():
+                continue
+            m = re.match(
+                r"^\s*(\d+)\s+(\d+)\s+([-+]?\d+(?:\.\d+)?(?:[EeDd][-+]?\d+)?)\s+"
+                r"([-+]?\d+(?:\.\d+)?(?:[EeDd][-+]?\d+)?)\s+"
+                r"([-+]?\d+(?:\.\d+)?(?:[EeDd][-+]?\d+)?)",
+                line,
+            )
+            if m:
+                eig = Decimal(m.group(3).replace("D", "E"))
+                hz = Decimal(m.group(5).replace("D", "E"))
+                modes.append(
+                    {
+                        "mode_no": m.group(1),
+                        "eigenvalue": decimal_str(eig),
+                        "cycles_hz": decimal_str(hz),
+                    }
+                )
+            elif modes:
+                in_section = False
+
+        elif in_eff_mass:
+            if "MODE" in stripped.upper() or "TOTAL" in stripped.upper():
+                if "TOTAL" in stripped.upper():
+                    in_eff_mass = False
+                continue
+            m_ef = re.match(
+                r"^\s*(\d+)\s+([-+]?\d+(?:\.\d+)?(?:[EeDd][-+]?\d+)?)\s+"
+                r"([-+]?\d+(?:\.\d+)?(?:[EeDd][-+]?\d+)?)\s+"
+                r"([-+]?\d+(?:\.\d+)?(?:[EeDd][-+]?\d+)?)\s+"
+                r"([-+]?\d+(?:\.\d+)?(?:[EeDd][-+]?\d+)?)",
+                line,
+            )
+            if m_ef:
+                fracs = [Decimal(m_ef.group(k).replace("D", "E")).copy_abs() for k in (3, 4, 5)]
+                eff_mass_by_mode[m_ef.group(1)] = decimal_str(max(fracs))
+
+    for mode in modes:
+        if mode["mode_no"] in eff_mass_by_mode:
+            mode["effective_mass_frac"] = eff_mass_by_mode[mode["mode_no"]]
+    return modes
+
+
 def parse_nastran_f06(raw: bytes, source_hash: str) -> dict[str, Any]:
     """Deterministically extract OLOAD/SPCFORCE resultants and GPWG mass/CG from .f06."""
     try:
@@ -817,6 +1215,7 @@ def parse_nastran_f06(raw: bytes, source_hash: str) -> dict[str, Any]:
 
     oloads = _extract_resultant_vectors(lines, "OLOAD")
     spcforces = _extract_resultant_vectors(lines, "SPCFORCE")
+    modal_eigenvalues = _extract_modal_eigenvalues(lines)
 
     gpwg_mass: Decimal | None = None
     gpwg_cg: list[str] | None = None
@@ -856,7 +1255,13 @@ def parse_nastran_f06(raw: bytes, source_hash: str) -> dict[str, Any]:
             if nums:
                 gpwg_mass = Decimal(nums[-1].replace("D", "E"))
 
-    if not oloads and not spcforces and gpwg_mass is None and not fatal_messages:
+    if (
+        not oloads
+        and not spcforces
+        and gpwg_mass is None
+        and not fatal_messages
+        and not modal_eigenvalues
+    ):
         raise IngestAbstain("no_f06_engineering_results_found")
 
     equilibrium_checks: list[dict[str, Any]] = []
@@ -959,6 +1364,7 @@ def parse_nastran_f06(raw: bytes, source_hash: str) -> dict[str, Any]:
         "oload_resultants": oloads,
         "spcforce_resultants": spcforces,
         "equilibrium_checks": equilibrium_checks,
+        "modal_eigenvalues": modal_eigenvalues,
         "gpwg_mass_kg": decimal_str(gpwg_mass) if gpwg_mass is not None else None,
         "cg_points": cg_points,
         "epsilon_values": epsilon_values,

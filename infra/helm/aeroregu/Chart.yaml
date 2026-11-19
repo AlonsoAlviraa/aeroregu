@@ -1,0 +1,11 @@
+apiVersion: v2
+name: aeroregu
+description: Air-gapped Sovereign Evidence & Verification Platform (Aerospace Structures)
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - aeroregu
+  - airgap
+  - sovereign
+  - traceability

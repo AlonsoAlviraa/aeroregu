@@ -1,0 +1,60 @@
+{
+  "method_id": "shear_web_diagonal_tension",
+  "method_version": "shear_web_diagonal_tension@1.0.0",
+  "title": "Wagner / Kuhn Incomplete Diagonal Tension (IDT) Shear Web",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "tau_cr = ks * pi^2 * E * (t/h)^2 / 10.92; k_idt = tanh(0.5*log10(tau/tau_cr)); MS = F_su / (tau*(1 + 0.5*k_idt)) - 1",
+  "note": "NACA TN-2661 / Kuhn incomplete diagonal tension post-buckling shear web stress amplification check.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "applied_shear_n": "newton",
+    "web_depth_mm": "millimeter",
+    "web_thickness_mm": "millimeter",
+    "stiffener_pitch_mm": "millimeter",
+    "modulus_mpa": "megapascal",
+    "web_shear_ultimate_mpa": "megapascal"
+  },
+  "required": [
+    "applied_shear_n",
+    "web_depth_mm",
+    "web_thickness_mm",
+    "stiffener_pitch_mm",
+    "modulus_mpa",
+    "web_shear_ultimate_mpa"
+  ],
+  "limits": {
+    "applied_shear_n": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "web_depth_mm": {
+      "min_exclusive": "0",
+      "max": "20000"
+    },
+    "web_thickness_mm": {
+      "min_exclusive": "0",
+      "max": "500"
+    },
+    "stiffener_pitch_mm": {
+      "min_exclusive": "0",
+      "max": "20000"
+    },
+    "modulus_mpa": {
+      "min_exclusive": "0",
+      "max": "1000000"
+    },
+    "web_shear_ultimate_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "kuhn-idt-shear-web",
+      "uri": "https://aeroregu.local/cards/shear_web_diagonal_tension",
+      "content_hash": "d488e848291725e76ce2dbe2ee1cadc938c2c151543be177ddee11449196e689",
+      "label": "VERIFIED"
+    }
+  ]
+}

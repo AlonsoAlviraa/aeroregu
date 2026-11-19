@@ -1,0 +1,48 @@
+{
+  "method_id": "open_hole_compression_ohc",
+  "method_version": "open_hole_compression_ohc@1.0.0",
+  "title": "Composite Open-Hole Compression (OHC) ETW Sizing",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "F_ohc_eff = F_ohc_RTD * k_etw * hole_size_factor; MS = F_ohc_eff / sigma_comp - 1",
+  "note": "CMH-17 open-hole compression laminate sizing accounting for hot-wet resin softening.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "applied_compressive_mpa": "megapascal",
+    "ohc_allowable_rtd_mpa": "megapascal",
+    "etw_knockdown": "dimensionless",
+    "hole_diameter_mm": "millimeter"
+  },
+  "required": [
+    "applied_compressive_mpa",
+    "ohc_allowable_rtd_mpa",
+    "etw_knockdown",
+    "hole_diameter_mm"
+  ],
+  "limits": {
+    "applied_compressive_mpa": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "ohc_allowable_rtd_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "etw_knockdown": {
+      "min_exclusive": "0",
+      "max": "2"
+    },
+    "hole_diameter_mm": {
+      "min_exclusive": "0",
+      "max": "500"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "cmh17-ohc-etw",
+      "uri": "https://aeroregu.local/cards/open_hole_compression_ohc",
+      "content_hash": "13b90d378046c81b220773b29bc5b82c8c7bde8ae41605c6afcf8dc0f3bca7db",
+      "label": "VERIFIED"
+    }
+  ]
+}

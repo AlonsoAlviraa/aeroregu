@@ -162,6 +162,10 @@
       this.hovered = null;
       this.selected = null;
       this._pickTargets = [];
+      this.feaMesh = null;
+      this.feaColorMode = "ms_min";
+      this.feaPidFilter = null;
+      this._feaSpatialIndex = null;
       this._onSelect = typeof this.options.onSelect === "function" ? this.options.onSelect : null;
 
       this._initCanvases();
@@ -861,6 +865,17 @@
     }
 
     _pickAt(cx, cy, select) {
+      if (this.mode === "fea") {
+        const hit = this.pickFeaElementAt(cx, cy);
+        if (select) {
+          this.selected = hit;
+          if (this._onSelect) this._onSelect(hit);
+        } else {
+          this.hovered = hit;
+        }
+        this.render();
+        return;
+      }
       let best = null;
       let bestDist = 14;
       for (let i = 0; i < this._pickTargets.length; i++) {
@@ -878,6 +893,190 @@
         this.hovered = best;
       }
       this.render();
+    }
+
+    _colorFromScalar(val, mode) {
+      if (mode === "ms_min") {
+        if (val < 0.0) return [0.95, 0.22, 0.24, 0.96];
+        if (val < 0.15) return [0.98, 0.68, 0.18, 0.96];
+        return [0.16, 0.84, 0.48, 0.94];
+      }
+      const norm = Math.max(0.0, Math.min(1.0, val));
+      const r = Math.min(1.0, Math.max(0.0, 1.5 - Math.abs(4.0 * norm - 3.0)));
+      const g = Math.min(1.0, Math.max(0.0, 1.5 - Math.abs(4.0 * norm - 2.0)));
+      const b = Math.min(1.0, Math.max(0.0, 1.5 - Math.abs(4.0 * norm - 1.0)));
+      return [r, g, b, 0.94];
+    }
+
+    setFeaMesh(feaData) {
+      this.feaMesh = feaData || null;
+      this._buildFeaGpuBuffers();
+      if (this.mode === "fea") this.render();
+    }
+
+    setFeaColorMode(colorMode) {
+      this.feaColorMode = colorMode || "ms_min";
+      this._buildFeaGpuBuffers();
+      if (this.mode === "fea") this.render();
+    }
+
+    setPidFilter(pids) {
+      this.feaPidFilter = Array.isArray(pids) && pids.length > 0 ? new Set(pids.map(Number)) : null;
+      this._buildFeaGpuBuffers();
+      if (this.mode === "fea") this.render();
+    }
+
+    _buildFeaGpuBuffers() {
+      if (!this.feaMesh || !Array.isArray(this.feaMesh.elements)) {
+        this._feaBuffers = null;
+        return;
+      }
+      const elems = this.feaMesh.elements;
+      const nodeCoords = this.feaMesh.nodeCoords || {};
+      const colorMode = this.feaColorMode;
+      const pidSet = this.feaPidFilter;
+
+      // Compute normalized bounding center & extent once
+      let minX = Infinity, minY = Infinity, minZ = Infinity;
+      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+      const nodeList = Object.values(nodeCoords);
+      for (let i = 0; i < nodeList.length; i++) {
+        const c = nodeList[i];
+        if (c[0] < minX) minX = c[0]; if (c[0] > maxX) maxX = c[0];
+        if (c[1] < minY) minY = c[1]; if (c[1] > maxY) maxY = c[1];
+        if (c[2] < minZ) minZ = c[2]; if (c[2] > maxZ) maxZ = c[2];
+      }
+      const span = Math.max(1e-6, maxX - minX, maxY - minY, maxZ - minZ);
+      const cx = 0.5 * (minX + maxX);
+      const cy = 0.5 * (minY + maxY);
+      const cz = 0.5 * (minZ + maxZ);
+      const invScale = 2.0 / span;
+
+      const filtered = pidSet ? elems.filter((e) => pidSet.has(Number(e.pid))) : elems;
+      const triCap = filtered.length * 2;
+      const posArr = new Float32Array(triCap * 9);
+      const colArr = new Float32Array(triCap * 12);
+      const centroids = new Float32Array(filtered.length * 3);
+      let triCount = 0;
+
+      for (let idx = 0; idx < filtered.length; idx++) {
+        const el = filtered[idx];
+        const p1 = nodeCoords[el.n1];
+        const p2 = nodeCoords[el.n2];
+        const p3 = nodeCoords[el.n3];
+        if (!p1 || !p2 || !p3) continue;
+        const p4 = el.n4 ? nodeCoords[el.n4] : null;
+        const sVal =
+          colorMode === "ms_min"
+            ? num(el.ms_min, 0.25)
+            : colorMode === "tsai_wu"
+            ? num(el.tsai_wu_fi, 0.5)
+            : num(el.von_mises_norm, 0.5);
+        const col = this._colorFromScalar(sVal, colorMode);
+
+        const q1 = [(p1[0] - cx) * invScale, (p1[2] - cz) * invScale, (p1[1] - cy) * invScale];
+        const q2 = [(p2[0] - cx) * invScale, (p2[2] - cz) * invScale, (p2[1] - cy) * invScale];
+        const q3 = [(p3[0] - cx) * invScale, (p3[2] - cz) * invScale, (p3[1] - cy) * invScale];
+
+        centroids[idx * 3] = (q1[0] + q2[0] + q3[0]) / 3.0;
+        centroids[idx * 3 + 1] = (q1[1] + q2[1] + q3[1]) / 3.0;
+        centroids[idx * 3 + 2] = (q1[2] + q2[2] + q3[2]) / 3.0;
+
+        const baseP = triCount * 9;
+        const baseC = triCount * 12;
+        posArr[baseP] = q1[0]; posArr[baseP + 1] = q1[1]; posArr[baseP + 2] = q1[2];
+        posArr[baseP + 3] = q2[0]; posArr[baseP + 4] = q2[1]; posArr[baseP + 5] = q2[2];
+        posArr[baseP + 6] = q3[0]; posArr[baseP + 7] = q3[1]; posArr[baseP + 8] = q3[2];
+        for (let k = 0; k < 3; k++) {
+          colArr[baseC + k * 4] = col[0];
+          colArr[baseC + k * 4 + 1] = col[1];
+          colArr[baseC + k * 4 + 2] = col[2];
+          colArr[baseC + k * 4 + 3] = col[3];
+        }
+        triCount++;
+
+        if (p4) {
+          const q4 = [(p4[0] - cx) * invScale, (p4[2] - cz) * invScale, (p4[1] - cy) * invScale];
+          const bP2 = triCount * 9;
+          const bC2 = triCount * 12;
+          posArr[bP2] = q1[0]; posArr[bP2 + 1] = q1[1]; posArr[bP2 + 2] = q1[2];
+          posArr[bP2 + 3] = q3[0]; posArr[bP2 + 4] = q3[1]; posArr[bP2 + 5] = q3[2];
+          posArr[bP2 + 6] = q4[0]; posArr[bP2 + 7] = q4[1]; posArr[bP2 + 8] = q4[2];
+          for (let k = 0; k < 3; k++) {
+            colArr[bC2 + k * 4] = col[0];
+            colArr[bC2 + k * 4 + 1] = col[1];
+            colArr[bC2 + k * 4 + 2] = col[2];
+            colArr[bC2 + k * 4 + 3] = col[3];
+          }
+          triCount++;
+        }
+      }
+
+      this._feaBuffers = {
+        elements: filtered,
+        centroids: centroids,
+        posArr: posArr.subarray(0, triCount * 9),
+        colArr: colArr.subarray(0, triCount * 12),
+        vertexCount: triCount * 3,
+      };
+    }
+
+    pickFeaElementAt(cx, cy) {
+      if (!this._feaBuffers || this._feaBuffers.elements.length === 0) return null;
+      const w = this.cssWidth || 720;
+      const h = this.cssHeight || 420;
+      const mvp = this._buildMvp(w, h);
+      const els = this._feaBuffers.elements;
+      const cents = this._feaBuffers.centroids;
+      let bestEl = null;
+      let bestDist = 18.0;
+      let bestDepth = Infinity;
+      for (let i = 0; i < els.length; i++) {
+        const scr = projectPoint(mvp, cents[i * 3], cents[i * 3 + 1], cents[i * 3 + 2], 0, 0, w, h);
+        if (!scr) continue;
+        const d = Math.hypot(scr.sx - cx, scr.sy - cy);
+        if (d < bestDist || (Math.abs(d - bestDist) < 1.5 && scr.depth < bestDepth)) {
+          bestDist = d;
+          bestDepth = scr.depth;
+          bestEl = els[i];
+        }
+      }
+      return bestEl;
+    }
+
+    _drawFeaViewport(ctx, cssX, cssY, cssW, cssH) {
+      const mvp = this._buildMvp(cssW, cssH);
+      const buf = this._feaBuffers;
+      if (buf && buf.vertexCount > 0 && this._hasWebGL) {
+        const gl = this.gl;
+        gl.viewport(
+          Math.round(cssX * this.dpr),
+          Math.round((this.cssHeight - cssY - cssH) * this.dpr),
+          Math.round(cssW * this.dpr),
+          Math.round(cssH * this.dpr)
+        );
+        gl.enable(gl.DEPTH_TEST);
+        gl.depthMask(true);
+        gl.useProgram(this.progMesh);
+        gl.uniformMatrix4fv(gl.getUniformLocation(this.progMesh, "uMvp"), false, mvp);
+        const aPos = gl.getAttribLocation(this.progMesh, "aPos");
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.vboPos);
+        gl.bufferData(gl.ARRAY_BUFFER, buf.posArr, gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(aPos);
+        gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+        const aCol = gl.getAttribLocation(this.progMesh, "aCol");
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.vboCol);
+        gl.bufferData(gl.ARRAY_BUFFER, buf.colArr, gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(aCol);
+        gl.vertexAttribPointer(aCol, 4, gl.FLOAT, false, 0, 0);
+        gl.drawArrays(gl.TRIANGLES, 0, buf.vertexCount);
+      }
+      ctx.fillStyle = "rgba(10, 17, 30, 0.78)";
+      ctx.fillRect(cssX + 10, cssY + 10, 320, 24);
+      ctx.fillStyle = "#dbeafe";
+      ctx.font = "600 11px ui-monospace, monospace";
+      const nEl = buf ? buf.elements.length : 0;
+      ctx.fillText("3D FEA Mesh [" + nEl + " elems] | mode=" + this.feaColorMode, cssX + 18, cssY + 26);
     }
 
     render() {
@@ -941,6 +1140,8 @@
         drawViewport(this._prepareVnPrimitives(), 0, 0, w, h, "3D V-n-Mass Envelope [V, nz, kg]");
       } else if (this.mode === "cg") {
         drawViewport(this._prepareCgPrimitives(), 0, 0, w, h, "3D CG Cloud [X_cg, Y_cg, Z_cg]");
+      } else if (this.mode === "fea") {
+        this._drawFeaViewport(ctx, 0, 0, w, h);
       } else {
         const half = Math.floor(w / 2);
         drawViewport(this._prepareVnPrimitives(), 0, 0, half, h, "V-n-Mass Envelope [V, nz, kg]");

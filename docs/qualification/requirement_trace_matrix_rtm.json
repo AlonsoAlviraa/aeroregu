@@ -1,0 +1,42 @@
+{
+  "pack_name": "aeroregu Qualification Aid Trace Matrix",
+  "assistance_disclaimer": "This tool assists a human reviewer. It does not determine compliance.",
+  "adr_reference": "ADR-018",
+  "requirements": [
+    {
+      "tor_id": "TOR-01",
+      "title": "Deterministic Decimal + FLINT/Arb Stress Calculations",
+      "implementation_module": "packages/calc/src/evidence_calc/stress_manual.py",
+      "iq_oq_check": "OQ-01",
+      "verification_test": "tests/mega_q3_methods_security_bench.py::test_q3_mega_1_all_25_stress_methods_allowables_units_and_arb_intervals"
+    },
+    {
+      "tor_id": "TOR-02",
+      "title": "Static AST Dimensional Homogeneity Verification",
+      "implementation_module": "packages/calc/src/evidence_calc/units.py",
+      "iq_oq_check": "OQ-02",
+      "verification_test": "packages/calc/tests/test_plugins_and_sizing.py"
+    },
+    {
+      "tor_id": "TOR-03",
+      "title": "Immutable SHA-256 Chain & Standalone Offline RFC-6962 Verifier",
+      "implementation_module": "packages/coverage/src/evidence_coverage/qualification_aid.py",
+      "iq_oq_check": "OQ-03",
+      "verification_test": "tests/mega_q4_e2e_soak_qualification.py::test_q4_mega_3_qualification_aid_iq_oq_standalone_verifier_airgap_and_ma_closure"
+    },
+    {
+      "tor_id": "TOR-04",
+      "title": "Bounded Validity & Ungrounded Citation Abstention",
+      "implementation_module": "packages/eval/src/evidence_eval/onprem_holdout_suite.py",
+      "iq_oq_check": "IQ-03",
+      "verification_test": "tests/mega_q3_methods_security_bench.py::test_q3_mega_3_onprem_constrained_extractor_and_b1_b4_holdout_gates"
+    },
+    {
+      "tor_id": "TOR-05",
+      "title": "HSM/QES Signing, WebAuthn Step-Up & Author<->CVE Review Gate",
+      "implementation_module": "packages/coverage/src/evidence_coverage/collaboration_ecn.py",
+      "iq_oq_check": "OQ-04",
+      "verification_test": "tests/mega_q4_e2e_soak_qualification.py::test_q4_mega_1_full_metallic_and_composite_program_ecn_and_review_threads"
+    }
+  ]
+}

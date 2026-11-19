@@ -1,0 +1,72 @@
+{
+  "method_id": "adhesive_single_lap_volkersen",
+  "method_version": "adhesive_single_lap_volkersen@1.0.0",
+  "title": "Volkersen Elastic Shear-Lag Bonded Single-Lap Joint",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "omega = sqrt((2*G_a)/(E*t_p*t_a)); tau_peak = tau_avg * (omega*L/2) / tanh(omega*L/2); MS = tau_allow / tau_peak - 1",
+  "note": "Volkersen shear-lag analytical peak adhesive shear stress concentration at overlap ends.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "tensile_load_n": "newton",
+    "overlap_width_mm": "millimeter",
+    "overlap_length_mm": "millimeter",
+    "adhesive_shear_modulus_mpa": "megapascal",
+    "adhesive_thickness_mm": "millimeter",
+    "adherend_modulus_mpa": "megapascal",
+    "adherend_thickness_mm": "millimeter",
+    "adhesive_shear_allowable_mpa": "megapascal"
+  },
+  "required": [
+    "tensile_load_n",
+    "overlap_width_mm",
+    "overlap_length_mm",
+    "adhesive_shear_modulus_mpa",
+    "adhesive_thickness_mm",
+    "adherend_modulus_mpa",
+    "adherend_thickness_mm",
+    "adhesive_shear_allowable_mpa"
+  ],
+  "limits": {
+    "tensile_load_n": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "overlap_width_mm": {
+      "min_exclusive": "0",
+      "max": "10000"
+    },
+    "overlap_length_mm": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "adhesive_shear_modulus_mpa": {
+      "min_exclusive": "0",
+      "max": "100000"
+    },
+    "adhesive_thickness_mm": {
+      "min_exclusive": "0",
+      "max": "100"
+    },
+    "adherend_modulus_mpa": {
+      "min_exclusive": "0",
+      "max": "1000000"
+    },
+    "adherend_thickness_mm": {
+      "min_exclusive": "0",
+      "max": "500"
+    },
+    "adhesive_shear_allowable_mpa": {
+      "min_exclusive": "0",
+      "max": "1000"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "volkersen-adhesive-lap",
+      "uri": "https://aeroregu.local/cards/adhesive_single_lap_volkersen",
+      "content_hash": "d8a54bc13a96c201b067c1115115b96f23f2dd5d5ae340c8e56efe379a121159",
+      "label": "VERIFIED"
+    }
+  ]
+}

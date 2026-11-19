@@ -1,0 +1,31 @@
+replicaCount: 2
+
+airgap:
+  enabled: true
+  allowOutboundInternetEgress: false
+  modelEndpointMode: onprem-vllm-only
+
+image:
+  repository: registry.airgap.local/aeroregu/evidence-api
+  tag: "1.0.0"
+  digest: "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+  pullPolicy: Never
+
+llmSidecar:
+  repository: registry.airgap.local/aeroregu/vllm-qwen25-coder-32b-awq
+  tag: "2026.11"
+  digest: "sha256:4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a"
+  pullPolicy: Never
+
+security:
+  runAsNonRoot: true
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  requireWebAuthnSignoff: true
+  hsmProvider: "pkcs11"
+  eidasQesProfile: "CAdES-B-LT"
+
+storage:
+  wormObjectLockEnabled: true
+  retentionYears: 30
+  sseKmsEnabled: true

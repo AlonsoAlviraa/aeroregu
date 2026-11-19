@@ -1,0 +1,60 @@
+{
+  "method_id": "eccentric_bolt_group_cg",
+  "method_version": "eccentric_bolt_group_cg@1.0.0",
+  "title": "Eccentric 4-Bolt Group Elastic CG Shear + Torsional Moment",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "sum_r2 = 4*(dx^2 + dy^2); F_max = sqrt((Vx/4 + Mz*dy/sum_r2)^2 + (Vy/4 + Mz*dx/sum_r2)^2); MS = V_allow/F_max - 1",
+  "note": "Elastic centroid method (Bruhn) resolving direct shear plus torsional moment into critical corner fastener resultant.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "shear_vx_n": "newton",
+    "shear_vy_n": "newton",
+    "moment_mz_nmm": "newton * millimeter",
+    "half_spacing_x_mm": "millimeter",
+    "half_spacing_y_mm": "millimeter",
+    "bolt_shear_allowable_n": "newton"
+  },
+  "required": [
+    "shear_vx_n",
+    "shear_vy_n",
+    "moment_mz_nmm",
+    "half_spacing_x_mm",
+    "half_spacing_y_mm",
+    "bolt_shear_allowable_n"
+  ],
+  "limits": {
+    "shear_vx_n": {
+      "min": "-10000000000",
+      "max": "10000000000"
+    },
+    "shear_vy_n": {
+      "min": "-10000000000",
+      "max": "10000000000"
+    },
+    "moment_mz_nmm": {
+      "min": "-10000000000",
+      "max": "10000000000"
+    },
+    "half_spacing_x_mm": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "half_spacing_y_mm": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "bolt_shear_allowable_n": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "bruhn-eccentric-bolt-group",
+      "uri": "https://aeroregu.local/cards/eccentric_bolt_group_cg",
+      "content_hash": "08da64956e2effaa6fcb2cd44846358506b6f883371179c67c60eea2b10fe6f3",
+      "label": "VERIFIED"
+    }
+  ]
+}

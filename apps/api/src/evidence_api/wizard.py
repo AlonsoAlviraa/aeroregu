@@ -11,7 +11,7 @@ from typing import Any
 
 import uvicorn
 from evidence_calc.errors import AbstainError
-from evidence_calc.registry import cards_dir, load_card, run_method
+from evidence_calc.registry import run_method
 from evidence_coverage.gate import evaluate_traceability_gate
 from evidence_coverage.status import gap_report, run_coverage_sweep
 from evidence_eval.redteam import run_redteam_suite
@@ -28,56 +28,96 @@ from rich.syntax import Syntax
 from rich.table import Table
 
 from evidence_api.app import _now, _validate_tenant, _zip_bytes, evidence_home, open_ledger
+from evidence_api.formal_methods import METHOD_DEFAULT_INPUTS, METHOD_FAMILIES
 from evidence_api.mcp_server import (
-    MCP_PROMPTS,
-    MCP_RESOURCES,
-    MCP_TOOLS,
     build_mcp_client_config,
+    get_mcp_inventory_counts,
     run_formal_proof_for_method,
 )
 
-_DEFAULT_CALC_VALUES: dict[str, dict[str, Any]] = {
-    "rigid_body_point_mass": {
-        "mass_kg": "800.000",
-        "gravity_m_s2": "9.807",
-        "load_factor": "1.000",
-        "cg_x_m": "0.000",
-        "unit_x_m": ["-2.000", "-1.000", "1.000", "2.000"],
-        "unit_operative": [True, True, True, True],
-    },
-    "bolt_screen": {
-        "area_mm2": "100.000",
-        "shear_force_n": "1000.000",
-        "tensile_force_n": "2000.000",
-        "shear_allowable_mpa": "150.000",
-        "tensile_allowable_mpa": "250.000",
-    },
-    "hover_power_screen": {
-        "thrust_n": "5000.000",
-        "disk_area_m2": "10.000",
-        "air_density_kg_m3": "1.225",
-        "figure_of_merit": "0.700",
-        "power_available_kw": "350.000",
-    },
+_DEFAULT_CALC_VALUES: dict[str, dict[str, Any]] = METHOD_DEFAULT_INPUTS
+
+_FAMILY_LABELS: dict[str, str] = {
+    "flight_envelope": "Flight Envelope & Mass",
+    "structural_sizing": "Structural Sizing & Margins",
+    "fasteners_joints": "Fasteners, Lugs & Joints",
+    "composites_cmh17": "Composites (CMH-17 / Hashin / Puck)",
+    "fatigue_fracture": "Fatigue, Crack Growth & Fracture",
+    "thin_walled_stability": "Thin-Walled Stability & Crippling",
+    "plugins": "User Declarative Plugins",
 }
+
+
+def _apply_material_allowable(
+    defaults: dict[str, Any],
+    mat_id: str,
+    console: Console,
+) -> dict[str, Any]:
+    from evidence_calc.allowables import lookup_allowable
+
+    out = dict(defaults)
+    basis = Prompt.ask("Base MMPDS-16 / CMH-17", choices=["A", "B"], default="B", console=console)
+    res = lookup_allowable(mat_id, basis=basis, property_name="fty_mpa")
+    if "material_id" in res and "allowable_value_mpa" in res:
+        fty = str(res["allowable_value_mpa"])
+        if "yield_strength_mpa" in out:
+            out["yield_strength_mpa"] = fty
+        if "compressive_yield_mpa" in out:
+            res_fcy = lookup_allowable(mat_id, basis=basis, property_name="fcy_mpa")
+            out["compressive_yield_mpa"] = str(res_fcy.get("allowable_value_mpa", fty))
+        if "modulus_mpa" in out and res.get("e_gpa"):
+            out["modulus_mpa"] = str(int(float(res["e_gpa"]) * 1000))
+        if "youngs_modulus_mpa" in out and res.get("e_gpa"):
+            out["youngs_modulus_mpa"] = str(int(float(res["e_gpa"]) * 1000))
+        console.print(
+            f"[green]Material aplicado ({mat_id}, {basis}-Basis):[/green] "
+            f"Fty={fty} MPa | catalog={res.get('catalog_sha256', '')[:12]}..."
+        )
+    return out
 
 
 def prompt_method_inputs(card: dict[str, Any], console: Console) -> dict[str, Any]:
     """Prompt the user field-by-field with units and safe defaults (zero JSON needed)."""
     method_id = str(card["method_id"])
-    defaults = _DEFAULT_CALC_VALUES.get(method_id, {})
+    defaults = dict(METHOD_DEFAULT_INPUTS.get(method_id, {}))
     units = card.get("input_units") or {}
     required = list(card.get("required") or list((card.get("inputs") or {}).keys()))
 
     console.print(
         Panel(
-            f"[bold cyan]{method_id}[/bold cyan] ({card['method_version']})\n"
+            f"[bold cyan]{method_id}[/bold cyan] ({card['method_version']}) "
+            f"[{_FAMILY_LABELS.get(METHOD_FAMILIES.get(method_id, 'plugins'), 'Engineering')}]\n"
             f"[dim]{card.get('equation', '')}[/dim]\n"
             "Pulsa [bold]Enter[/bold] para aceptar el valor por defecto en cualquier campo.",
             title="Asistente de Datos de Calculo",
             border_style="cyan",
         )
     )
+    if any(
+        k in required
+        for k in (
+            "yield_strength_mpa",
+            "compressive_yield_mpa",
+            "modulus_mpa",
+            "youngs_modulus_mpa",
+        )
+    ):
+        from evidence_calc.allowables import list_materials
+
+        if Confirm.ask(
+            "¿Cargar material desde catalogo MMPDS-16 / CMH-17?",
+            default=False,
+            console=console,
+        ):
+            mats = list_materials()
+            mat_id = Prompt.ask(
+                f"Material ({', '.join(mats)})",
+                choices=mats,
+                default=mats[0],
+                console=console,
+            )
+            defaults = _apply_material_allowable(defaults, mat_id, console)
+
     collected: dict[str, Any] = {}
     for key in required:
         default_val = defaults.get(key)
@@ -105,13 +145,29 @@ def prompt_method_inputs(card: dict[str, Any], console: Console) -> dict[str, An
 
 
 def _wizard_calc(console: Console) -> None:
-    cards = [load_card(p.stem) for p in sorted(cards_dir().glob("*.json"))]
-    table = Table(title="Elige un Metodo de Calculo", box=box.ROUNDED)
+    from evidence_calc.registry import list_cards
+
+    raw_cards = list_cards(include_plugins=True)
+    family_order = list(_FAMILY_LABELS.keys())
+    cards = sorted(
+        raw_cards,
+        key=lambda c: (
+            family_order.index(METHOD_FAMILIES.get(str(c["method_id"]), "plugins")),
+            str(c["method_id"]),
+        ),
+    )
+    table = Table(
+        title=f"Catalogo Completo ({len(cards)} Metodos Certificados + Plugins)",
+        box=box.ROUNDED,
+    )
     table.add_column("#", style="bold yellow", justify="right")
+    table.add_column("Familia", style="magenta", no_wrap=True)
     table.add_column("Metodo", style="bold cyan", no_wrap=True)
     table.add_column("Descripcion")
     for idx, card in enumerate(cards, start=1):
-        table.add_row(str(idx), str(card["method_id"]), str(card.get("equation", ""))[:65])
+        mid = str(card["method_id"])
+        fam = _FAMILY_LABELS.get(METHOD_FAMILIES.get(mid, "plugins"), "Plugins")
+        table.add_row(str(idx), fam, mid, str(card.get("equation", ""))[:60])
     console.print(table)
 
     choice = IntPrompt.ask("Numero de metodo", default=1, console=console)
@@ -307,12 +363,14 @@ def _wizard_security(console: Console) -> None:
 
 
 def _wizard_mcp(console: Console) -> None:
+    counts = get_mcp_inventory_counts()
     console.print(
         Panel(
             f"Servidor MCP: [bold cyan]aeroregu-evidence-layer[/bold cyan]\n"
-            f"Tools IA: [bold]{len(MCP_TOOLS)}[/bold] | "
-            f"Resources: [bold]{len(MCP_RESOURCES)}[/bold] | "
-            f"Prompts: [bold]{len(MCP_PROMPTS)}[/bold]\n"
+            f"Tools IA: [bold]{counts['tools']}[/bold] | "
+            f"Resources: [bold]{counts['resources']}[/bold] | "
+            f"Prompts: [bold]{counts['prompts']}[/bold] | "
+            f"Pruebas SMT: [bold]{counts['formal_methods']}[/bold]\n"
             "Compatible con Antigravity IDE, Claude Desktop, Cursor y VS Code.",
             title="Asistente de Conexion AI / MCP",
             border_style="magenta",
@@ -346,18 +404,27 @@ def _wizard_web_ui(console: Console, port: int = 8000) -> None:
 
 def run_interactive_hub(console: Console, quickstart_cb: Any) -> None:
     """Zero-CLI interactive guided assistant menu."""
+    counts = get_mcp_inventory_counts()
     menu = Table(box=box.ROUNDED, show_header=True, header_style="bold cyan")
     menu.add_column("Opcion", justify="right", style="bold yellow", no_wrap=True)
     menu.add_column("Accion", style="bold white")
     menu.add_column("Para que sirve", style="dim")
     rows = [
         ("1", "Inicio Rapido (Demo Guiada)", "Prueba todo en 1 clic y genera ZIP firmado"),
-        ("2", "Calculadora Ingenieria", "Formula paso a paso sin JSON + Z3/cvc5"),
+        (
+            "2",
+            "Calculadora Ingenieria",
+            f"Formulas ({counts['formal_methods']} metodos por familia + Z3/cvc5 + MMPDS)",
+        ),
         ("3", "Auditar PDF / Norma", "Extrae citas CS-27/CS-29 con pagina y bbox"),
         ("4", "Cobertura de Vuelo", "Ver gaps, gate de trazabilidad y hacer sweep"),
         ("5", "Exportar & Verificar ZIP", "Genera y valida firma DSSE Ed25519 off-line"),
         ("6", "Seguridad & Red-Team", "Detecta prompt injection, secretos y PII"),
-        ("7", "Conectar Agente IA (MCP)", "Configura 17 tools para Antigravity/Claude/Cursor"),
+        (
+            "7",
+            "Conectar Agente IA (MCP)",
+            f"Configura {counts['tools']} tools para Antigravity/Claude/Cursor",
+        ),
         ("8", "Abrir Web UI (Navegador)", "Interfaz visual web en http://127.0.0.1:8000"),
         ("9", "Diagnostico (Doctor)", "Comprueba Python, Z3, cvc5, Flint y claves"),
         ("0", "Salir", "Cerrar asistente"),

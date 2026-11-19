@@ -23,6 +23,7 @@ from evidence_kernel.telemetry import get_telemetry
 from evidence_coverage.adversarial import run_bench_attacker, run_envelope_critic
 from evidence_coverage.cross_artifact import audit_cross_artifact_consistency
 from evidence_coverage.grid import generate_cells
+from evidence_coverage.nafems_audit import run_full_nafems_audit
 from evidence_coverage.status import list_cells_with_status
 
 
@@ -155,6 +156,7 @@ def run_overnight_cycle(
     git_repo: Path | str | None = None,
     git_base: str = "master",
     cross_artifact_inputs: dict[str, Any] | None = None,
+    nafems_inputs: dict[str, Any] | None = None,
     run_fuzzer: bool = True,
     quarantine_dir: Path | None = None,
     budget: OvernightBudget | None = None,
@@ -291,6 +293,52 @@ def run_overnight_cycle(
                 ledger.queue.save_overnight_finding(f_row)
             recorded_findings.append(f_row)
 
+    nafems_report: dict[str, Any] | None = None
+    if nafems_inputs is not None and nafems_inputs.get("bdf_parsed") is not None:
+        nafems_report = run_full_nafems_audit(
+            bdf_parsed=nafems_inputs["bdf_parsed"],
+            bdf_hash=str(nafems_inputs.get("bdf_hash") or ""),
+            f06_parsed=nafems_inputs.get("f06_parsed"),
+            f06_hash=str(nafems_inputs.get("f06_hash") or ""),
+            report_blocks=nafems_inputs.get("report_blocks"),
+            report_claims=nafems_inputs.get("report_claims"),
+            report_hash=nafems_inputs.get("report_hash"),
+            required_load_families=nafems_inputs.get("required_load_families"),
+            rotor_rpm=nafems_inputs.get("rotor_rpm"),
+            blade_count=int(nafems_inputs.get("blade_count", 4)),
+            guard_band_pct=str(nafems_inputs.get("guard_band_pct", "10.0")),
+            min_effective_mass_frac=str(nafems_inputs.get("min_effective_mass_frac", "0")),
+            require_unit_system=bool(nafems_inputs.get("require_unit_system", False)),
+        )
+        for disc in nafems_report["property_drift"]["discrepancies"]:
+            fid = (
+                "nafems_prop_"
+                + hashlib.sha256(f"{disc.get('pid')}:{disc.get('category')}".encode()).hexdigest()[
+                    :12
+                ]
+            )
+            f_row = {
+                "finding_id": fid,
+                "run_id": run_id,
+                "category": disc["category"],
+                "severity": disc["severity"],
+                "risk_score": _risk_score_for_item(disc["category"], disc["severity"]),
+                "title": f"NAFEMS Deriva PID {disc.get('pid')}: BDF vs Memoria PDF",
+                "summary": (
+                    f"BDF={disc.get('bdf_thickness_mm')} mm vs "
+                    f"PDF={disc.get('report_thickness_mm')} mm"
+                ),
+                "before": {"bdf_thickness_mm": disc.get("bdf_thickness_mm")},
+                "after": {"report_thickness_mm": disc.get("report_thickness_mm")},
+                "target_event_hash": latest_calc_hash or None,
+                "cell_id": None,
+                "status": "open",
+                "created_at": now_ts,
+            }
+            if hasattr(ledger, "queue"):
+                ledger.queue.save_overnight_finding(f_row)
+            recorded_findings.append(f_row)
+
     briefing = build_morning_briefing(ledger)
     return {
         "run_id": run_id,
@@ -298,6 +346,7 @@ def run_overnight_cycle(
         "watchers": watcher_summary,
         "queue": queue_summary,
         "cross_artifact": cross_report,
+        "nafems_audit": nafems_report,
         "envelope_critic": critic_report,
         "bench_attacker": attacker_report,
         "recorded_findings_count": len(recorded_findings),
@@ -305,9 +354,44 @@ def run_overnight_cycle(
     }
 
 
+_BRIEFING_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+
+
 def build_morning_briefing(ledger: Any) -> dict[str, Any]:
     """Assemble 08:00 AM risk-sorted queue: MS < 0, ABSTAIN, CAD<->FEM<->PDF, stale cells."""
-    events = ledger.events()
+    head = ledger.head_hash() if hasattr(ledger, "head_hash") else ""
+    tenant = str(getattr(ledger, "tenant_id", "default"))
+    cache_key = (tenant, head)
+
+    summary_fast = (
+        ledger.coverage_summary_fast() if hasattr(ledger, "coverage_summary_fast") else None
+    )
+    event_count = int(summary_fast.get("event_count", 0)) if summary_fast else 0
+
+    stored_findings = (
+        ledger.queue.list_overnight_findings(limit=200) if hasattr(ledger, "queue") else []
+    )
+    # Only return cached snapshot if finding count/statuses haven't changed since last head hash
+    finding_sig = tuple(
+        (str(f["finding_id"]), str(f.get("status", "open"))) for f in stored_findings
+    )
+    cached = _BRIEFING_CACHE.get(cache_key)
+    if cached is not None and cached.get("_finding_sig") == finding_sig:
+        return dict(cached["payload"])
+
+    if event_count > 5000 and hasattr(ledger, "query_events"):
+        tail_offset = max(0, event_count - 500)
+        q_res = ledger.query_events(limit=500, offset=tail_offset)
+        events = [
+            {
+                "event_hash": ev["event_hash"],
+                "prev_hash": ev["prev_hash"],
+                "body": ev["body"],
+            }
+            for ev in q_res.get("events", [])
+        ]
+    else:
+        events = ledger.events()
     cells = generate_cells()
     cell_rows = list_cells_with_status(events, cells=cells)
     stale_cells = [c for c in cell_rows if c.get("stale")]
@@ -319,9 +403,6 @@ def build_morning_briefing(ledger: Any) -> dict[str, Any]:
         if ev["body"]["event_type"] == "human_signoff"
     }
 
-    stored_findings = (
-        ledger.queue.list_overnight_findings(limit=200) if hasattr(ledger, "queue") else []
-    )
     items: list[dict[str, Any]] = list(stored_findings)
     seen_ids = {item["finding_id"] for item in items}
 
@@ -400,7 +481,7 @@ def build_morning_briefing(ledger: Any) -> dict[str, Any]:
     tel_snap = get_telemetry().snapshot()
 
     open_items = [x for x in items if x.get("status") == "open"]
-    return {
+    result_payload = {
         "generated_at": _now_iso(),
         "executive_summary": {
             "total_queue_items": len(items),
@@ -425,6 +506,10 @@ def build_morning_briefing(ledger: Any) -> dict[str, Any]:
         },
         "queue": items,
     }
+    if len(_BRIEFING_CACHE) >= 64:
+        _BRIEFING_CACHE.pop(next(iter(_BRIEFING_CACHE)), None)
+    _BRIEFING_CACHE[cache_key] = {"_finding_sig": finding_sig, "payload": result_payload}
+    return result_payload
 
 
 def batch_human_signoff(

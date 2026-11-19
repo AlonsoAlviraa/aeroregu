@@ -1,0 +1,60 @@
+{
+  "method_id": "thin_walled_bredt_batho_torsion",
+  "method_version": "thin_walled_bredt_batho_torsion@1.0.0",
+  "title": "Thin-Walled Closed Box Cell Bredt-Batho Torsion",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "q = T / (2*A_m); tau_max = q / t_min; theta' = (q * P) / (2*A_m*G*t_min); MS = F_su / tau_max - 1",
+  "note": "Bredt-Batho first & second theorem shear flow and twist rate for single-cell wing/fuselage torsion boxes.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "torque_nmm": "newton * millimeter",
+    "enclosed_area_mm2": "millimeter ** 2",
+    "perimeter_mm": "millimeter",
+    "min_wall_thickness_mm": "millimeter",
+    "shear_modulus_mpa": "megapascal",
+    "shear_allowable_mpa": "megapascal"
+  },
+  "required": [
+    "torque_nmm",
+    "enclosed_area_mm2",
+    "perimeter_mm",
+    "min_wall_thickness_mm",
+    "shear_modulus_mpa",
+    "shear_allowable_mpa"
+  ],
+  "limits": {
+    "torque_nmm": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "enclosed_area_mm2": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "perimeter_mm": {
+      "min_exclusive": "0",
+      "max": "100000"
+    },
+    "min_wall_thickness_mm": {
+      "min_exclusive": "0",
+      "max": "500"
+    },
+    "shear_modulus_mpa": {
+      "min_exclusive": "0",
+      "max": "1000000"
+    },
+    "shear_allowable_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "bredt-batho-torsion",
+      "uri": "https://aeroregu.local/cards/thin_walled_bredt_batho_torsion",
+      "content_hash": "c5cb405526abdb1a7534a55be6017dc6ce16ceab8e583238dc92175b9c63bcbc",
+      "label": "VERIFIED"
+    }
+  ]
+}

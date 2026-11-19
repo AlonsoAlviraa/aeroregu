@@ -278,6 +278,9 @@ def _parse_catia_xml_text(xml_text: str, source_hash: str, *, origin_label: str)
         )
         offset += len(line) + 1
 
+    from evidence_ingest.cad_brep import parse_composite_ply_book
+
+    ply_book = parse_composite_ply_book(xml_text)
     return {
         "format": origin_label,
         "product_tree": product_tree,
@@ -285,6 +288,7 @@ def _parse_catia_xml_text(xml_text: str, source_hash: str, *, origin_label: str)
         "formulas": formulas,
         "gdt_pmi": gdt_pmi,
         "cg_points": cg_points,
+        "composite_ply_book": ply_book,
         "blocks": blocks,
     }
 

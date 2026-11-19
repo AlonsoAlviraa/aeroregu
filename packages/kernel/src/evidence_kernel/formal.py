@@ -687,3 +687,81 @@ class SMTSolverProofEngine:
                 cvc5_seconds=cvc5_seconds if cvc5_status_str is not None else None,
             ),
         )
+
+    def prove_z3_property(
+        self,
+        *,
+        property_name: str,
+        bounds: dict[str, tuple[str, str]],
+        constants: dict[str, str],
+        assertion: str,
+        build_violation: Any,
+        proved_reason: str,
+        cex_reason: str,
+        cache_extra: dict[str, Any] | None = None,
+    ) -> SMTProofResult:
+        """Prove a continuous rational/QF_NRA property using Z3 with canonical proof hashing."""
+        for name, (lo_s, hi_s) in bounds.items():
+            if Decimal(str(lo_s)) > Decimal(str(hi_s)):
+                raise ValueError(f"interval bounds for {name} must satisfy min <= max")
+
+        cache_key = inputs_hash(
+            {
+                "method": "z3_property",
+                "property_name": property_name,
+                "bounds": bounds,
+                "constants": constants,
+                "assertion": assertion,
+                "extra": cache_extra or {},
+                "timeout_ms": self.timeout_ms,
+            }
+        )
+        cached = _cached_smt_lookup(cache_key)
+        if cached is not None:
+            return cached
+
+        solver = z3.Solver()
+        solver.set("timeout", self.timeout_ms)
+        z_vars: dict[str, z3.ArithRef] = {}
+        for var_name, (lo_s, hi_s) in bounds.items():
+            sym = z3.Real(var_name)
+            solver.add(sym >= _to_z3_real(str(lo_s)), sym <= _to_z3_real(str(hi_s)))
+            z_vars[var_name] = sym
+        z_consts: dict[str, z3.ArithRef] = {k: _to_z3_real(str(v)) for k, v in constants.items()}
+        build_violation(solver, z_vars, z_consts)
+
+        z3_check, z3_seconds = self._timed_z3_check(solver)
+        z3_status_str = (
+            "unsat" if z3_check == z3.unsat else ("sat" if z3_check == z3.sat else "unknown")
+        )
+        z3_cex = None
+        if z3_check == z3.sat:
+            model = solver.model()
+            z3_cex = {
+                var_name: _rat_to_decimal_str(model.eval(sym, model_completion=True))
+                for var_name, sym in z_vars.items()
+            }
+
+        assumptions: dict[str, Any] = {
+            "bounds": {k: list(v) for k, v in bounds.items()},
+            "constants": dict(constants),
+        }
+        if cache_extra:
+            assumptions["extra"] = cache_extra
+        return _cached_smt_store(
+            cache_key,
+            self._reconcile_verdicts(
+                property_name=property_name,
+                assumptions=assumptions,
+                assertion=assertion,
+                z3_status_str=z3_status_str,
+                z3_cex=z3_cex,
+                z3_reason=str(solver.reason_unknown()) if z3_status_str == "unknown" else "",
+                cvc5_status_str=None,
+                cvc5_cex=None,
+                proved_reason=proved_reason,
+                cex_reason=cex_reason,
+                z3_seconds=z3_seconds,
+                cvc5_seconds=None,
+            ),
+        )

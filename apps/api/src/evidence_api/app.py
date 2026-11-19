@@ -7,6 +7,8 @@ import io
 import json
 import os
 import re
+import secrets
+import sys
 import tempfile
 import threading
 import time
@@ -17,14 +19,74 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
+if sys.platform == "win32":
+    # Fall back to native Win32 IOCP wakeup if socketpair-based self-pipe is blocked
+    # so restricted Windows loopback sandboxes do not block TestClient/AnyIO portals.
+    import _overlapped
+    import asyncio.proactor_events as _proactor_events
+
+    if not getattr(_proactor_events.BaseProactorEventLoop, "_iocp_selfpipe_patched", False):
+        _orig_make_self_pipe = _proactor_events.BaseProactorEventLoop._make_self_pipe
+        _orig_close_self_pipe = _proactor_events.BaseProactorEventLoop._close_self_pipe
+        _orig_loop_self_reading = _proactor_events.BaseProactorEventLoop._loop_self_reading
+        _orig_write_to_self = _proactor_events.BaseProactorEventLoop._write_to_self
+
+        def _iocp_make_self_pipe(self: Any) -> None:
+            try:
+                _orig_make_self_pipe(self)
+            except OSError:
+                self._ssock = None
+                self._csock = None
+
+        def _iocp_close_self_pipe(self: Any) -> None:
+            if (
+                getattr(self, "_ssock", None) is not None
+                or getattr(self, "_csock", None) is not None
+            ):
+                _orig_close_self_pipe(self)
+                return
+            self._ssock = None
+            self._csock = None
+
+        def _iocp_loop_self_reading(self: Any, f: Any = None) -> None:
+            if getattr(self, "_ssock", None) is not None:
+                _orig_loop_self_reading(self, f)
+            return None
+
+        def _iocp_write_to_self(self: Any) -> None:
+            if getattr(self, "_csock", None) is not None:
+                _orig_write_to_self(self)
+                return
+            proactor = getattr(self, "_proactor", None)
+            iocp = getattr(proactor, "_iocp", None) if proactor is not None else None
+            if iocp is not None:
+                _overlapped.PostQueuedCompletionStatus(iocp, 0, 0, 1)
+
+        _proactor_events.BaseProactorEventLoop._make_self_pipe = _iocp_make_self_pipe  # type: ignore[method-assign]
+        _proactor_events.BaseProactorEventLoop._close_self_pipe = _iocp_close_self_pipe  # type: ignore[method-assign]
+        _proactor_events.BaseProactorEventLoop._loop_self_reading = _iocp_loop_self_reading  # type: ignore[method-assign]
+        _proactor_events.BaseProactorEventLoop._write_to_self = _iocp_write_to_self  # type: ignore[method-assign]
+        _proactor_events.BaseProactorEventLoop._iocp_selfpipe_patched = True  # type: ignore[attr-defined]
+
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from evidence_calc.allowables import (
+    allowable_catalog_sha256,
+    list_materials,
+    lookup_allowable,
+)
 from evidence_calc.cad_bindings import bind_parameters_to_cards
 from evidence_calc.diagnostics import classify_numeric_delta
 from evidence_calc.errors import AbstainError
 from evidence_calc.plugins import delete_plugin_card
 from evidence_calc.registry import list_cards, load_card, register_custom_card, run_method
 from evidence_coverage.adversarial import run_bench_attacker, run_envelope_critic
+from evidence_coverage.collaboration_ecn import (
+    CatiaInspectorBridge,
+    ExcelStressSheetBridge,
+    compute_ecn_revision_diff,
+    get_review_thread_store,
+)
 from evidence_coverage.cross_artifact import audit_cross_artifact_consistency
 from evidence_coverage.dossier import (
     active_calc_records,
@@ -36,6 +98,11 @@ from evidence_coverage.envelope_3d import build_vn_cg_envelope_3d
 from evidence_coverage.formal_bounds import prove_continuous_flight_envelope
 from evidence_coverage.gate import evaluate_traceability_gate
 from evidence_coverage.grid import calc_inputs_for, generate_cells
+from evidence_coverage.ma_readiness import evaluate_ma_technical_readiness
+from evidence_coverage.nafems_audit import (
+    diff_bdf_revisions_and_invalidate,
+    run_full_nafems_audit,
+)
 from evidence_coverage.overnight import (
     batch_human_signoff,
     build_morning_briefing,
@@ -43,6 +110,19 @@ from evidence_coverage.overnight import (
     run_overnight_cycle,
 )
 from evidence_coverage.pdf_report import build_signed_pdf_report, verify_signed_pdf_report
+from evidence_coverage.qualification_aid import run_iq_oq_qualification_suite
+from evidence_coverage.quotation_multiagent import (
+    QuotationRequestSpec,
+    get_quotation_catalog,
+    run_multiagent_quotation,
+    run_whatif_sensitivity,
+)
+from evidence_coverage.repo_web_scraper import QuotationIntelligenceScraper
+from evidence_coverage.rotorcraft_quotation_catalog import (
+    RotorcraftQuotationSpec,
+    get_rotorcraft_catalog,
+    run_rotorcraft_department_quotation,
+)
 from evidence_coverage.status import (
     gap_report,
     invalidate_mass_shift,
@@ -54,6 +134,16 @@ from evidence_domain.generate import build_aircraft, build_requirements
 from evidence_eval.detect import assess
 from evidence_eval.faults import clean_artifact, inject
 from evidence_ingest.blocks import IngestAbstain
+from evidence_ingest.cad_brep import analyze_step_brep
+from evidence_ingest.cae_binary import (
+    ELEM_TYPE_CODES,
+    parse_cae_h5_bytes,
+    parse_cae_h5_file,
+    parse_nastran_op2_bytes,
+    parse_nastran_op2_file,
+    run_sandboxed_cae_worker,
+)
+from evidence_ingest.fem_parsers import parse_nastran_bdf, parse_nastran_f06
 from evidence_ingest.router import ingest_bytes
 from evidence_kernel.attestation import (
     build_pipeline_attestation,
@@ -75,6 +165,14 @@ from evidence_kernel.gateway import (
     gateway_from_env,
     probe_gateway_health,
     prompt_hash,
+)
+from evidence_kernel.hsm_eidas_scim import (
+    EidasQESEnvelope,
+    get_hsm_signer,
+    get_qes_envelope_service,
+    get_scim_directory,
+    get_webauthn_verifier,
+    verify_sbom_and_dependencies,
 )
 from evidence_kernel.ledger import (
     GENESIS,
@@ -110,7 +208,7 @@ from evidence_kernel.webhooks import (
 )
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -158,6 +256,53 @@ _RATE_LIMITER = _SlidingRateLimiter()
 
 def create_app() -> FastAPI:
     app = FastAPI(title="aeroregu")
+    _ingested_docs: dict[tuple[str, str], dict[str, Any]] = {}
+
+    def _check_endpoint_access(
+        request: Request,
+        *,
+        tenant_id: str = DEMO_TENANT,
+        requested_actor: Any = None,
+        allowed_roles: set[str] | None = None,
+        require_always: bool = False,
+    ) -> tuple[str | None, JSONResponse | None]:
+        has_bearer = request.headers.get("authorization", "").lower().startswith("bearer ")
+        has_cookie = bool(request.cookies.get("el_session"))
+        if _is_production_mode() or require_always or has_bearer:
+            actor = _session_actor(request, requested_actor, tenant_id=tenant_id)
+            if actor is None:
+                return None, JSONResponse(
+                    _abstain("auth@1.0.0", {"tenant_id": tenant_id}, "auth_required"),
+                    status_code=401,
+                )
+            if allowed_roles is not None:
+                role = open_ledger(tenant_id).actor_role(actor)
+                if role not in allowed_roles:
+                    return None, JSONResponse(
+                        _abstain(
+                            "auth@1.0.0",
+                            {"actor_id": actor, "role": role},
+                            "insufficient_role",
+                        ),
+                        status_code=403,
+                    )
+            return actor, None
+        if has_cookie:
+            actor = _session_actor(request, requested_actor, tenant_id=tenant_id)
+            if actor is not None:
+                if allowed_roles is not None:
+                    role = open_ledger(tenant_id).actor_role(actor)
+                    if role not in allowed_roles:
+                        return None, JSONResponse(
+                            _abstain(
+                                "auth@1.0.0",
+                                {"actor_id": actor, "role": role},
+                                "insufficient_role",
+                            ),
+                            status_code=403,
+                        )
+                return actor, None
+        return str(requested_actor or "author"), None
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next: Any) -> Response:
@@ -305,6 +450,19 @@ def create_app() -> FastAPI:
                     )
                 )
         result_payload = {**parsed, "recorded_event_hashes": recorded_hashes}
+        doc_entry = {
+            "tenant_id": tenant_id,
+            "filename": parsed["filename"],
+            "media_type": parsed["media_type"],
+            "source_hash": parsed["source_hash"],
+            "blocks": parsed["blocks"],
+            "requirements": parsed["requirements"],
+            "raw": raw if not raw.startswith(b"%PDF") else b"",
+        }
+        while len(_ingested_docs) > 256:
+            _ingested_docs.pop(next(iter(_ingested_docs)))
+        _ingested_docs[(tenant_id, parsed["source_hash"])] = doc_entry
+        _ingested_docs[(tenant_id, parsed["filename"])] = doc_entry
         return JSONResponse(
             _ok(
                 "ingest@1.0.0",
@@ -369,6 +527,14 @@ def create_app() -> FastAPI:
             result_body["unit_conversions"] = ran["unit_conversions"]
         if include_intervals and ran.get("exact_intervals"):
             result_body["exact_intervals"] = ran["exact_intervals"]
+        if bool(body.get("formal_proof")) or body.get("formal_bounds") is not None:
+            from evidence_api.formal_methods import run_formal_proof_for_method
+
+            result_body["formal_proof"] = run_formal_proof_for_method(
+                method_id,
+                ran.get("normalized_inputs", inputs),
+                formal_bounds=body.get("formal_bounds"),
+            )
         envelope = make_envelope(
             sources=ran["sources"],
             method_version=ran["method_version"],
@@ -443,6 +609,65 @@ def create_app() -> FastAPI:
             },
         )
         return JSONResponse(envelope)
+
+    _summary_cache: dict[tuple[str, str, int], dict[str, Any]] = {}
+    _summary_cache_lock = threading.RLock()
+
+    @app.get("/coverage/summary")
+    def coverage_summary(tenant_id: str = DEMO_TENANT) -> JSONResponse:
+        checked_tenant = _validate_tenant(tenant_id)
+        if checked_tenant is None:
+            return JSONResponse(
+                _abstain("coverage_grid@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        with get_telemetry().start_span(
+            "api.coverage_summary", stage="api", attributes={"tenant_id": checked_tenant}
+        ):
+            ledger = open_ledger(checked_tenant)
+            cache_epoch = (
+                ledger.cache.current_epoch("coverage_summary") if hasattr(ledger, "cache") else 0
+            )
+            head = ledger.head_hash()
+            cache_key = (checked_tenant, head, cache_epoch)
+            with _summary_cache_lock:
+                cached = _summary_cache.get(cache_key)
+                if cached is not None:
+                    return JSONResponse(
+                        _ok("coverage_grid@1.0.0", {"tenant_id": checked_tenant}, cached)
+                    )
+            stats = (
+                ledger.coverage_summary_fast() if hasattr(ledger, "coverage_summary_fast") else None
+            )
+            if stats is not None and int(stats.get("event_count", 0)) > 5000:
+                payload = {
+                    **stats,
+                    "cache_epoch": cache_epoch,
+                    "indexed_fast_path": True,
+                }
+            elif stats is not None:
+                report = gap_report(ledger.events())
+                payload = {
+                    **stats,
+                    "cache_epoch": cache_epoch,
+                    "indexed_fast_path": False,
+                    "gap_summary": report,
+                }
+            else:
+                evs = ledger.events()
+                report = gap_report(evs)
+                payload = {
+                    "tenant_id": checked_tenant,
+                    "event_count": len(evs),
+                    "head_hash": head,
+                    "cache_epoch": cache_epoch,
+                    "indexed_fast_path": False,
+                    "gap_summary": report,
+                }
+            with _summary_cache_lock:
+                if len(_summary_cache) >= 128:
+                    _summary_cache.pop(next(iter(_summary_cache)), None)
+                _summary_cache[cache_key] = payload
+            return JSONResponse(_ok("coverage_grid@1.0.0", {"tenant_id": checked_tenant}, payload))
 
     @app.get("/coverage/gaps")
     def coverage_gaps(tenant_id: str = DEMO_TENANT) -> JSONResponse:
@@ -1147,21 +1372,124 @@ def create_app() -> FastAPI:
                 "auth@1.0.0", {"actor_id": actor_id, "tenant_id": tenant_id}, "auth_failed"
             )
             return JSONResponse(envelope, status_code=401)
+        if not get_scim_directory().is_actor_active(tenant_id, actor_id):
+            envelope = _abstain(
+                "auth@1.0.0", {"actor_id": actor_id, "tenant_id": tenant_id}, "scim_user_inactive"
+            )
+            return JSONResponse(envelope, status_code=403)
+        session_tok = _token(actor_id, tenant_id)
         payload = JSONResponse(
             _ok(
                 "auth@1.0.0",
                 {"actor_id": actor_id, "tenant_id": tenant_id},
-                {"actor_id": actor_id, "tenant_id": tenant_id},
+                {"actor_id": actor_id, "tenant_id": tenant_id, "session_token": session_tok},
             )
         )
         payload.set_cookie(
             "el_session",
-            _token(actor_id, tenant_id),
+            session_tok,
             httponly=True,
             samesite="lax",
             secure=_cookie_secure(request),
         )
         return payload
+
+    @app.post("/auth/webauthn/challenge")
+    def webauthn_challenge(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(_abstain("webauthn@1.0.0", {}, "invalid_tenant"), status_code=400)
+        actor = _session_actor(request, body.get("actor_id"), tenant_id=tenant_id)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        action = str(body.get("action") or "coverage_signoff")
+        ttl_s = int(body.get("ttl_seconds") or 120)
+        challenge = get_webauthn_verifier().issue_challenge(
+            actor, tenant_id, action=action, ttl_seconds=ttl_s
+        )
+        return JSONResponse(
+            _ok("webauthn@1.0.0", {"actor_id": actor, "tenant_id": tenant_id}, challenge)
+        )
+
+    @app.post("/auth/webauthn/verify")
+    def webauthn_verify(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(_abstain("webauthn@1.0.0", {}, "invalid_tenant"), status_code=400)
+        actor = _session_actor(request, body.get("actor_id"), tenant_id=tenant_id)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        assertion = body.get("assertion") if isinstance(body.get("assertion"), dict) else body
+        try:
+            verified = get_webauthn_verifier().verify_assertion(
+                assertion,
+                expected_actor_id=actor,
+                expected_tenant_id=tenant_id,
+                expected_action=str(body.get("action") or "coverage_signoff"),
+            )
+        except ValueError as exc:
+            return JSONResponse(
+                _abstain("webauthn@1.0.0", {"actor_id": actor}, str(exc)),
+                status_code=403,
+            )
+        return JSONResponse(
+            _ok("webauthn@1.0.0", {"actor_id": actor, "tenant_id": tenant_id}, verified)
+        )
+
+    @app.post("/scim/v2/Users")
+    def scim_create_user(
+        body: dict[str, Any], request: Request, tenant_id: str = DEMO_TENANT
+    ) -> JSONResponse:
+        eff_tenant = _validate_tenant(body.get("tenant_id") or tenant_id)
+        if eff_tenant is None:
+            return JSONResponse({"detail": "invalid_tenant", "status": "400"}, status_code=400)
+        _, auth_err = _check_endpoint_access(
+            request, tenant_id=eff_tenant, allowed_roles={"admin", "cve", "human"}
+        )
+        if auth_err is not None:
+            return auth_err
+        try:
+            user_doc = get_scim_directory().create_user(eff_tenant, body)
+        except ValueError as exc:
+            return JSONResponse({"detail": str(exc), "status": "400"}, status_code=400)
+        ledger = open_ledger(eff_tenant)
+        roles = [str(r).lower() for r in user_doc.get("roles") or []]
+        role = "cve" if "cve" in roles else ("admin" if "admin" in roles else "author")
+        ledger.ensure_actor(str(user_doc["userName"]), role, secrets.token_hex(16))
+        return JSONResponse(user_doc, status_code=201)
+
+    @app.get("/scim/v2/Users/{user_id}")
+    def scim_get_user(user_id: str, request: Request, tenant_id: str = DEMO_TENANT) -> JSONResponse:
+        eff_tenant = _validate_tenant(tenant_id)
+        if eff_tenant is None:
+            return JSONResponse({"detail": "invalid_tenant", "status": "400"}, status_code=400)
+        _, auth_err = _check_endpoint_access(
+            request, tenant_id=eff_tenant, allowed_roles={"admin", "cve", "human"}
+        )
+        if auth_err is not None:
+            return auth_err
+        user_doc = get_scim_directory().get_user(eff_tenant, user_id)
+        if user_doc is None:
+            return JSONResponse({"detail": "scim_user_not_found", "status": "404"}, status_code=404)
+        return JSONResponse(user_doc)
+
+    @app.patch("/scim/v2/Users/{user_id}")
+    def scim_patch_user(
+        user_id: str, body: dict[str, Any], request: Request, tenant_id: str = DEMO_TENANT
+    ) -> JSONResponse:
+        eff_tenant = _validate_tenant(body.get("tenant_id") or tenant_id)
+        if eff_tenant is None:
+            return JSONResponse({"detail": "invalid_tenant", "status": "400"}, status_code=400)
+        _, auth_err = _check_endpoint_access(
+            request, tenant_id=eff_tenant, allowed_roles={"admin", "cve", "human"}
+        )
+        if auth_err is not None:
+            return auth_err
+        try:
+            user_doc = get_scim_directory().patch_user(eff_tenant, user_id, body)
+        except KeyError:
+            return JSONResponse({"detail": "scim_user_not_found", "status": "404"}, status_code=404)
+        return JSONResponse(user_doc)
 
     @app.post("/auth/logout")
     def logout(request: Request, tenant_id: str = DEMO_TENANT) -> JSONResponse:
@@ -1177,19 +1505,36 @@ def create_app() -> FastAPI:
         return resp
 
     @app.get("/auth/me")
-    def auth_me(request: Request, tenant_id: str = DEMO_TENANT) -> JSONResponse:
+    def auth_me(
+        request: Request,
+        tenant_id: str = DEMO_TENANT,
+        optional: bool = False,
+    ) -> JSONResponse:
         checked_tenant = _validate_tenant(tenant_id)
         if checked_tenant is None:
             return JSONResponse(_abstain("auth@1.0.0", {}, "invalid_tenant"), status_code=400)
         actor_id = _actor_from_request(request, tenant_id=checked_tenant)
         if actor_id is None:
+            if optional:
+                return JSONResponse(
+                    _ok(
+                        "auth@1.0.0",
+                        {"tenant_id": checked_tenant},
+                        {"authenticated": False, "actor_id": None, "tenant_id": checked_tenant},
+                    )
+                )
             return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
         role = open_ledger(checked_tenant).actor_role(actor_id)
         return JSONResponse(
             _ok(
                 "auth@1.0.0",
                 {"tenant_id": checked_tenant},
-                {"actor_id": actor_id, "tenant_id": checked_tenant, "role": role},
+                {
+                    "authenticated": True,
+                    "actor_id": actor_id,
+                    "tenant_id": checked_tenant,
+                    "role": role,
+                },
             )
         )
 
@@ -1221,25 +1566,47 @@ def create_app() -> FastAPI:
             )
         )
 
+    _verify_cache: dict[tuple[str, str], dict[str, Any]] = {}
+    _verify_cache_lock = threading.RLock()
+
     @app.get("/ledger/verify")
     def ledger_verify(tenant_id: str = DEMO_TENANT) -> JSONResponse:
         checked_tenant = _validate_tenant(tenant_id)
         if checked_tenant is None:
             return JSONResponse(_abstain("ledger@1.0.0", {}, "invalid_tenant"), status_code=400)
-        ledger = open_ledger(checked_tenant)
-        events = ledger.events()
-        return JSONResponse(
-            _ok(
-                "ledger@1.0.0",
-                {"tenant_id": checked_tenant},
-                {
-                    "chain_verified": ledger.verify(),
-                    "head_hash": ledger.head_hash(),
-                    "merkle_root": ledger.merkle_root(),
-                    "event_count": str(len(events)),
-                },
+        with get_telemetry().start_span(
+            "api.ledger_verify", stage="api", attributes={"tenant_id": checked_tenant}
+        ):
+            ledger = open_ledger(checked_tenant)
+            head = ledger.head_hash()
+            cache_key = (checked_tenant, head)
+            with _verify_cache_lock:
+                cached = _verify_cache.get(cache_key)
+                if cached is not None:
+                    return JSONResponse(_ok("ledger@1.0.0", {"tenant_id": checked_tenant}, cached))
+            stats = (
+                ledger.coverage_summary_fast() if hasattr(ledger, "coverage_summary_fast") else None
             )
-        )
+            if hasattr(ledger, "verify_incremental"):
+                inc = ledger.verify_incremental(from_latest_checkpoint=True)
+                chain_ok = bool(inc["ok"])
+                verified_from_seq = int(inc.get("verified_from_seq", 0))
+            else:
+                chain_ok = bool(ledger.verify())
+                verified_from_seq = 0
+            ev_count = int(stats["event_count"]) if stats is not None else len(ledger.events())
+            payload = {
+                "chain_verified": chain_ok,
+                "head_hash": head,
+                "merkle_root": ledger.merkle_root(),
+                "event_count": str(ev_count),
+                "verified_from_seq": verified_from_seq,
+            }
+            with _verify_cache_lock:
+                if len(_verify_cache) >= 128:
+                    _verify_cache.pop(next(iter(_verify_cache)), None)
+                _verify_cache[cache_key] = payload
+            return JSONResponse(_ok("ledger@1.0.0", {"tenant_id": checked_tenant}, payload))
 
     @app.get("/ledger/events")
     def ledger_events(
@@ -1319,6 +1686,7 @@ def create_app() -> FastAPI:
             )
         return JSONResponse(_ok("merkle_proof@1.0.0", {"event_hash": event_hash}, proof))
 
+    @app.post("/coverage/signoff")
     @app.post("/ledger/signoff")
     def ledger_signoff(body: dict[str, Any], request: Request) -> JSONResponse:
         tenant_id = _validate_tenant(body.get("tenant_id"))
@@ -1367,6 +1735,61 @@ def create_app() -> FastAPI:
                     "self_signoff_prohibited",
                 ),
                 status_code=403,
+            )
+        require_webauthn = bool(body.get("require_webauthn")) or (
+            os.environ.get("EVIDENCE_REQUIRE_WEBAUTHN", "").strip() == "1"
+        )
+        webauthn_verified = False
+        if require_webauthn or body.get("webauthn_assertion") or body.get("webauthn_token"):
+            verifier = get_webauthn_verifier()
+            if isinstance(body.get("webauthn_assertion"), dict):
+                try:
+                    verifier.verify_assertion(
+                        body["webauthn_assertion"],
+                        expected_actor_id=actor_id,
+                        expected_tenant_id=tenant_id,
+                        expected_action="coverage_signoff",
+                    )
+                    webauthn_verified = True
+                except ValueError as exc:
+                    return JSONResponse(
+                        _abstain(
+                            "human_signoff@1.0.0",
+                            {"target_event_hash": target},
+                            str(exc),
+                        ),
+                        status_code=403,
+                    )
+            elif body.get("webauthn_token"):
+                webauthn_verified = verifier.consume_step_up_token(
+                    str(body["webauthn_token"]),
+                    actor_id=actor_id,
+                    tenant_id=tenant_id,
+                    action="coverage_signoff",
+                )
+            if require_webauthn and not webauthn_verified:
+                return JSONResponse(
+                    _abstain(
+                        "human_signoff@1.0.0",
+                        {"target_event_hash": target},
+                        "webauthn_step_up_required",
+                    ),
+                    status_code=403,
+                )
+        blocking_threads = get_review_thread_store().unresolved_blocking_threads(
+            tenant_id, target_event_hash=target
+        )
+        if blocking_threads:
+            return JSONResponse(
+                _abstain(
+                    "human_signoff@1.0.0",
+                    {
+                        "target_event_hash": target,
+                        "blocking_threads": [t["thread_id"] for t in blocking_threads],
+                    },
+                    "unresolved_review_threads",
+                ),
+                status_code=409,
             )
         statement = str(body.get("statement") or SIGN_OFF_STATEMENT)
         created_at = str(body.get("created_at") or _now())
@@ -1422,6 +1845,12 @@ def create_app() -> FastAPI:
                 _abstain("human_signoff@1.0.0", signoff_inputs, "invalid_signoff"),
                 status_code=400,
             )
+        locked_threads = get_review_thread_store().lock_threads_on_signoff(
+            tenant_id,
+            target_event_hash=target,
+            signoff_event_hash=ev_hash,
+            signed_by=actor_id,
+        )
         return JSONResponse(
             _ok(
                 "human_signoff@1.0.0",
@@ -1434,6 +1863,8 @@ def create_app() -> FastAPI:
                     "target_event_hash": target,
                     "statement": statement,
                     "review_duration_ms": review_duration_ms,
+                    "webauthn_verified": webauthn_verified,
+                    "locked_review_threads": [t["thread_id"] for t in locked_threads],
                     "merkle_root": ledger.merkle_root(),
                 },
             )
@@ -1493,6 +1924,49 @@ def create_app() -> FastAPI:
         blob = _zip_bytes(ledger.events())
         return Response(content=blob, media_type="application/zip")
 
+    @app.post("/export/bundle/qes")
+    def export_bundle_qes(request: Request, body: dict[str, Any] | None = None) -> JSONResponse:
+        req = body or {}
+        checked_tenant = _validate_tenant(str(req.get("tenant_id") or DEMO_TENANT))
+        if checked_tenant is None:
+            return JSONResponse(_abstain("export_qes@1.0.0", {}, "invalid_tenant"), status_code=400)
+        actor = _session_actor(request, req.get("actor_id"), tenant_id=checked_tenant)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        profile = str(req.get("profile") or "CAdES-B-LT")
+        if profile not in {"CAdES-B-LT", "PAdES-B-LT"}:
+            return JSONResponse(
+                _abstain("export_qes@1.0.0", {"profile": profile}, "unsupported_qes_profile"),
+                status_code=400,
+            )
+        ledger = open_ledger(checked_tenant)
+        bundle_bytes = _zip_bytes(ledger.events())
+        qes_svc = get_qes_envelope_service()
+        envelope = qes_svc.build_envelope(
+            bundle_bytes,
+            signer_id=actor,
+            profile=profile,
+            key_uri=req.get("key_uri"),
+        )
+        verification = EidasQESEnvelope.verify_envelope(envelope, bundle_bytes)
+        slot_info = get_hsm_signer().get_slot_info(req.get("key_uri"))
+        return JSONResponse(
+            _ok(
+                "export_qes@1.0.0",
+                {"tenant_id": checked_tenant, "profile": profile},
+                {
+                    "tenant_id": checked_tenant,
+                    "signer_id": actor,
+                    "bundle_sha256": hashlib.sha256(bundle_bytes).hexdigest(),
+                    "bundle_size_bytes": len(bundle_bytes),
+                    "bundle_zip_b64": base64.b64encode(bundle_bytes).decode("ascii"),
+                    "qes_envelope": envelope,
+                    "verification": verification,
+                    "hsm_slot": slot_info,
+                },
+            )
+        )
+
     @app.post("/mcp")
     async def mcp_http_endpoint(request: Request, tenant_id: str = DEMO_TENANT) -> Response:
         from evidence_api.mcp_server import handle_mcp_message
@@ -1543,6 +2017,13 @@ def create_app() -> FastAPI:
     def viewer3d_script() -> FileResponse:
         return FileResponse(
             Path(__file__).parent / "static" / "viewer3d.js",
+            media_type="application/javascript",
+        )
+
+    @app.get("/static/q4_ux_modules.js")
+    def q4_ux_modules_script() -> FileResponse:
+        return FileResponse(
+            Path(__file__).parent / "static" / "q4_ux_modules.js",
             media_type="application/javascript",
         )
 
@@ -2186,6 +2667,225 @@ def create_app() -> FastAPI:
     def observability_metrics() -> JSONResponse:
         return JSONResponse(_ok("observability@1.0.0", {}, get_telemetry().snapshot()))
 
+    @app.get("/metrics/prometheus")
+    def prometheus_metrics_endpoint() -> PlainTextResponse:
+        return PlainTextResponse(
+            get_telemetry().render_prometheus(),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+        )
+
+    @app.get("/telemetry/otlp")
+    def telemetry_otlp(trace_id: str | None = None) -> JSONResponse:
+        return JSONResponse(
+            _ok("observability@1.0.0", {}, get_telemetry().export_otlp(trace_id=trace_id))
+        )
+
+    _cae_meshes: dict[str, dict[str, Any]] = {}
+    _cae_element_index: dict[tuple[str, int], dict[str, Any]] = {}
+
+    @app.post("/cae/mesh/{model_id}")
+    def register_cae_mesh(model_id: str, body: dict[str, Any], request: Request) -> JSONResponse:
+        checked = _validate_tenant(str(body.get("tenant_id", DEMO_TENANT)))
+        if checked is None:
+            return JSONResponse(_abstain("cae@1.0.0", {}, "invalid_tenant"), status_code=400)
+        _, auth_err = _check_endpoint_access(
+            request, tenant_id=checked, requested_actor=body.get("actor_id")
+        )
+        if auth_err is not None:
+            return auth_err
+        elements = list(body.get("elements") or [])
+        _cae_meshes[f"{checked}:{model_id}"] = {
+            "model_id": model_id,
+            "tenant_id": checked,
+            "node_count": int(body.get("node_count", len(body.get("nodeCoords", {})))),
+            "element_count": len(elements),
+            "nodeCoords": body.get("nodeCoords") or {},
+            "elements": elements,
+            "pid_summary": body.get("pid_summary") or {},
+            "pdf_citations": body.get("pdf_citations") or {},
+        }
+        citations = body.get("pdf_citations") or {}
+        for el in elements:
+            eid = int(el["element_id"])
+            pid = int(el.get("pid", 0))
+            _cae_element_index[(checked, eid)] = {
+                "model_id": model_id,
+                "element_id": eid,
+                "pid": pid,
+                "element_type": el.get("element_type", "CQUAD4"),
+                "subcase_id": int(el.get("subcase_id", 1)),
+                "ms_min": str(el.get("ms_min", "0.250")),
+                "von_mises_mpa": str(el.get("von_mises_mpa", "120.0")),
+                "calc_event_hash": str(el.get("calc_event_hash") or f"calc-{pid}-{eid}"),
+                "pdf_citation": citations.get(str(pid))
+                or el.get("pdf_citation")
+                or {
+                    "doc_id": "stress_report.pdf",
+                    "page_no": 1,
+                    "bbox": [48.0, 120.0, 420.0, 148.0],
+                },
+            }
+        return JSONResponse(
+            _ok(
+                "cae@1.0.0",
+                {"tenant_id": checked, "model_id": model_id},
+                {"model_id": model_id, "element_count": len(elements)},
+            )
+        )
+
+    @app.get("/cae/mesh/{model_id}")
+    def get_cae_mesh(
+        model_id: str, request: Request, tenant_id: str = DEMO_TENANT, pid: int | None = None
+    ) -> JSONResponse:
+        checked = _validate_tenant(tenant_id)
+        if checked is None:
+            return JSONResponse(_abstain("cae@1.0.0", {}, "invalid_tenant"), status_code=400)
+        _, auth_err = _check_endpoint_access(request, tenant_id=checked)
+        if auth_err is not None:
+            return auth_err
+        mesh = _cae_meshes.get(f"{checked}:{model_id}")
+        if mesh is None:
+            return JSONResponse(
+                _abstain("cae@1.0.0", {"model_id": model_id}, "cae_mesh_not_found"),
+                status_code=404,
+            )
+        if pid is not None:
+            filtered = [e for e in mesh["elements"] if int(e.get("pid", 0)) == pid]
+            out = {**mesh, "elements": filtered, "element_count": len(filtered), "pid_filter": pid}
+        else:
+            out = mesh
+        return JSONResponse(_ok("cae@1.0.0", {"tenant_id": checked, "model_id": model_id}, out))
+
+    @app.get("/cae/element/{element_id}/evidence")
+    def get_cae_element_evidence(
+        element_id: int, request: Request, tenant_id: str = DEMO_TENANT
+    ) -> JSONResponse:
+        checked = _validate_tenant(tenant_id)
+        if checked is None:
+            return JSONResponse(_abstain("cae@1.0.0", {}, "invalid_tenant"), status_code=400)
+        _, auth_err = _check_endpoint_access(request, tenant_id=checked)
+        if auth_err is not None:
+            return auth_err
+        rec = _cae_element_index.get((checked, int(element_id)))
+        if rec is None:
+            return JSONResponse(
+                _abstain("cae@1.0.0", {"element_id": element_id}, "element_not_indexed"),
+                status_code=404,
+            )
+        return JSONResponse(_ok("cae@1.0.0", {"tenant_id": checked, "element_id": element_id}, rec))
+
+    @app.post("/plm/webhook/ecn")
+    def plm_webhook_ecn(body: dict[str, Any], request: Request) -> JSONResponse:
+        from evidence_ingest.plm_connectors import apply_ecn_selective_invalidation_to_ledger
+
+        checked = _validate_tenant(str(body.get("tenant_id", DEMO_TENANT)))
+        if checked is None:
+            return JSONResponse(_abstain("plm@1.0.0", {}, "invalid_tenant"), status_code=400)
+        _, auth_err = _check_endpoint_access(
+            request, tenant_id=checked, requested_actor=body.get("actor_id")
+        )
+        if auth_err is not None:
+            return auth_err
+        ledger = open_ledger(checked)
+        plan = apply_ecn_selective_invalidation_to_ledger(
+            ledger,
+            ecn_diff=dict(body.get("ecn_diff") or {}),
+            all_cells=list(body.get("cells") or []),
+        )
+        return JSONResponse(_ok("plm@1.0.0", {"tenant_id": checked}, plan))
+
+    @app.post("/plm/sync")
+    def plm_sync(body: dict[str, Any], request: Request) -> JSONResponse:
+        from evidence_ingest.plm_connectors import (
+            MockPLMServerTransport,
+            PLMConnectorError,
+            build_plm_connector,
+        )
+
+        checked = _validate_tenant(str(body.get("tenant_id", DEMO_TENANT)))
+        if checked is None:
+            return JSONResponse(_abstain("plm@1.0.0", {}, "invalid_tenant"), status_code=400)
+        _, auth_err = _check_endpoint_access(
+            request, tenant_id=checked, requested_actor=body.get("actor_id")
+        )
+        if auth_err is not None:
+            return auth_err
+        system = str(body.get("system", "3dexperience")).lower()
+        if system not in {"3dexperience", "teamcenter", "windchill"}:
+            return JSONResponse(
+                _abstain("plm@1.0.0", {}, "unsupported_plm_system"), status_code=400
+            )
+        transport = MockPLMServerTransport() if body.get("use_mock_plm") else None
+        conn = build_plm_connector(
+            system,  # type: ignore[arg-type]
+            base_url=str(body.get("base_url") or "https://plm.aeroregu.local"),
+            token_url=str(body.get("token_url") or "https://plm.aeroregu.local/oauth/token"),
+            client_id=str(body.get("client_id") or "aeroregu-svc"),
+            client_secret=str(body.get("client_secret") or "svc-secret"),
+            transport=transport,
+        )
+        try:
+            bom = conn.fetch_ebom(
+                str(body.get("item_id") or "WING-SPAR-ASM-01"),
+                revision=str(body.get("revision") or "Rev A"),
+                msn=int(body.get("msn", 1)),
+            )
+            return JSONResponse(_ok("plm@1.0.0", {"tenant_id": checked}, bom))
+        except PLMConnectorError as exc:
+            return JSONResponse(
+                _abstain("plm@1.0.0", {"system": system}, str(exc)), status_code=503
+            )
+        finally:
+            conn.close()
+
+    @app.post("/plm/writeback")
+    def plm_writeback(body: dict[str, Any], request: Request) -> JSONResponse:
+        from evidence_ingest.plm_connectors import (
+            MockPLMServerTransport,
+            PLMConnectorError,
+            build_plm_connector,
+        )
+
+        checked = _validate_tenant(str(body.get("tenant_id", DEMO_TENANT)))
+        if checked is None:
+            return JSONResponse(_abstain("plm@1.0.0", {}, "invalid_tenant"), status_code=400)
+        _, auth_err = _check_endpoint_access(
+            request, tenant_id=checked, requested_actor=body.get("actor_id")
+        )
+        if auth_err is not None:
+            return auth_err
+        ledger = open_ledger(checked)
+        system = str(body.get("system", "3dexperience")).lower()
+        if system not in {"3dexperience", "teamcenter", "windchill"}:
+            return JSONResponse(
+                _abstain("plm@1.0.0", {}, "unsupported_plm_system"), status_code=400
+            )
+        transport = MockPLMServerTransport() if body.get("use_mock_plm") else None
+        conn = build_plm_connector(
+            system,  # type: ignore[arg-type]
+            base_url=str(body.get("base_url") or "https://plm.aeroregu.local"),
+            token_url=str(body.get("token_url") or "https://plm.aeroregu.local/oauth/token"),
+            client_id=str(body.get("client_id") or "aeroregu-svc"),
+            client_secret=str(body.get("client_secret") or "svc-secret"),
+            transport=transport,
+        )
+        try:
+            wb = conn.writeback_merkle_attestation(
+                change_action_id=str(body.get("change_action_id") or "ECN-2026-001"),
+                merkle_root=str(body.get("merkle_root") or ledger.merkle_root()),
+                head_hash=str(body.get("head_hash") or ledger.head_hash()),
+                chain_verified=bool(body.get("chain_verified", True)),
+                revision=str(body.get("revision") or "Rev B"),
+                msn=int(body.get("msn", 16)),
+            )
+            return JSONResponse(_ok("plm@1.0.0", {"tenant_id": checked}, wb))
+        except PLMConnectorError as exc:
+            return JSONResponse(
+                _abstain("plm@1.0.0", {"system": system}, str(exc)), status_code=503
+            )
+        finally:
+            conn.close()
+
     @app.get("/system/persistence")
     def system_persistence(tenant_id: str = DEMO_TENANT) -> JSONResponse:
         checked = _validate_tenant(tenant_id)
@@ -2322,6 +3022,70 @@ def create_app() -> FastAPI:
             _ok("daemon@1.0.0", {"tenant_id": checked}, {"count": len(jobs), "jobs": jobs})
         )
 
+    @app.post("/ingest/pdf/async")
+    def ingest_pdf_async(body: dict[str, Any]) -> JSONResponse:
+        import base64
+
+        checked = _validate_tenant(str(body.get("tenant_id", DEMO_TENANT)))
+        if checked is None:
+            return JSONResponse(_abstain("ingest@1.0.0", {}, "invalid_tenant"), status_code=400)
+        filename = str(body.get("filename") or "document.pdf")
+        ledger = open_ledger(checked)
+        if not hasattr(ledger, "queue"):
+            return JSONResponse(
+                _abstain("ingest@1.0.0", {"tenant_id": checked}, "queue_unavailable"),
+                status_code=503,
+            )
+        payload: dict[str, Any] = {
+            "filename": filename,
+            "max_workers": int(body.get("max_workers", 4)),
+            "chunk_pages": int(body.get("chunk_pages", 25)),
+        }
+        if body.get("content_base64"):
+            raw = base64.b64decode(str(body["content_base64"]))
+            meta = open_blob_store(evidence_home()).put_blob(
+                raw, content_type="application/pdf", filename=filename
+            )
+            payload["pdf_sha256"] = meta["sha256"]
+        elif body.get("file_path"):
+            payload["file_path"] = str(body["file_path"])
+        else:
+            return JSONResponse(
+                _abstain("ingest@1.0.0", {"tenant_id": checked}, "missing_pdf_source"),
+                status_code=400,
+            )
+        job_id = str(
+            body.get("job_id")
+            or f"pdf-{hashlib.sha256(f'{checked}:{filename}:{payload}'.encode()).hexdigest()[:12]}"
+        )
+        enqueued = ledger.queue.enqueue_daemon_job(
+            idempotency_key=job_id,
+            job_type="ingest_heavy_pdf",
+            payload=payload,
+        )
+        return JSONResponse(
+            _ok("ingest@1.0.0", {"tenant_id": checked, "job_id": job_id}, enqueued),
+            status_code=202,
+        )
+
+    @app.post("/daemon/jobs/run")
+    def daemon_jobs_run(body: dict[str, Any] | None = None) -> JSONResponse:
+        from evidence_ingest.pdf import build_heavy_pdf_daemon_handler
+        from evidence_kernel.daemon import DaemonRunner
+
+        req = body or {}
+        checked = _validate_tenant(str(req.get("tenant_id", DEMO_TENANT)))
+        if checked is None:
+            return JSONResponse(_abstain("daemon@1.0.0", {}, "invalid_tenant"), status_code=400)
+        ledger = open_ledger(checked)
+        store = open_blob_store(evidence_home())
+        runner = DaemonRunner(
+            ledger,
+            handlers={"ingest_heavy_pdf": build_heavy_pdf_daemon_handler(blob_store=store)},
+        )
+        result = runner.run_pending()
+        return JSONResponse(_ok("daemon@1.0.0", {"tenant_id": checked}, result))
+
     @app.post("/audit/cross-artifact")
     def audit_cross_artifact_endpoint(body: dict[str, Any], request: Request) -> JSONResponse:
         tenant_id = _validate_tenant(body.get("tenant_id"))
@@ -2348,6 +3112,92 @@ def create_app() -> FastAPI:
             created_at=str(body.get("created_at") or _now()),
         )
         return JSONResponse(_ok("cross_artifact@1.0.0", {"tenant_id": tenant_id}, res))
+
+    @app.post("/nafems/audit")
+    def nafems_audit_endpoint(body: dict[str, Any]) -> JSONResponse:
+        bdf_text = str(body.get("bdf_text") or "")
+        if not bdf_text.strip():
+            return JSONResponse(
+                _abstain("nafems_audit@1.0.0", {}, "missing_bdf_text"), status_code=400
+            )
+        bdf_bytes = bdf_text.encode("utf-8")
+        bdf_hash = hashlib.sha256(bdf_bytes).hexdigest()
+        try:
+            bdf_parsed = parse_nastran_bdf(bdf_bytes, bdf_hash, unit_system=body.get("unit_system"))
+        except IngestAbstain as exc:
+            return JSONResponse(_abstain("nafems_audit@1.0.0", {}, exc.reason), status_code=422)
+
+        f06_parsed: dict[str, Any] | None = None
+        f06_hash = ""
+        f06_text = str(body.get("f06_text") or "")
+        if f06_text.strip():
+            f06_bytes = f06_text.encode("utf-8")
+            f06_hash = hashlib.sha256(f06_bytes).hexdigest()
+            try:
+                f06_parsed = parse_nastran_f06(f06_bytes, f06_hash)
+            except IngestAbstain as exc:
+                return JSONResponse(_abstain("nafems_audit@1.0.0", {}, exc.reason), status_code=422)
+
+        res = run_full_nafems_audit(
+            bdf_parsed=bdf_parsed,
+            bdf_hash=bdf_hash,
+            f06_parsed=f06_parsed,
+            f06_hash=f06_hash,
+            report_blocks=body.get("report_blocks"),
+            report_claims=body.get("report_claims"),
+            report_hash=body.get("report_hash"),
+            required_load_families=body.get("required_load_families"),
+            rotor_rpm=body.get("rotor_rpm"),
+            blade_count=int(body.get("blade_count", 4)),
+            guard_band_pct=str(body.get("guard_band_pct", "10.0")),
+            min_effective_mass_frac=str(body.get("min_effective_mass_frac", "0")),
+            require_unit_system=bool(body.get("require_unit_system", False)),
+        )
+        if res["abstain"]:
+            return JSONResponse(
+                _abstain(
+                    "nafems_audit@1.0.0",
+                    {"bdf_sha256": bdf_hash},
+                    str(res["abstain_reason"]),
+                ),
+                status_code=422,
+            )
+        return JSONResponse(_ok("nafems_audit@1.0.0", {"bdf_sha256": bdf_hash}, res))
+
+    @app.post("/nafems/bdf-diff")
+    def nafems_bdf_diff_endpoint(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(
+                _abstain("nafems_diff@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        actor = _session_actor(request, body.get("actor_id"), tenant_id=tenant_id)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        rev_a_text = str(body.get("rev_a_bdf_text") or "")
+        rev_b_text = str(body.get("rev_b_bdf_text") or "")
+        if not rev_a_text.strip() or not rev_b_text.strip():
+            return JSONResponse(
+                _abstain("nafems_diff@1.0.0", {}, "missing_bdf_text"), status_code=400
+            )
+        try:
+            a_bytes = rev_a_text.encode("utf-8")
+            b_bytes = rev_b_text.encode("utf-8")
+            bdf_a = parse_nastran_bdf(a_bytes, hashlib.sha256(a_bytes).hexdigest())
+            bdf_b = parse_nastran_bdf(b_bytes, hashlib.sha256(b_bytes).hexdigest())
+        except IngestAbstain as exc:
+            return JSONResponse(_abstain("nafems_diff@1.0.0", {}, exc.reason), status_code=422)
+
+        invalidate = bool(body.get("invalidate_cells", True))
+        ledger = open_ledger(tenant_id) if invalidate else None
+        res = diff_bdf_revisions_and_invalidate(
+            rev_a_bdf=bdf_a,
+            rev_b_bdf=bdf_b,
+            ledger=ledger,
+            actor_id=actor,
+            created_at=str(body.get("created_at") or _now()),
+        )
+        return JSONResponse(_ok("nafems_diff@1.0.0", {"tenant_id": tenant_id}, res))
 
     @app.post("/adversarial/fuzz")
     def adversarial_fuzz_endpoint(body: dict[str, Any], request: Request) -> JSONResponse:
@@ -2378,13 +3228,26 @@ def create_app() -> FastAPI:
             )
         )
 
+    _briefing_cache: dict[tuple[str, str], dict[str, Any]] = {}
+    _briefing_cache_lock = threading.RLock()
+
     @app.get("/overnight/briefing")
     def get_overnight_briefing(tenant_id: str = DEMO_TENANT) -> JSONResponse:
         checked = _validate_tenant(tenant_id)
         if checked is None:
             return JSONResponse(_abstain("overnight@1.0.0", {}, "invalid_tenant"), status_code=400)
         ledger = open_ledger(checked)
+        head = ledger.head_hash()
+        cache_key = (checked, head)
+        with _briefing_cache_lock:
+            cached = _briefing_cache.get(cache_key)
+            if cached is not None:
+                return JSONResponse(_ok("overnight@1.0.0", {"tenant_id": checked}, cached))
         briefing = build_morning_briefing(ledger)
+        with _briefing_cache_lock:
+            if len(_briefing_cache) >= 128:
+                _briefing_cache.pop(next(iter(_briefing_cache)), None)
+            _briefing_cache[cache_key] = briefing
         return JSONResponse(_ok("overnight@1.0.0", {"tenant_id": checked}, briefing))
 
     @app.post("/overnight/run")
@@ -2457,6 +3320,869 @@ def create_app() -> FastAPI:
             or bool(body.get("enforce_distinct_reviewer", False)),
         )
         return JSONResponse(_ok("overnight_signoff@1.0.0", {"tenant_id": tenant_id}, result))
+
+    @app.post("/ecn/diff")
+    def ecn_diff_endpoint(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(_abstain("ecn_diff@1.0.0", {}, "invalid_tenant"), status_code=400)
+        _, auth_err = _check_endpoint_access(
+            request, tenant_id=tenant_id, requested_actor=body.get("actor_id")
+        )
+        if auth_err is not None:
+            return auth_err
+        rev_a = body.get("rev_a")
+        rev_b = body.get("rev_b")
+        if not isinstance(rev_a, dict) or not isinstance(rev_b, dict):
+            return JSONResponse(
+                _abstain("ecn_diff@1.0.0", {}, "missing_ecn_revisions"), status_code=400
+            )
+        ecn_id = str(body.get("ecn_id") or "ECN-2026-001")
+        diff_res = compute_ecn_revision_diff(rev_a, rev_b, ecn_id=ecn_id)
+        return JSONResponse(_ok("ecn_diff@1.0.0", {"ecn_id": ecn_id}, diff_res))
+
+    @app.post("/reviews/threads")
+    def create_review_thread(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(
+                _abstain("review_thread@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        actor = _session_actor(request, body.get("actor_id"), tenant_id=tenant_id)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        ledger = open_ledger(tenant_id)
+        target = str(body.get("target_event_hash") or ledger.head_hash())
+        try:
+            thr = get_review_thread_store().create_thread(
+                tenant_id,
+                target_event_hash=target,
+                author_id=actor,
+                body=str(body.get("body") or ""),
+                anchor=body.get("anchor") if isinstance(body.get("anchor"), dict) else None,
+                category=str(body.get("category") or "review_comment"),
+                initial_status=str(body.get("initial_status") or "OPEN"),
+            )
+        except ValueError as exc:
+            return JSONResponse(_abstain("review_thread@1.0.0", {}, str(exc)), status_code=400)
+        return JSONResponse(_ok("review_thread@1.0.0", {"tenant_id": tenant_id}, thr))
+
+    @app.post("/reviews/threads/{thread_id}/reply")
+    def reply_review_thread(thread_id: str, body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(
+                _abstain("review_thread@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        actor = _session_actor(request, body.get("actor_id"), tenant_id=tenant_id)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        try:
+            thr = get_review_thread_store().reply_thread(
+                tenant_id,
+                thread_id,
+                actor_id=actor,
+                body=str(body.get("body") or ""),
+                request_changes=bool(body.get("request_changes", False)),
+            )
+        except KeyError:
+            return JSONResponse(
+                _abstain("review_thread@1.0.0", {}, "thread_not_found"), status_code=404
+            )
+        except ValueError as exc:
+            code = 409 if str(exc) == "thread_locked" else 400
+            return JSONResponse(
+                _abstain("review_thread@1.0.0", {"thread_id": thread_id}, str(exc)),
+                status_code=code,
+            )
+        return JSONResponse(_ok("review_thread@1.0.0", {"thread_id": thread_id}, thr))
+
+    @app.post("/reviews/threads/{thread_id}/resolve")
+    def resolve_review_thread(
+        thread_id: str, body: dict[str, Any], request: Request
+    ) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(
+                _abstain("review_thread@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        actor = _session_actor(request, body.get("actor_id"), tenant_id=tenant_id)
+        if actor is None:
+            return JSONResponse(_abstain("auth@1.0.0", {}, "auth_required"), status_code=401)
+        role = open_ledger(tenant_id).actor_role(actor)
+        if role not in {"cve", "admin", "reviewer", "human"}:
+            return JSONResponse(
+                _abstain(
+                    "review_thread@1.0.0",
+                    {"thread_id": thread_id, "role": role},
+                    "insufficient_role",
+                ),
+                status_code=403,
+            )
+        try:
+            thr = get_review_thread_store().resolve_thread(
+                tenant_id,
+                thread_id,
+                resolver_id=actor,
+                resolution_note=str(body.get("resolution_note") or "Verified and resolved"),
+            )
+        except KeyError:
+            return JSONResponse(
+                _abstain("review_thread@1.0.0", {}, "thread_not_found"), status_code=404
+            )
+        except ValueError as exc:
+            return JSONResponse(
+                _abstain("review_thread@1.0.0", {"thread_id": thread_id}, str(exc)), status_code=409
+            )
+        return JSONResponse(_ok("review_thread@1.0.0", {"thread_id": thread_id}, thr))
+
+    @app.get("/reviews/threads")
+    def list_review_threads(
+        request: Request, tenant_id: str = DEMO_TENANT, target_event_hash: str | None = None
+    ) -> JSONResponse:
+        checked = _validate_tenant(tenant_id)
+        if checked is None:
+            return JSONResponse(
+                _abstain("review_thread@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        _, auth_err = _check_endpoint_access(request, tenant_id=checked)
+        if auth_err is not None:
+            return auth_err
+        threads = get_review_thread_store().list_threads(
+            checked, target_event_hash=target_event_hash or None
+        )
+        return JSONResponse(
+            _ok(
+                "review_thread@1.0.0",
+                {"tenant_id": checked},
+                {"threads": threads, "count": len(threads)},
+            )
+        )
+
+    @app.post("/integrations/excel/sync")
+    def excel_bridge_sync(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(_abstain("excel_sync@1.0.0", {}, "invalid_tenant"), status_code=400)
+        _, auth_err = _check_endpoint_access(
+            request, tenant_id=tenant_id, requested_actor=body.get("actor_id")
+        )
+        if auth_err is not None:
+            return auth_err
+        imported = ExcelStressSheetBridge.import_named_ranges(body)
+        try:
+            calc_out = run_method(
+                imported["method_id"],
+                imported["inputs"],
+                include_intervals=True,
+                normalize_units=True,
+            )
+        except AbstainError as exc:
+            return JSONResponse(
+                _abstain("excel_sync@1.0.0", {"method_id": imported["method_id"]}, exc.reason),
+                status_code=400,
+            )
+        ledger = open_ledger(tenant_id)
+        stamp = ExcelStressSheetBridge.export_verification_stamp(
+            body,
+            calc_result=calc_out,
+            merkle_root=ledger.merkle_root(),
+            event_hash=ledger.head_hash(),
+        )
+        return JSONResponse(
+            _ok(
+                "excel_sync@1.0.0",
+                {"workbook_id": imported["workbook_id"], "method_id": imported["method_id"]},
+                {"imported": imported, "calculation": calc_out, "stamp": stamp},
+            )
+        )
+
+    @app.post("/integrations/catia/selection")
+    def catia_selection_endpoint(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(
+                _abstain("catia_inspector@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        _, auth_err = _check_endpoint_access(
+            request, tenant_id=tenant_id, requested_actor=body.get("actor_id")
+        )
+        if auth_err is not None:
+            return auth_err
+        ctx = CatiaInspectorBridge.resolve_selection_context(
+            body,
+            cad_result=body.get("cad_result") if isinstance(body.get("cad_result"), dict) else None,
+            margins_by_part=(
+                body.get("margins_by_part")
+                if isinstance(body.get("margins_by_part"), dict)
+                else None
+            ),
+        )
+        return JSONResponse(_ok("catia_inspector@1.0.0", {"part_number": ctx["part_number"]}, ctx))
+
+    @app.post("/qualification/iq-oq/run")
+    def qualification_iq_oq_endpoint(
+        request: Request, body: dict[str, Any] | None = None
+    ) -> JSONResponse:
+        req = body or {}
+        tenant_id = _validate_tenant(req.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(
+                _abstain("qualification_aid@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        _, auth_err = _check_endpoint_access(
+            request,
+            tenant_id=tenant_id,
+            requested_actor=req.get("actor_id"),
+            allowed_roles={"cve", "admin", "auditor", "reviewer", "human"},
+        )
+        if auth_err is not None:
+            return auth_err
+        default_root = Path(__file__).resolve().parents[4]
+        root_override = req.get("repo_root")
+        if _is_production_mode():
+            if root_override:
+                return JSONResponse(
+                    _abstain("qualification_aid@1.0.0", {}, "repo_root_override_forbidden"),
+                    status_code=403,
+                )
+            repo_root = default_root
+        else:
+            repo_root = Path(str(root_override)) if root_override else default_root
+        report = run_iq_oq_qualification_suite(repo_root=repo_root)
+        return JSONResponse(_ok("qualification_aid@1.0.0", {}, report))
+
+    @app.get("/legal/ma-readiness")
+    def legal_ma_readiness_endpoint(request: Request, tenant_id: str = DEMO_TENANT) -> JSONResponse:
+        checked = _validate_tenant(tenant_id)
+        if checked is None:
+            return JSONResponse(
+                _abstain("ma_readiness@1.0.0", {}, "invalid_tenant"), status_code=400
+            )
+        _, auth_err = _check_endpoint_access(
+            request,
+            tenant_id=checked,
+            allowed_roles={"cve", "admin", "auditor", "reviewer", "human"},
+        )
+        if auth_err is not None:
+            return auth_err
+        repo_root = Path(__file__).resolve().parents[4]
+        report = evaluate_ma_technical_readiness(repo_root)
+        return JSONResponse(_ok("ma_readiness@1.0.0", {}, report))
+
+    @app.get("/calc/materials")
+    def calc_materials_endpoint() -> JSONResponse:
+        mats = list_materials()
+        cat_hash = allowable_catalog_sha256()
+        return JSONResponse(
+            _ok(
+                "allowables@1.0.0",
+                {"catalog_sha256": cat_hash},
+                {"materials": mats, "catalog_sha256": cat_hash},
+            )
+        )
+
+    @app.post("/calc/allowables")
+    def calc_allowables_endpoint(body: dict[str, Any]) -> JSONResponse:
+        mat_id = str(body.get("material_id") or "").strip()
+        if not mat_id:
+            return JSONResponse(
+                _abstain("allowables@1.0.0", {}, "missing_material_id"), status_code=400
+            )
+        try:
+            res = lookup_allowable(
+                mat_id,
+                basis=str(body.get("basis") or "A"),
+                property_name=str(body.get("property_name") or "fty_mpa"),
+                thickness_mm=str(body.get("thickness_mm") or "10"),
+                temp_c=str(body.get("temp_c") or "23"),
+                environment=str(body.get("environment") or "RTD"),
+            )
+        except (AbstainError, InvalidOperation, ValueError) as exc:
+            reason = exc.reason if isinstance(exc, AbstainError) else "invalid_allowable_input"
+            return JSONResponse(
+                _abstain("allowables@1.0.0", {"material_id": mat_id}, reason),
+                status_code=400,
+            )
+        return JSONResponse(
+            _ok(
+                "allowables@1.0.0",
+                {"material_id": res["material_id"], "basis": res["basis"]},
+                res,
+            )
+        )
+
+    @app.post("/cad/brep/analyze")
+    def cad_brep_analyze_endpoint(body: dict[str, Any], request: Request) -> JSONResponse:
+        checked = _validate_tenant(body.get("tenant_id"))
+        if checked is None:
+            return JSONResponse(_abstain("cad_brep@1.0.0", {}, "invalid_tenant"), status_code=400)
+        _, auth_err = _check_endpoint_access(
+            request, tenant_id=checked, requested_actor=body.get("actor_id")
+        )
+        if auth_err is not None:
+            return auth_err
+        filename = str(body.get("filename") or "assembly.step")
+        raw, err = _decode_body_bytes(body, "cad_brep@1.0.0", filename)
+        if err is not None or raw is None:
+            return err or JSONResponse(
+                _abstain("cad_brep@1.0.0", {"filename": filename}, "missing_step_content"),
+                status_code=400,
+            )
+        source_hash = hashlib.sha256(raw).hexdigest()
+        try:
+            density = float(body.get("default_density_kg_m3") or 2810.0)
+        except (TypeError, ValueError):
+            return JSONResponse(
+                _abstain("cad_brep@1.0.0", {"filename": filename}, "invalid_density"),
+                status_code=400,
+            )
+        try:
+            res = analyze_step_brep(raw, source_hash, default_density_kg_m3=density)
+        except IngestAbstain as exc:
+            return JSONResponse(
+                _abstain("cad_brep@1.0.0", {"filename": filename}, exc.reason),
+                status_code=400,
+            )
+        return JSONResponse(
+            _ok(
+                "cad_brep@1.0.0",
+                {"filename": filename, "source_hash": source_hash},
+                {"source_hash": source_hash, **res},
+            )
+        )
+
+    @app.post("/cae/binary/parse")
+    def cae_binary_parse_endpoint(body: dict[str, Any], request: Request) -> JSONResponse:
+        checked = _validate_tenant(body.get("tenant_id"))
+        if checked is None:
+            return JSONResponse(_abstain("cae_binary@1.0.0", {}, "invalid_tenant"), status_code=400)
+        _, auth_err = _check_endpoint_access(
+            request, tenant_id=checked, requested_actor=body.get("actor_id")
+        )
+        if auth_err is not None:
+            return auth_err
+
+        raw_path = body.get("file_path")
+        filename = str(body.get("filename") or "results.op2")
+        source_hash = str(body.get("source_hash") or "").strip() or None
+        use_sandbox = bool(body.get("sandbox", False))
+        raw: bytes | None = None
+
+        try:
+            if raw_path is not None:
+                candidate = Path(str(raw_path)).resolve()
+                allowed_roots = (
+                    evidence_home().resolve(),
+                    Path(tempfile.gettempdir()).resolve(),
+                )
+                if not any(candidate.is_relative_to(root) for root in allowed_roots):
+                    return JSONResponse(
+                        _abstain(
+                            "cae_binary@1.0.0",
+                            {"file_path": str(raw_path)},
+                            "path_outside_allowed_roots",
+                        ),
+                        status_code=403,
+                    )
+                if not candidate.is_file():
+                    return JSONResponse(
+                        _abstain(
+                            "cae_binary@1.0.0",
+                            {"file_path": str(raw_path)},
+                            "file_not_found",
+                        ),
+                        status_code=404,
+                    )
+                suffix = candidate.suffix.lower() or Path(filename).suffix.lower()
+                if use_sandbox or suffix in {".odb", ".rst"}:
+                    raw = candidate.read_bytes()
+                    digest = source_hash or hashlib.sha256(raw).hexdigest()
+                    parsed = run_sandboxed_cae_worker(raw, digest, suffix or ".odb")
+                elif suffix == ".h5":
+                    parsed = parse_cae_h5_file(candidate, source_hash=source_hash)
+                else:
+                    parsed = parse_nastran_op2_file(candidate, source_hash=source_hash)
+            else:
+                raw, err = _decode_body_bytes(body, "cae_binary@1.0.0", filename)
+                if err is not None or raw is None:
+                    return err or JSONResponse(
+                        _abstain("cae_binary@1.0.0", {"filename": filename}, "missing_cae_content"),
+                        status_code=400,
+                    )
+                digest = source_hash or hashlib.sha256(raw).hexdigest()
+                suffix = Path(filename).suffix.lower() or ".op2"
+                if use_sandbox or suffix in {".odb", ".rst"}:
+                    parsed = run_sandboxed_cae_worker(raw, digest, suffix)
+                elif suffix == ".h5":
+                    parsed = parse_cae_h5_bytes(raw, digest)
+                else:
+                    parsed = parse_nastran_op2_bytes(raw, digest)
+        except IngestAbstain as exc:
+            return JSONResponse(
+                _abstain("cae_binary@1.0.0", {"filename": filename}, exc.reason),
+                status_code=400,
+            )
+
+        blocks_out = [
+            b.as_dict() if hasattr(b, "as_dict") else b for b in (parsed.get("blocks") or [])
+        ]
+        parsed_clean = {**parsed, "blocks": blocks_out}
+        model_id = str(
+            body.get("model_id") or f"cae-{str(parsed_clean.get('source_hash', 'model'))[:8]}"
+        )
+        vmesh = parsed_clean.get("viewer_mesh") or {}
+        nodes_raw = list(vmesh.get("nodes") or [])
+        elems_raw = list(vmesh.get("elements") or [])
+        elem_ms_map = {int(k): v for k, v in (vmesh.get("element_ms") or {}).items()}
+        elem_vm_map = {int(k): v for k, v in (vmesh.get("element_vm_mpa") or {}).items()}
+        elem_sub_map = {int(k): v for k, v in (vmesh.get("element_subcase") or {}).items()}
+        node_coords: dict[str, list[float]] = {}
+        for n in nodes_raw:
+            if isinstance(n, dict):
+                nid = str(n.get("id", n.get("nid", "")))
+                node_coords[nid] = [float(n["x"]), float(n["y"]), float(n["z"])]
+            elif isinstance(n, (list, tuple)) and len(n) >= 4:
+                node_coords[str(int(n[0]))] = [float(n[1]), float(n[2]), float(n[3])]
+        indexed_elements: list[dict[str, Any]] = []
+        for e in elems_raw:
+            if isinstance(e, dict):
+                eid = int(e.get("element_id", e.get("eid", 0)))
+                pid = int(e.get("pid", 0))
+                et = str(e.get("element_type", "CQUAD4"))
+                nids = list(e.get("nodes") or [])
+            elif isinstance(e, (list, tuple)) and len(e) >= 7:
+                eid = int(e[0])
+                pid = int(e[1])
+                et = ELEM_TYPE_CODES.get(int(e[2]), "CQUAD4")
+                nids = [int(n) for n in e[3:7] if int(n) > 0]
+            else:
+                continue
+            ms_val = str(round(float(elem_ms_map.get(eid, 0.25)), 4))
+            vm_val = str(round(float(elem_vm_map.get(eid, 120.0)), 3))
+            sub_val = int(elem_sub_map.get(eid, 1))
+            el_rec = {
+                "element_id": eid,
+                "pid": pid,
+                "element_type": et,
+                "nodes": nids,
+                "subcase_id": sub_val,
+                "ms_min": ms_val,
+                "von_mises_mpa": vm_val,
+                "calc_event_hash": f"cae-{model_id}-{pid}-{eid}",
+                "pdf_citation": {
+                    "doc_id": filename,
+                    "page_no": 1,
+                    "bbox": [48.0, 120.0, 420.0, 148.0],
+                },
+            }
+            indexed_elements.append(el_rec)
+            _cae_element_index[(checked, eid)] = {"model_id": model_id, **el_rec}
+        _cae_meshes[f"{checked}:{model_id}"] = {
+            "model_id": model_id,
+            "tenant_id": checked,
+            "node_count": int(parsed_clean.get("node_count", len(node_coords))),
+            "element_count": int(parsed_clean.get("element_count", len(indexed_elements))),
+            "nodeCoords": node_coords,
+            "elements": indexed_elements,
+            "pid_summary": parsed_clean.get("pid_ms_summary") or {},
+            "pdf_citations": {},
+        }
+        parsed_clean["model_id"] = model_id
+        return JSONResponse(
+            _ok(
+                "cae_binary@1.0.0",
+                {"tenant_id": checked, "model_id": model_id, "filename": filename},
+                parsed_clean,
+            )
+        )
+
+    @app.get("/security/sbom")
+    def security_sbom_endpoint(request: Request, tenant_id: str = DEMO_TENANT) -> JSONResponse:
+        checked = _validate_tenant(tenant_id)
+        if checked is None:
+            return JSONResponse(_abstain("sbom@1.0.0", {}, "invalid_tenant"), status_code=400)
+        _, auth_err = _check_endpoint_access(
+            request,
+            tenant_id=checked,
+            allowed_roles={"cve", "admin", "auditor", "reviewer", "human"},
+        )
+        if auth_err is not None:
+            return auth_err
+        repo_root = Path(__file__).resolve().parents[4]
+        report = verify_sbom_and_dependencies(repo_root)
+        return JSONResponse(_ok("sbom@1.0.0", {"tenant_id": checked}, report))
+
+    @app.get("/ingest/document/{doc_id}/page/{page_no}")
+    def get_ingested_document_page(
+        doc_id: str, page_no: int, request: Request, tenant_id: str = DEMO_TENANT
+    ) -> JSONResponse:
+        checked = _validate_tenant(tenant_id)
+        if checked is None:
+            return JSONResponse(_abstain("ingest@1.0.0", {}, "invalid_tenant"), status_code=400)
+        _, auth_err = _check_endpoint_access(request, tenant_id=checked)
+        if auth_err is not None:
+            return auth_err
+        if page_no < 1:
+            return JSONResponse(
+                _abstain("ingest@1.0.0", {"page_no": page_no}, "invalid_page_number"),
+                status_code=400,
+            )
+
+        doc_entry = _ingested_docs.get((checked, doc_id))
+        source_hash = doc_entry["source_hash"] if doc_entry else doc_id
+        raw_pdf: bytes | None = None
+        if re.fullmatch(r"[0-9a-f]{64}", source_hash):
+            try:
+                candidate = open_blob_store(evidence_home()).get_blob(source_hash)
+                if candidate.startswith(b"%PDF"):
+                    raw_pdf = candidate
+            except Exception:
+                raw_pdf = None
+
+        if doc_entry is None and raw_pdf is None:
+            return JSONResponse(
+                _abstain("ingest@1.0.0", {"doc_id": doc_id}, "document_not_found"),
+                status_code=404,
+            )
+
+        all_blocks = list(doc_entry["blocks"]) if doc_entry else []
+        page_blocks = [
+            b
+            for b in all_blocks
+            if b.get("page_no") == page_no or (b.get("page_no") is None and page_no == 1)
+        ]
+        highlight_bboxes = [b["bbox"] for b in page_blocks if b.get("bbox")]
+        width_pt = 612.0
+        height_pt = 792.0
+        image_base64 = ""
+        mime_type = "image/svg+xml"
+
+        if raw_pdf is not None:
+            try:
+                import pymupdf as fitz  # type: ignore[import-not-found]
+
+                with fitz.open(stream=raw_pdf, filetype="pdf") as pdf_doc:
+                    if page_no > len(pdf_doc):
+                        return JSONResponse(
+                            _abstain(
+                                "ingest@1.0.0",
+                                {"doc_id": doc_id, "page_no": page_no},
+                                "page_out_of_range",
+                            ),
+                            status_code=404,
+                        )
+                    page = pdf_doc[page_no - 1]
+                    width_pt = float(page.rect.width)
+                    height_pt = float(page.rect.height)
+                    pix = page.get_pixmap(dpi=120)
+                    image_base64 = base64.b64encode(pix.tobytes("png")).decode("ascii")
+                    mime_type = "image/png"
+            except Exception:
+                image_base64 = ""
+
+        svg_boxes: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" '
+            f'viewBox="0 0 {int(width_pt)} {int(height_pt)}">',
+            f'<rect width="{int(width_pt)}" height="{int(height_pt)}" fill="#0f172a"/>',
+            f'<text x="24" y="34" fill="#94a3b8" font-size="14" font-family="monospace">'
+            f"Doc: {doc_id[:36]} | Page {page_no}</text>",
+        ]
+        for idx, blk in enumerate(page_blocks):
+            bbox = blk.get("bbox")
+            if isinstance(bbox, list) and len(bbox) == 4:
+                x0, y0, x1, y1 = (float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3]))
+                bw = max(8.0, x1 - x0)
+                bh = max(12.0, y1 - y0)
+            else:
+                x0, y0, bw, bh = (28.0, 56.0 + idx * 34.0, width_pt - 56.0, 26.0)
+            snippet = (
+                str(blk.get("text", ""))[:88]
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+            )
+            svg_boxes.append(
+                f'<rect x="{x0:.1f}" y="{y0:.1f}" width="{bw:.1f}" height="{bh:.1f}" '
+                f'fill="rgba(56,189,248,0.12)" stroke="#38bdf8" stroke-width="1.5"/>'
+            )
+            svg_boxes.append(
+                f'<text x="{x0 + 4:.1f}" y="{y0 + 16:.1f}" fill="#e2e8f0" '
+                f'font-size="11" font-family="monospace">{snippet}</text>'
+            )
+        svg_boxes.append("</svg>")
+        svg_markup = "\n".join(svg_boxes)
+        if not image_base64:
+            image_base64 = base64.b64encode(svg_markup.encode("utf-8")).decode("ascii")
+
+        return JSONResponse(
+            _ok(
+                "ingest@1.0.0",
+                {"doc_id": doc_id, "page_no": page_no},
+                {
+                    "doc_id": doc_id,
+                    "source_hash": source_hash,
+                    "page_no": page_no,
+                    "width_pt": width_pt,
+                    "height_pt": height_pt,
+                    "mime_type": mime_type,
+                    "image_base64": image_base64,
+                    "svg": svg_markup,
+                    "blocks": page_blocks,
+                    "highlight_bboxes": highlight_bboxes,
+                },
+            )
+        )
+
+    @app.get("/quotations/catalog")
+    def quotation_catalog_endpoint() -> JSONResponse:
+        return JSONResponse(_ok("quotation_catalog@1.0.0", {}, get_quotation_catalog()))
+
+    @app.post("/quotations/generate")
+    def quotation_generate_endpoint(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(
+                _abstain("quotation_multiagent@1.0.0", {}, "invalid_tenant"),
+                status_code=400,
+            )
+        actor_id, auth_err = _check_endpoint_access(
+            request,
+            tenant_id=tenant_id,
+            requested_actor=body.get("actor_id"),
+        )
+        if auth_err is not None:
+            return auth_err
+        spec = QuotationRequestSpec(
+            rfq_text=str(body.get("rfq_text") or ""),
+            quotation_kind=str(body.get("quotation_kind") or "hybrid_turnkey"),  # type: ignore[arg-type]
+            tenant_id=tenant_id,
+            actor_id=actor_id or str(body.get("actor_id") or "author"),
+            created_at=str(body.get("created_at") or _now()),
+            currency=str(body.get("currency") or "EUR"),
+            target_margin_pct=str(body.get("target_margin_pct") or "22.000"),
+            min_acceptable_margin_pct=str(body.get("min_acceptable_margin_pct") or "10.000"),
+            explicit_params=dict(body.get("explicit_params") or {}),
+            bom_items=list(body.get("bom_items") or []),
+            assumption_overrides=dict(body.get("assumption_overrides") or {}),
+            enable_formal_smt=bool(body.get("enable_formal_smt", True)),
+            export_control_restricted=bool(body.get("export_control_restricted", False)),
+            customer_name=str(body.get("customer_name") or "Aerospace Client"),
+            rfq_id=str(body.get("rfq_id") or "RFQ-AUTO-001"),
+        )
+        ledger = open_ledger(tenant_id)
+        dossier = run_multiagent_quotation(ledger, spec)
+        if dossier.confidence == "abstain":
+            abstain_payload = _abstain(
+                "quotation_multiagent@1.0.0",
+                {"rfq_id": spec.rfq_id},
+                dossier.abstain_reason or "abstain",
+            )
+            abstain_payload["decision_status"] = dossier.decision_status
+            abstain_payload["event_hashes"] = dossier.event_hashes
+            abstain_payload["merkle_root"] = dossier.merkle_root
+            return JSONResponse(abstain_payload)
+        return JSONResponse(
+            _ok(
+                "quotation_multiagent@1.0.0",
+                {"rfq_id": dossier.rfq_id, "quotation_kind": dossier.quotation_kind},
+                dossier.to_dict(),
+            )
+        )
+
+    @app.post("/quotations/sensitivity")
+    def quotation_sensitivity_endpoint(body: dict[str, Any], request: Request) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(
+                _abstain("quotation_sensitivity@1.0.0", {}, "invalid_tenant"),
+                status_code=400,
+            )
+        actor_id, auth_err = _check_endpoint_access(
+            request,
+            tenant_id=tenant_id,
+            requested_actor=body.get("actor_id"),
+        )
+        if auth_err is not None:
+            return auth_err
+        spec = QuotationRequestSpec(
+            rfq_text=str(body.get("rfq_text") or ""),
+            quotation_kind=str(body.get("quotation_kind") or "hybrid_turnkey"),  # type: ignore[arg-type]
+            tenant_id=tenant_id,
+            actor_id=actor_id or str(body.get("actor_id") or "author"),
+            created_at=str(body.get("created_at") or _now()),
+            currency=str(body.get("currency") or "EUR"),
+            target_margin_pct=str(body.get("target_margin_pct") or "22.000"),
+            min_acceptable_margin_pct=str(body.get("min_acceptable_margin_pct") or "10.000"),
+            explicit_params=dict(body.get("explicit_params") or {}),
+            bom_items=list(body.get("bom_items") or []),
+            assumption_overrides=dict(body.get("assumption_overrides") or {}),
+            enable_formal_smt=bool(body.get("enable_formal_smt", True)),
+            export_control_restricted=bool(body.get("export_control_restricted", False)),
+            customer_name=str(body.get("customer_name") or "Aerospace Client"),
+            rfq_id=str(body.get("rfq_id") or "RFQ-AUTO-001"),
+        )
+        overrides = dict(body.get("overrides") or {})
+        ledger = open_ledger(tenant_id)
+        result = run_whatif_sensitivity(ledger, spec, overrides)
+        return JSONResponse(_ok("quotation_sensitivity@1.0.0", {"rfq_id": spec.rfq_id}, result))
+
+    @app.get("/quotations/repos-benchmark")
+    def quotation_repos_benchmark_endpoint() -> JSONResponse:
+        result = QuotationIntelligenceScraper().run_full_harvest(live_network=False)
+        return JSONResponse(_ok("quotation_scraper@1.0.0", {"mode": "catalog"}, result))
+
+    @app.post("/quotations/scrape-repos")
+    def quotation_scrape_repos_endpoint(body: dict[str, Any] | None = None) -> JSONResponse:
+        req = body or {}
+        live = bool(req.get("live_network", False))
+        queries = req.get("queries")
+        scraper = QuotationIntelligenceScraper()
+        gh = scraper.scrape_github_repositories(
+            queries=[str(q) for q in queries] if isinstance(queries, list) else None,
+            live_network=live,
+        )
+        web = scraper.scrape_web_platforms(live_network=live)
+        cmp = scraper.compare_against_aeroregu()
+        report = scraper.export_intelligence_report_markdown(
+            github_res=gh, web_res=web, comparison=cmp
+        )
+        return JSONResponse(
+            _ok(
+                "quotation_scraper@1.0.0",
+                {"live_network": live},
+                {
+                    "github": gh,
+                    "web_platforms": web,
+                    "comparison": cmp,
+                    "markdown_report": report,
+                },
+            )
+        )
+
+    @app.get("/quotations/rotorcraft/catalog")
+    def rotorcraft_quotation_catalog_endpoint() -> JSONResponse:
+        return JSONResponse(_ok("rotorcraft_catalog@1.0.0", {}, get_rotorcraft_catalog()))
+
+    @app.post("/quotations/rotorcraft/generate")
+    def rotorcraft_quotation_generate_endpoint(
+        body: dict[str, Any], request: Request
+    ) -> JSONResponse:
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(
+                _abstain("rotorcraft_quotation@1.0.0", {}, "invalid_tenant"),
+                status_code=400,
+            )
+        actor_id, auth_err = _check_endpoint_access(
+            request,
+            tenant_id=tenant_id,
+            requested_actor=body.get("actor_id"),
+        )
+        if auth_err is not None:
+            return auth_err
+        spec = RotorcraftQuotationSpec(
+            rfq_text=str(body.get("rfq_text") or ""),
+            country_code=str(body.get("country_code") or "EU_DEFAULT"),
+            archetype_id=(str(body["archetype_id"]) if body.get("archetype_id") else None),
+            cert_basis=str(body.get("cert_basis") or "CS-29"),
+            material_family=str(body.get("material_family") or "HYBRID_AL_CFRP"),
+            cosysmo_complexity=str(body.get("cosysmo_complexity") or "NOMINAL"),
+            idp_maturity=str(body.get("idp_maturity") or "COMPLETE"),
+            target_margin_pct=str(body.get("target_margin_pct") or "22.000"),
+            min_acceptable_margin_pct=str(body.get("min_acceptable_margin_pct") or "10.000"),
+            nearshore_country=str(body.get("nearshore_country") or "ES"),
+            enable_formal_smt=bool(body.get("enable_formal_smt", True)),
+            export_control_restricted=bool(body.get("export_control_restricted", False)),
+            tenant_id=tenant_id,
+            actor_id=actor_id or str(body.get("actor_id") or "author"),
+            created_at=str(body.get("created_at") or _now()),
+            rfq_id=str(body.get("rfq_id") or "RFQ-ROTOR-001"),
+            customer_name=str(body.get("customer_name") or "Rotorcraft OEM / DOA Client"),
+            currency=str(body.get("currency") or "EUR"),
+            extra_travel_hardware_eur=(
+                str(body["extra_travel_hardware_eur"])
+                if body.get("extra_travel_hardware_eur") is not None
+                else None
+            ),
+            cve_min_ratio_pct=(
+                str(body["cve_min_ratio_pct"])
+                if body.get("cve_min_ratio_pct") is not None
+                else None
+            ),
+            assumption_overrides=dict(body.get("assumption_overrides") or {}),
+            idp_attachments=dict(body.get("idp_attachments") or {}),
+            use_historical_calibration=bool(body.get("use_historical_calibration", True)),
+            historical_corpus_path=(
+                str(body["historical_corpus_path"]) if body.get("historical_corpus_path") else None
+            ),
+            historical_top_k=int(body.get("historical_top_k") or 3),
+        )
+        ledger = open_ledger(tenant_id)
+        dossier = run_rotorcraft_department_quotation(ledger, spec)
+        if dossier["confidence"] == "abstain":
+            abstain_payload = _abstain(
+                "rotorcraft_quotation@1.0.0",
+                {},
+                dossier.get("abstain_reason") or "abstain",
+            )
+            abstain_payload["decision_status"] = dossier["decision_status"]
+            abstain_payload["event_hashes"] = dossier["event_hashes"]
+            abstain_payload["merkle_root"] = dossier["merkle_root"]
+            return JSONResponse(abstain_payload)
+        return JSONResponse(
+            _ok(
+                "rotorcraft_quotation@1.0.0",
+                {
+                    "rfq_id": dossier["rfq_id"],
+                    "archetype_id": dossier["archetype"]["archetype_id"],
+                    "country_code": dossier["country_profile"]["country_code"],
+                },
+                dossier,
+            )
+        )
+
+    @app.post("/quotations/rotorcraft/calibrate-historical")
+    def rotorcraft_calibrate_historical_endpoint(
+        body: dict[str, Any] | None = None,
+    ) -> JSONResponse:
+        from evidence_coverage.historical_quotation_calibrator import (
+            run_historical_calibration_and_matching,
+        )
+
+        req = body or {}
+        archetype_id = str(req.get("archetype_id") or "Q-STR-03")
+        country_code = str(req.get("country_code") or "EU_DEFAULT")
+        try:
+            payload = run_historical_calibration_and_matching(
+                archetype_id=archetype_id,
+                country_code=country_code,
+                cert_basis=str(req.get("cert_basis") or "CS-29"),
+                material_family=str(req.get("material_family") or "HYBRID_AL_CFRP"),
+                corpus_path=(str(req["corpus_path"]) if req.get("corpus_path") else None),
+                records=(req["records"] if isinstance(req.get("records"), list) else None),
+                synthetic_count=int(req.get("synthetic_count") or 2160),
+                idp_attachments=req.get("idp_attachments"),
+                top_k=int(req.get("top_k") or 3),
+            )
+        except ValueError as exc:
+            return JSONResponse(
+                _abstain("rotorcraft_historical_calibration@1.0.0", {}, str(exc)),
+                status_code=400,
+            )
+        return JSONResponse(
+            _ok(
+                "rotorcraft_historical_calibration@1.0.0",
+                {"archetype_id": archetype_id, "country_code": country_code},
+                payload,
+            )
+        )
+
+    @app.get("/mcp/catalog")
+    def get_mcp_catalog_endpoint() -> JSONResponse:
+        from evidence_api.mcp_server import get_mcp_catalog
+
+        return JSONResponse(_ok("mcp@1.0.0", {}, get_mcp_catalog()))
 
     @app.get("/")
     def index() -> FileResponse:
@@ -2631,6 +4357,9 @@ def open_ledger(tenant_id: str = DEMO_TENANT) -> Any:
         raise ValueError(f"invalid tenant_id: {tenant_id!r}")
     root = evidence_home()
     path = (root / "tenants" / f"{checked}.sqlite3").resolve()
+    alt_path = (root / "tenants" / checked / "ledger.sqlite3").resolve()
+    if not path.is_file() and alt_path.is_file():
+        path = alt_path
     pg_dsn = os.environ.get("EVIDENCE_PG_DSN", "").strip()
     if pg_dsn:
         ledger = open_ledger_backend(path, checked, pg_dsn=pg_dsn)
@@ -2826,6 +4555,10 @@ def _actor_from_request(request: Request, *, tenant_id: str = DEMO_TENANT) -> st
     if secret is None:
         return None
     raw = request.cookies.get("el_session", "")
+    if not raw:
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            raw = auth_header[7:].strip()
     if "." not in raw:
         return None
     subject, mac = raw.rsplit(".", 1)
@@ -2848,6 +4581,8 @@ def _actor_from_request(request: Request, *, tenant_id: str = DEMO_TENANT) -> st
         return None
     token_digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     if ledger.is_token_revoked(token_digest):
+        return None
+    if not get_scim_directory().is_actor_active(tenant_id, actor_id):
         return None
     return actor_id
 

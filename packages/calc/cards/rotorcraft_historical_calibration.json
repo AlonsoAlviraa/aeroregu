@@ -1,0 +1,86 @@
+{
+  "method_id": "rotorcraft_historical_calibration",
+  "method_version": "rotorcraft_historical_calibration@1.0.0",
+  "title": "Rotorcraft Historical As-Bid vs As-Burned PERT & Feature Calibration",
+  "label": "ASSUMPTION",
+  "equation": "w = min(1, sample_size/credibility_full_n); cal_opt = ((1-w)*prior_opt + w*emp_p10)*feat; cal_ml = ((1-w)*prior_ml + w*emp_p50)*feat*(1+overrun_ratio)/2; cal_pess = ((1-w)*prior_pess + w*emp_p90)*feat*overrun_ratio; cal_expected = (cal_opt + 4*cal_ml + cal_pess)/6.",
+  "note": "Deterministic Buhlmann credibility calibration blending prior rotorcraft PERT triples with historical P10/P50/P90 burned hours and IDP physical feature complexity. ASSUMPTION/ESTIMATE aid only.",
+  "quantum": "0.001",
+  "domain": "aerospace_rotorcraft_engineering_quotation",
+  "not_a_certification_method": true,
+  "inputs": [
+    "prior_optimistic_hours",
+    "prior_most_likely_hours",
+    "prior_pessimistic_hours",
+    "empirical_p10_hours",
+    "empirical_p50_hours",
+    "empirical_p90_hours",
+    "sample_size",
+    "credibility_full_n",
+    "historical_overrun_ratio",
+    "idp_feature_complexity_factor",
+    "base_contingency_pct",
+    "broken_assumption_rate_pct"
+  ],
+  "required": [
+    "prior_optimistic_hours",
+    "prior_most_likely_hours",
+    "prior_pessimistic_hours",
+    "empirical_p10_hours",
+    "empirical_p50_hours",
+    "empirical_p90_hours",
+    "sample_size",
+    "credibility_full_n",
+    "historical_overrun_ratio",
+    "idp_feature_complexity_factor",
+    "base_contingency_pct",
+    "broken_assumption_rate_pct"
+  ],
+  "input_units": {
+    "prior_optimistic_hours": "hour",
+    "prior_most_likely_hours": "hour",
+    "prior_pessimistic_hours": "hour",
+    "empirical_p10_hours": "hour",
+    "empirical_p50_hours": "hour",
+    "empirical_p90_hours": "hour",
+    "sample_size": "dimensionless",
+    "credibility_full_n": "dimensionless",
+    "historical_overrun_ratio": "dimensionless",
+    "idp_feature_complexity_factor": "dimensionless",
+    "base_contingency_pct": "dimensionless",
+    "broken_assumption_rate_pct": "dimensionless"
+  },
+  "limits": {
+    "prior_optimistic_hours": { "min": 1, "max": 50000 },
+    "prior_most_likely_hours": { "min": 1, "max": 100000 },
+    "prior_pessimistic_hours": { "min": 1, "max": 200000 },
+    "empirical_p10_hours": { "min": 1, "max": 50000 },
+    "empirical_p50_hours": { "min": 1, "max": 100000 },
+    "empirical_p90_hours": { "min": 1, "max": 200000 },
+    "sample_size": { "min": 1, "max": 100000 },
+    "credibility_full_n": { "min": 1, "max": 100000 },
+    "historical_overrun_ratio": { "min": 0.2, "max": 5.0 },
+    "idp_feature_complexity_factor": { "min": 0.5, "max": 3.0 },
+    "base_contingency_pct": { "min": 0, "max": 100 },
+    "broken_assumption_rate_pct": { "min": 0, "max": 100 }
+  },
+  "outputs": [
+    "credibility_weight",
+    "calibrated_optimistic_hours",
+    "calibrated_most_likely_hours",
+    "calibrated_pessimistic_hours",
+    "calibrated_pert_expected_hours",
+    "calibrated_pert_p80_hours",
+    "calibrated_pert_p90_hours",
+    "calibrated_contingency_pct",
+    "prior_vs_calibrated_drift_pct"
+  ],
+  "sources": [
+    {
+      "source_id": "src-historical-calibration",
+      "uri": "research/08-catalogo-cotizaciones-supuestos-helicopteros.md",
+      "label": "ASSUMPTION",
+      "content_hash": "assumption"
+    }
+  ]
+}

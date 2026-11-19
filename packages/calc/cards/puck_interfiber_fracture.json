@@ -1,0 +1,54 @@
+{
+  "method_id": "puck_interfiber_fracture",
+  "method_version": "puck_interfiber_fracture@1.0.0",
+  "title": "Puck Inter-Fiber Fracture (IFF Modes A, B, C)",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "Mode A (sigma_2 >= 0), Mode B / Mode C compressive shear action-plane fracture exposure factor f_E; MS = 1/f_E - 1",
+  "note": "CMH-17 / VDI 2014 Puck physical inter-fiber action-plane fracture envelope.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "sigma_2_mpa": "megapascal",
+    "tau_12_mpa": "megapascal",
+    "yt_mpa": "megapascal",
+    "yc_mpa": "megapascal",
+    "sl_mpa": "megapascal"
+  },
+  "required": [
+    "sigma_2_mpa",
+    "tau_12_mpa",
+    "yt_mpa",
+    "yc_mpa",
+    "sl_mpa"
+  ],
+  "limits": {
+    "sigma_2_mpa": {
+      "min": "-10000000000",
+      "max": "10000000000"
+    },
+    "tau_12_mpa": {
+      "min": "-10000000000",
+      "max": "10000000000"
+    },
+    "yt_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "yc_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "sl_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "cmh17-puck-iff",
+      "uri": "https://aeroregu.local/cards/puck_interfiber_fracture",
+      "content_hash": "3b1e53fb42d7294fde0d55cbef28080b6c3ae08af35af42629b2a378fcfe995a",
+      "label": "VERIFIED"
+    }
+  ]
+}

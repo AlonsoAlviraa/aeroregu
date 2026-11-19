@@ -1,0 +1,78 @@
+{
+  "method_id": "huth_fastener_flexibility",
+  "method_version": "huth_fastener_flexibility@1.0.0",
+  "title": "Huth Empirical Fastener Joint Flexibility & Stiffness",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "C_f = ((t1+t2)/(2d))^a * (b/n) * (1/(t1*E1) + 1/(n*t2*E2) + 1/(2*t1*Ef) + 1/(2*n*t2*Ef)); K_f = 1 / C_f",
+  "note": "Airbus / Huth 1986 metallic-composite shear fastener flexibility formula for multi-row load distribution.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "fastener_diameter_mm": "millimeter",
+    "plate1_thickness_mm": "millimeter",
+    "plate2_thickness_mm": "millimeter",
+    "plate1_modulus_mpa": "megapascal",
+    "plate2_modulus_mpa": "megapascal",
+    "fastener_modulus_mpa": "megapascal",
+    "huth_a_exp": "dimensionless",
+    "huth_b_coef": "dimensionless",
+    "shear_planes_n": "dimensionless"
+  },
+  "required": [
+    "fastener_diameter_mm",
+    "plate1_thickness_mm",
+    "plate2_thickness_mm",
+    "plate1_modulus_mpa",
+    "plate2_modulus_mpa",
+    "fastener_modulus_mpa",
+    "huth_a_exp",
+    "huth_b_coef",
+    "shear_planes_n"
+  ],
+  "limits": {
+    "fastener_diameter_mm": {
+      "min_exclusive": "0",
+      "max": "200"
+    },
+    "plate1_thickness_mm": {
+      "min_exclusive": "0",
+      "max": "500"
+    },
+    "plate2_thickness_mm": {
+      "min_exclusive": "0",
+      "max": "500"
+    },
+    "plate1_modulus_mpa": {
+      "min_exclusive": "0",
+      "max": "1000000"
+    },
+    "plate2_modulus_mpa": {
+      "min_exclusive": "0",
+      "max": "1000000"
+    },
+    "fastener_modulus_mpa": {
+      "min_exclusive": "0",
+      "max": "1000000"
+    },
+    "huth_a_exp": {
+      "min_exclusive": "0",
+      "max": "5"
+    },
+    "huth_b_coef": {
+      "min_exclusive": "0",
+      "max": "20"
+    },
+    "shear_planes_n": {
+      "min": "1",
+      "max": "4"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "huth-fastener-flex",
+      "uri": "https://aeroregu.local/cards/huth_fastener_flexibility",
+      "content_hash": "7a3cbae5e4367a80371c3846b42ab50eeb01a4613b09879b2ce0e64f1ca815f4",
+      "label": "VERIFIED"
+    }
+  ]
+}

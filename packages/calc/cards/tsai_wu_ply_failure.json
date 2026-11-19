@@ -1,0 +1,72 @@
+{
+  "method_id": "tsai_wu_ply_failure",
+  "method_version": "tsai_wu_ply_failure@1.0.0",
+  "title": "Tsai-Wu Orthotropic Quadratic Tensor Polynomial Criterion",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "FI = F1*s1 + F2*s2 + F11*s1^2 + F22*s2^2 + F66*t12^2 + 2*F12*s1*s2; A*RF^2 + B*RF - 1 = 0; MS = RF - 1",
+  "note": "CMH-17 Tsai-Wu quadratic interaction envelope with F12* = -0.5 stability coefficient.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "sigma_1_mpa": "megapascal",
+    "sigma_2_mpa": "megapascal",
+    "tau_12_mpa": "megapascal",
+    "xt_mpa": "megapascal",
+    "xc_mpa": "megapascal",
+    "yt_mpa": "megapascal",
+    "yc_mpa": "megapascal",
+    "s12_mpa": "megapascal"
+  },
+  "required": [
+    "sigma_1_mpa",
+    "sigma_2_mpa",
+    "tau_12_mpa",
+    "xt_mpa",
+    "xc_mpa",
+    "yt_mpa",
+    "yc_mpa",
+    "s12_mpa"
+  ],
+  "limits": {
+    "sigma_1_mpa": {
+      "min": "-10000000000",
+      "max": "10000000000"
+    },
+    "sigma_2_mpa": {
+      "min": "-10000000000",
+      "max": "10000000000"
+    },
+    "tau_12_mpa": {
+      "min": "-10000000000",
+      "max": "10000000000"
+    },
+    "xt_mpa": {
+      "min_exclusive": "0",
+      "max": "10000"
+    },
+    "xc_mpa": {
+      "min_exclusive": "0",
+      "max": "10000"
+    },
+    "yt_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "yc_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "s12_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "cmh17-tsai-wu-ply",
+      "uri": "https://aeroregu.local/cards/tsai_wu_ply_failure",
+      "content_hash": "6140dface0d5b7c2118ed6e97d8d03a6904d6dceef241ecdf60de18b1725b3bd",
+      "label": "VERIFIED"
+    }
+  ]
+}

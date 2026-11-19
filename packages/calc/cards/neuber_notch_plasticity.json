@@ -1,0 +1,60 @@
+{
+  "method_id": "neuber_notch_plasticity",
+  "method_version": "neuber_notch_plasticity@1.0.0",
+  "title": "Neuber Rule & Ramberg-Osgood Cyclic Notch Plasticity",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "sigma_loc * (sigma_loc/E + (sigma_loc/K')^(1/n')) = (K_t * S_nom)^2 / E; MS = F_cy_cyclic / sigma_loc - 1",
+  "note": "SAE J1099 / Airbus Stress Office Neuber notch hyperbola intersected with Ramberg-Osgood cyclic stress-strain curve.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "nominal_stress_mpa": "megapascal",
+    "kt_concentration": "dimensionless",
+    "modulus_mpa": "megapascal",
+    "cyclic_strength_coeff_mpa": "megapascal",
+    "cyclic_hardening_exp": "dimensionless",
+    "cyclic_yield_mpa": "megapascal"
+  },
+  "required": [
+    "nominal_stress_mpa",
+    "kt_concentration",
+    "modulus_mpa",
+    "cyclic_strength_coeff_mpa",
+    "cyclic_hardening_exp",
+    "cyclic_yield_mpa"
+  ],
+  "limits": {
+    "nominal_stress_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "kt_concentration": {
+      "min": "1",
+      "max": "20"
+    },
+    "modulus_mpa": {
+      "min_exclusive": "0",
+      "max": "1000000"
+    },
+    "cyclic_strength_coeff_mpa": {
+      "min_exclusive": "0",
+      "max": "20000"
+    },
+    "cyclic_hardening_exp": {
+      "min_exclusive": "0",
+      "max": "1"
+    },
+    "cyclic_yield_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "neuber-ramberg-osgood",
+      "uri": "https://aeroregu.local/cards/neuber_notch_plasticity",
+      "content_hash": "e8f1948da88e35db58b5b7ffe356908194de796a32a059137a627b8a3ee911b7",
+      "label": "VERIFIED"
+    }
+  ]
+}

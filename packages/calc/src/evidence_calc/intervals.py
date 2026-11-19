@@ -13,6 +13,11 @@ from typing import Any
 
 from flint import arb, ctx, fmpq
 
+from evidence_calc.stress_manual import (
+    STRESS_MANUAL_RUNNERS,
+    evaluate_stress_manual_unrounded,
+)
+
 _BALL_DPS = 50
 _DISPLAY_QUANTUM = Decimal("0.000001")
 _DRIFT_QUANTUM = Decimal("0.000000001")
@@ -48,10 +53,13 @@ def _arb_bounds_decimal(ball: arb, scale: Decimal = _DISPLAY_QUANTUM) -> dict[st
 
 def _drift_entry(ball: arb, staged_text: str) -> dict[str, Any]:
     """Build exact unrounded interval record plus drift relative to staged quantize output."""
+    ctx.dps = _BALL_DPS
     bounds = _arb_bounds_decimal(ball)
-    mid_dec = Decimal(bounds["mid"])
+    exact_mid_dec = Decimal(ball.mid().str(40, radius=False))
     staged_dec = Decimal(staged_text)
-    drift = (staged_dec - mid_dec).copy_abs().quantize(_DRIFT_QUANTUM, rounding=ROUND_HALF_EVEN)
+    drift = (
+        (staged_dec - exact_mid_dec).copy_abs().quantize(_DRIFT_QUANTUM, rounding=ROUND_HALF_EVEN)
+    )
     return {
         **bounds,
         "staged": staged_text,
@@ -382,6 +390,392 @@ def evaluate_composite_failure_intervals(
     }
 
 
+def evaluate_aerospace_quotation_costing_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Evaluate aerospace_quotation_costing without intermediate rounding using Arb balls."""
+    ctx.dps = _BALL_DPS
+    qty = _arb_from_decimal_text(str(inputs["part_quantity"]))
+    mass_kg = _arb_from_decimal_text(str(inputs["finished_mass_kg"]))
+    btf = _arb_from_decimal_text(str(inputs["buy_to_fly_ratio"]))
+    mat_cost = _arb_from_decimal_text(str(inputs["material_unit_cost_eur_kg"]))
+    mach_hrs = _arb_from_decimal_text(str(inputs["machining_hours_per_part"]))
+    mach_rate = _arb_from_decimal_text(str(inputs["machining_rate_eur_hr"]))
+    eng_hrs = _arb_from_decimal_text(str(inputs["engineering_setup_hours"]))
+    eng_rate = _arb_from_decimal_text(str(inputs["engineering_rate_eur_hr"]))
+    ndt_part = _arb_from_decimal_text(str(inputs["ndt_qa_cost_per_part_eur"]))
+    tooling_nre = _arb_from_decimal_text(str(inputs["tooling_nre_eur"]))
+    risk_pct = _arb_from_decimal_text(str(inputs["risk_contingency_pct"]))
+    overhead_pct = _arb_from_decimal_text(str(inputs["overhead_pct"]))
+    target_margin_pct = _arb_from_decimal_text(str(inputs["target_margin_pct"]))
+
+    raw_mass = mass_kg * btf
+    mat_total = raw_mass * mat_cost * qty
+    mfg_total = mach_hrs * mach_rate * qty
+    eng_nre_total = (eng_hrs * eng_rate) + tooling_nre
+    ndt_total = ndt_part * qty
+    direct_sub = mat_total + mfg_total + eng_nre_total + ndt_total
+    overhead = direct_sub * (overhead_pct / arb(100))
+    contingency = direct_sub * (risk_pct / arb(100))
+    total_cost = direct_sub + overhead + contingency
+    margin_denom = arb(1) - (target_margin_pct / arb(100))
+    quoted_total = total_cost / margin_denom
+    quoted_unit = quoted_total / qty
+    gross_margin = quoted_total - total_cost
+    achieved_margin = (
+        (gross_margin / quoted_total) * arb(100)
+        if Decimal(str(staged_outputs["quoted_total_price_eur"])) > Decimal("0")
+        else arb(0)
+    )
+
+    return {
+        "raw_material_mass_per_part_kg": _drift_entry(
+            raw_mass, str(staged_outputs["raw_material_mass_per_part_kg"])
+        ),
+        "material_cost_total_eur": _drift_entry(
+            mat_total, str(staged_outputs["material_cost_total_eur"])
+        ),
+        "manufacturing_cost_total_eur": _drift_entry(
+            mfg_total, str(staged_outputs["manufacturing_cost_total_eur"])
+        ),
+        "engineering_nre_total_eur": _drift_entry(
+            eng_nre_total, str(staged_outputs["engineering_nre_total_eur"])
+        ),
+        "ndt_qa_total_eur": _drift_entry(ndt_total, str(staged_outputs["ndt_qa_total_eur"])),
+        "direct_cost_subtotal_eur": _drift_entry(
+            direct_sub, str(staged_outputs["direct_cost_subtotal_eur"])
+        ),
+        "overhead_cost_eur": _drift_entry(overhead, str(staged_outputs["overhead_cost_eur"])),
+        "risk_contingency_eur": _drift_entry(
+            contingency, str(staged_outputs["risk_contingency_eur"])
+        ),
+        "total_cost_baseline_eur": _drift_entry(
+            total_cost, str(staged_outputs["total_cost_baseline_eur"])
+        ),
+        "quoted_total_price_eur": _drift_entry(
+            quoted_total, str(staged_outputs["quoted_total_price_eur"])
+        ),
+        "quoted_unit_price_eur": _drift_entry(
+            quoted_unit, str(staged_outputs["quoted_unit_price_eur"])
+        ),
+        "gross_margin_eur": _drift_entry(gross_margin, str(staged_outputs["gross_margin_eur"])),
+        "achieved_margin_pct": _drift_entry(
+            achieved_margin, str(staged_outputs["achieved_margin_pct"])
+        ),
+    }
+
+
+def evaluate_engineering_workpackage_quote_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Evaluate engineering_workpackage_quote without intermediate rounding using Arb balls."""
+    ctx.dps = _BALL_DPS
+    notes_count = _arb_from_decimal_text(str(inputs["calc_notes_count"]))
+    h_opt = _arb_from_decimal_text(str(inputs["hours_per_calc_note_optimistic"]))
+    h_likely = _arb_from_decimal_text(str(inputs["hours_per_calc_note_likely"]))
+    h_pess = _arb_from_decimal_text(str(inputs["hours_per_calc_note_pessimistic"]))
+    fem_count = _arb_from_decimal_text(str(inputs["fem_models_count"]))
+    h_fem = _arb_from_decimal_text(str(inputs["hours_per_fem_model"]))
+    cve_ratio = _arb_from_decimal_text(str(inputs["cve_review_ratio"]))
+    senior_rate = _arb_from_decimal_text(str(inputs["senior_rate_eur_hr"]))
+    cve_rate = _arb_from_decimal_text(str(inputs["cve_rate_eur_hr"]))
+    surcharge = _arb_from_decimal_text(str(inputs["software_compute_surcharge_eur"]))
+    rework_pct = _arb_from_decimal_text(str(inputs["rework_contingency_pct"]))
+    target_margin_pct = _arb_from_decimal_text(str(inputs["target_margin_pct"]))
+
+    pert_expected = (h_opt + arb(4) * h_likely + h_pess) / arb(6)
+    pert_stddev = (h_pess - h_opt) / arb(6)
+    if Decimal(str(inputs["calc_notes_count"])) > Decimal("0"):
+        notes_sigma_total = notes_count.sqrt() * pert_stddev
+    else:
+        notes_sigma_total = arb(0)
+
+    z80 = _arb_from_decimal_text("0.84162123")
+    z90 = _arb_from_decimal_text("1.28155157")
+    fem_total = fem_count * h_fem
+    hours_p50 = (notes_count * pert_expected) + fem_total
+    hours_p80 = hours_p50 + (z80 * notes_sigma_total)
+    hours_p90 = hours_p50 + (z90 * notes_sigma_total)
+
+    cve_p50 = hours_p50 * cve_ratio
+    cve_p80 = hours_p80 * cve_ratio
+    cve_p90 = hours_p90 * cve_ratio
+
+    labor_p50 = (hours_p50 * senior_rate) + (cve_p50 * cve_rate)
+    labor_p80 = (hours_p80 * senior_rate) + (cve_p80 * cve_rate)
+    labor_p90 = (hours_p90 * senior_rate) + (cve_p90 * cve_rate)
+
+    rework_factor = arb(1) + (rework_pct / arb(100))
+    rework_p80 = labor_p80 * (rework_pct / arb(100))
+    cost_p50 = (labor_p50 * rework_factor) + surcharge
+    cost_p80 = labor_p80 + rework_p80 + surcharge
+    cost_p90 = (labor_p90 * rework_factor) + surcharge
+
+    margin_denom = arb(1) - (target_margin_pct / arb(100))
+    price_p50 = cost_p50 / margin_denom
+    price_p80 = cost_p80 / margin_denom
+    price_p90 = cost_p90 / margin_denom
+    achieved_margin = (
+        ((price_p80 - cost_p80) / price_p80) * arb(100)
+        if Decimal(str(staged_outputs["quoted_price_p80_eur"])) > Decimal("0")
+        else arb(0)
+    )
+
+    return {
+        "pert_expected_hours_per_note": _drift_entry(
+            pert_expected, str(staged_outputs["pert_expected_hours_per_note"])
+        ),
+        "pert_stddev_hours_per_note": _drift_entry(
+            pert_stddev, str(staged_outputs["pert_stddev_hours_per_note"])
+        ),
+        "total_engineering_hours_p50": _drift_entry(
+            hours_p50, str(staged_outputs["total_engineering_hours_p50"])
+        ),
+        "total_engineering_hours_p80": _drift_entry(
+            hours_p80, str(staged_outputs["total_engineering_hours_p80"])
+        ),
+        "total_engineering_hours_p90": _drift_entry(
+            hours_p90, str(staged_outputs["total_engineering_hours_p90"])
+        ),
+        "cve_review_hours": _drift_entry(cve_p80, str(staged_outputs["cve_review_hours"])),
+        "labor_cost_p50_eur": _drift_entry(labor_p50, str(staged_outputs["labor_cost_p50_eur"])),
+        "labor_cost_p80_eur": _drift_entry(labor_p80, str(staged_outputs["labor_cost_p80_eur"])),
+        "rework_reserve_eur": _drift_entry(rework_p80, str(staged_outputs["rework_reserve_eur"])),
+        "total_cost_p80_eur": _drift_entry(cost_p80, str(staged_outputs["total_cost_p80_eur"])),
+        "quoted_price_p50_eur": _drift_entry(
+            price_p50, str(staged_outputs["quoted_price_p50_eur"])
+        ),
+        "quoted_price_p80_eur": _drift_entry(
+            price_p80, str(staged_outputs["quoted_price_p80_eur"])
+        ),
+        "quoted_price_p90_eur": _drift_entry(
+            price_p90, str(staged_outputs["quoted_price_p90_eur"])
+        ),
+        "achieved_margin_pct": _drift_entry(
+            achieved_margin, str(staged_outputs["achieved_margin_pct"])
+        ),
+    }
+
+
+def evaluate_rotorcraft_archetype_quote_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Evaluate rotorcraft_archetype_quote without intermediate rounding using Arb balls."""
+    ctx.dps = _BALL_DPS
+    cad_h = _arb_from_decimal_text(str(inputs["cad_hours"]))
+    loads_h = _arb_from_decimal_text(str(inputs["loads_hours"]))
+    stress_h = _arb_from_decimal_text(str(inputs["stress_hours"]))
+    fdt_dyn_h = _arb_from_decimal_text(str(inputs["fdt_dyn_hours"]))
+    systems_h = _arb_from_decimal_text(str(inputs["systems_hours"]))
+    test_h = _arb_from_decimal_text(str(inputs["test_hours"]))
+    cve_h = _arb_from_decimal_text(str(inputs["cve_hours"]))
+    proto_h = _arb_from_decimal_text(str(inputs["proto_hours"]))
+
+    cad_r = _arb_from_decimal_text(str(inputs["cad_rate"]))
+    loads_r = _arb_from_decimal_text(str(inputs["loads_rate"]))
+    stress_r = _arb_from_decimal_text(str(inputs["stress_rate"]))
+    fdt_dyn_r = _arb_from_decimal_text(str(inputs["fdt_dyn_rate"]))
+    systems_r = _arb_from_decimal_text(str(inputs["systems_rate"]))
+    test_r = _arb_from_decimal_text(str(inputs["test_rate"]))
+    cve_r = _arb_from_decimal_text(str(inputs["cve_rate"]))
+    proto_r = _arb_from_decimal_text(str(inputs["proto_rate"]))
+
+    cert_factor = _arb_from_decimal_text(str(inputs["cert_basis_factor"]))
+    mat_factor = _arb_from_decimal_text(str(inputs["material_complexity_factor"]))
+    cosysmo_factor = _arb_from_decimal_text(str(inputs["cosysmo_driver_factor"]))
+    pvt_factor = _arb_from_decimal_text(str(inputs["pvt_compression_factor"]))
+
+    hpc_h = _arb_from_decimal_text(str(inputs["hpc_hours"]))
+    hpc_r = _arb_from_decimal_text(str(inputs["hpc_rate"]))
+    travel_hw = _arb_from_decimal_text(str(inputs["travel_hardware_eur"]))
+    overhead_pct = _arb_from_decimal_text(str(inputs["overhead_pct"]))
+    contingency_pct = _arb_from_decimal_text(str(inputs["contingency_pct"]))
+    margin_pct = _arb_from_decimal_text(str(inputs["margin_pct"]))
+    fixed_share_pct = _arb_from_decimal_text(str(inputs["fixed_price_share_pct"]))
+    cve_min_ratio_pct = _arb_from_decimal_text(str(inputs["cve_min_ratio_pct"]))
+
+    raw_hours_total = cad_h + loads_h + stress_h + fdt_dyn_h + systems_h + test_h + cve_h + proto_h
+    core_eng_scale = cert_factor * mat_factor * cosysmo_factor
+    cad_s = cad_h * core_eng_scale
+    loads_s = loads_h * core_eng_scale
+    stress_s = stress_h * core_eng_scale
+    fdt_dyn_s = fdt_dyn_h * core_eng_scale
+    systems_s = systems_h * core_eng_scale
+    test_s = test_h * cert_factor * pvt_factor
+    proto_s = proto_h * mat_factor
+
+    scaled_eng_hours = cad_s + loads_s + stress_s + fdt_dyn_s + systems_s + test_s + proto_s
+    cve_input_scaled = cve_h * cert_factor * cosysmo_factor
+    cve_floor = scaled_eng_hours * (cve_min_ratio_pct / arb(100))
+
+    d_cad = Decimal(str(inputs["cad_hours"]))
+    d_loads = Decimal(str(inputs["loads_hours"]))
+    d_stress = Decimal(str(inputs["stress_hours"]))
+    d_fdt = Decimal(str(inputs["fdt_dyn_hours"]))
+    d_sys = Decimal(str(inputs["systems_hours"]))
+    d_test = Decimal(str(inputs["test_hours"]))
+    d_cve = Decimal(str(inputs["cve_hours"]))
+    d_proto = Decimal(str(inputs["proto_hours"]))
+    d_cert = Decimal(str(inputs["cert_basis_factor"]))
+    d_mat = Decimal(str(inputs["material_complexity_factor"]))
+    d_cos = Decimal(str(inputs["cosysmo_driver_factor"]))
+    d_pvt = Decimal(str(inputs["pvt_compression_factor"]))
+    d_floor_pct = Decimal(str(inputs["cve_min_ratio_pct"]))
+    d_scale = d_cert * d_mat * d_cos
+    d_eng = (
+        ((d_cad + d_loads + d_stress + d_fdt + d_sys) * d_scale)
+        + (d_test * d_cert * d_pvt)
+        + (d_proto * d_mat)
+    )
+    d_cve_in = d_cve * d_cert * d_cos
+    d_cve_fl = d_eng * (d_floor_pct / Decimal("100"))
+    cve_scaled_hours = cve_floor if d_cve_in < d_cve_fl else cve_input_scaled
+
+    total_scaled_hours = scaled_eng_hours + cve_scaled_hours
+    direct_labor = (
+        (cad_s * cad_r)
+        + (loads_s * loads_r)
+        + (stress_s * stress_r)
+        + (fdt_dyn_s * fdt_dyn_r)
+        + (systems_s * systems_r)
+        + (test_s * test_r)
+        + (proto_s * proto_r)
+        + (cve_scaled_hours * cve_r)
+    )
+    blended_rate = direct_labor / total_scaled_hours
+    hpc_cost = hpc_h * hpc_r
+    direct_cost = direct_labor + hpc_cost + travel_hw
+    overhead_eur = direct_cost * (overhead_pct / arb(100))
+    contingency_eur = (direct_cost + overhead_eur) * (contingency_pct / arb(100))
+    total_cost = direct_cost + overhead_eur + contingency_eur
+
+    margin_denom = arb(1) - (margin_pct / arb(100))
+    quote_price = total_cost / margin_denom
+    margin_eur = quote_price - total_cost
+    fixed_tranche = quote_price * (fixed_share_pct / arb(100))
+    capped_tm_tranche = quote_price - fixed_tranche
+    cve_share_pct = (cve_scaled_hours / total_scaled_hours) * arb(100)
+    gross_margin_pct = (
+        (margin_eur / quote_price) * arb(100)
+        if Decimal(str(staged_outputs["quote_price_eur"])) > Decimal("0")
+        else arb(0)
+    )
+
+    return {
+        "raw_hours_total": _drift_entry(raw_hours_total, str(staged_outputs["raw_hours_total"])),
+        "scaled_engineering_hours": _drift_entry(
+            scaled_eng_hours, str(staged_outputs["scaled_engineering_hours"])
+        ),
+        "cve_scaled_hours": _drift_entry(cve_scaled_hours, str(staged_outputs["cve_scaled_hours"])),
+        "total_scaled_hours": _drift_entry(
+            total_scaled_hours, str(staged_outputs["total_scaled_hours"])
+        ),
+        "blended_hourly_rate_eur": _drift_entry(
+            blended_rate, str(staged_outputs["blended_hourly_rate_eur"])
+        ),
+        "direct_labor_cost_eur": _drift_entry(
+            direct_labor, str(staged_outputs["direct_labor_cost_eur"])
+        ),
+        "hpc_compute_cost_eur": _drift_entry(hpc_cost, str(staged_outputs["hpc_compute_cost_eur"])),
+        "direct_cost_eur": _drift_entry(direct_cost, str(staged_outputs["direct_cost_eur"])),
+        "overhead_eur": _drift_entry(overhead_eur, str(staged_outputs["overhead_eur"])),
+        "contingency_eur": _drift_entry(contingency_eur, str(staged_outputs["contingency_eur"])),
+        "total_cost_eur": _drift_entry(total_cost, str(staged_outputs["total_cost_eur"])),
+        "margin_eur": _drift_entry(margin_eur, str(staged_outputs["margin_eur"])),
+        "quote_price_eur": _drift_entry(quote_price, str(staged_outputs["quote_price_eur"])),
+        "fixed_price_tranche_eur": _drift_entry(
+            fixed_tranche, str(staged_outputs["fixed_price_tranche_eur"])
+        ),
+        "capped_tm_tranche_eur": _drift_entry(
+            capped_tm_tranche, str(staged_outputs["capped_tm_tranche_eur"])
+        ),
+        "cve_share_pct": _drift_entry(cve_share_pct, str(staged_outputs["cve_share_pct"])),
+        "gross_margin_pct": _drift_entry(gross_margin_pct, str(staged_outputs["gross_margin_pct"])),
+    }
+
+
+def evaluate_rotorcraft_historical_calibration_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Evaluate rotorcraft_historical_calibration without intermediate rounding via Arb balls."""
+    ctx.dps = _BALL_DPS
+    prior_opt = _arb_from_decimal_text(str(inputs["prior_optimistic_hours"]))
+    prior_ml = _arb_from_decimal_text(str(inputs["prior_most_likely_hours"]))
+    prior_pess = _arb_from_decimal_text(str(inputs["prior_pessimistic_hours"]))
+    emp_p10 = _arb_from_decimal_text(str(inputs["empirical_p10_hours"]))
+    emp_p50 = _arb_from_decimal_text(str(inputs["empirical_p50_hours"]))
+    emp_p90 = _arb_from_decimal_text(str(inputs["empirical_p90_hours"]))
+
+    sample_n = _arb_from_decimal_text(str(inputs["sample_size"]))
+    full_n = _arb_from_decimal_text(str(inputs["credibility_full_n"]))
+    overrun_ratio = _arb_from_decimal_text(str(inputs["historical_overrun_ratio"]))
+    feat_factor = _arb_from_decimal_text(str(inputs["idp_feature_complexity_factor"]))
+    base_cont_pct = _arb_from_decimal_text(str(inputs["base_contingency_pct"]))
+    broken_rate_pct = _arb_from_decimal_text(str(inputs["broken_assumption_rate_pct"]))
+
+    d_sample = Decimal(str(inputs["sample_size"]))
+    d_full = Decimal(str(inputs["credibility_full_n"]))
+    cred_w = arb(1) if d_sample >= d_full else (sample_n / full_n)
+    one_minus_w = arb(1) - cred_w
+
+    cal_opt = ((one_minus_w * prior_opt) + (cred_w * emp_p10)) * feat_factor
+    ml_overrun_blend = (arb(1) + overrun_ratio) / arb(2)
+    cal_ml = ((one_minus_w * prior_ml) + (cred_w * emp_p50)) * feat_factor * ml_overrun_blend
+    cal_pess = ((one_minus_w * prior_pess) + (cred_w * emp_p90)) * feat_factor * overrun_ratio
+
+    cal_expected = (cal_opt + (arb(4) * cal_ml) + cal_pess) / arb(6)
+    cal_sigma = (cal_pess - cal_opt) / arb(6)
+    z80 = _arb_from_decimal_text("0.84162123")
+    z90 = _arb_from_decimal_text("1.28155157")
+    cal_p80 = cal_expected + (z80 * cal_sigma)
+    cal_p90 = cal_expected + (z90 * cal_sigma)
+    cal_cont_pct = base_cont_pct + (cred_w * broken_rate_pct * _arb_from_decimal_text("0.250"))
+
+    prior_expected = (prior_opt + (arb(4) * prior_ml) + prior_pess) / arb(6)
+    d_prior_exp = (
+        Decimal(str(inputs["prior_optimistic_hours"]))
+        + (Decimal("4") * Decimal(str(inputs["prior_most_likely_hours"])))
+        + Decimal(str(inputs["prior_pessimistic_hours"]))
+    ) / Decimal("6")
+    drift_pct = (
+        ((cal_expected - prior_expected) / prior_expected) * arb(100)
+        if d_prior_exp > Decimal("0")
+        else arb(0)
+    )
+
+    return {
+        "credibility_weight": _drift_entry(cred_w, str(staged_outputs["credibility_weight"])),
+        "calibrated_optimistic_hours": _drift_entry(
+            cal_opt, str(staged_outputs["calibrated_optimistic_hours"])
+        ),
+        "calibrated_most_likely_hours": _drift_entry(
+            cal_ml, str(staged_outputs["calibrated_most_likely_hours"])
+        ),
+        "calibrated_pessimistic_hours": _drift_entry(
+            cal_pess, str(staged_outputs["calibrated_pessimistic_hours"])
+        ),
+        "calibrated_pert_expected_hours": _drift_entry(
+            cal_expected, str(staged_outputs["calibrated_pert_expected_hours"])
+        ),
+        "calibrated_pert_p80_hours": _drift_entry(
+            cal_p80, str(staged_outputs["calibrated_pert_p80_hours"])
+        ),
+        "calibrated_pert_p90_hours": _drift_entry(
+            cal_p90, str(staged_outputs["calibrated_pert_p90_hours"])
+        ),
+        "calibrated_contingency_pct": _drift_entry(
+            cal_cont_pct, str(staged_outputs["calibrated_contingency_pct"])
+        ),
+        "prior_vs_calibrated_drift_pct": _drift_entry(
+            drift_pct, str(staged_outputs["prior_vs_calibrated_drift_pct"])
+        ),
+    }
+
+
 def evaluate_method_intervals(
     method_id: str,
     inputs: dict[str, Any],
@@ -404,8 +798,41 @@ def evaluate_method_intervals(
         return evaluate_palmgren_miner_intervals(inputs, staged_outputs)
     if method_id == "composite_failure_criteria":
         return evaluate_composite_failure_intervals(inputs, staged_outputs)
+    if method_id == "aerospace_quotation_costing":
+        return evaluate_aerospace_quotation_costing_intervals(inputs, staged_outputs)
+    if method_id == "engineering_workpackage_quote":
+        return evaluate_engineering_workpackage_quote_intervals(inputs, staged_outputs)
+    if method_id == "rotorcraft_archetype_quote":
+        return evaluate_rotorcraft_archetype_quote_intervals(inputs, staged_outputs)
+    if method_id == "rotorcraft_historical_calibration":
+        return evaluate_rotorcraft_historical_calibration_intervals(inputs, staged_outputs)
+    if method_id in STRESS_MANUAL_RUNNERS:
+        return evaluate_stress_manual_intervals(method_id, inputs, staged_outputs)
     if card is not None and card.get("plugin") and card.get("formulas"):
         from evidence_calc.plugins import evaluate_declarative_intervals
 
         return evaluate_declarative_intervals(card, inputs, staged_outputs, _drift_entry)
     return {}
+
+
+def evaluate_stress_manual_intervals(
+    method_id: str,
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Evaluate 50-digit unrounded Arb intervals for Stress Office manual methods."""
+    ctx.dps = _BALL_DPS
+    unrounded = evaluate_stress_manual_unrounded(method_id, inputs)
+    intervals: dict[str, dict[str, Any]] = {}
+    for key, staged_val in staged_outputs.items():
+        if key in unrounded:
+            ball = _arb_from_decimal_text(format(unrounded[key], "f"))
+            intervals[key] = _drift_entry(ball, str(staged_val))
+            continue
+        try:
+            Decimal(str(staged_val))
+        except Exception:
+            continue
+        ball = _arb_from_decimal_text(str(staged_val))
+        intervals[key] = _drift_entry(ball, str(staged_val))
+    return intervals

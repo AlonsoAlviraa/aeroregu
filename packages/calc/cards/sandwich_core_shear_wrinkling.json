@@ -1,0 +1,72 @@
+{
+  "method_id": "sandwich_core_shear_wrinkling",
+  "method_version": "sandwich_core_shear_wrinkling@1.0.0",
+  "title": "Honeycomb Sandwich Facesheet Wrinkling (Hoff) & Core Shear",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "sigma_wr = 0.5 * (E_f * E_c * G_c)^(1/3); tau_core = V / (t_c + t_f); MS = min(sigma_wr/sigma_f - 1, F_cs/tau_core - 1)",
+  "note": "CMH-17 / Hoff sandwich facesheet symmetric/antisymmetric wrinkling combined with honeycomb core transverse shear.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "facesheet_stress_mpa": "megapascal",
+    "transverse_shear_n_per_mm": "newton / millimeter",
+    "facesheet_thickness_mm": "millimeter",
+    "core_thickness_mm": "millimeter",
+    "facesheet_modulus_mpa": "megapascal",
+    "core_compression_modulus_mpa": "megapascal",
+    "core_shear_modulus_mpa": "megapascal",
+    "core_shear_allowable_mpa": "megapascal"
+  },
+  "required": [
+    "facesheet_stress_mpa",
+    "transverse_shear_n_per_mm",
+    "facesheet_thickness_mm",
+    "core_thickness_mm",
+    "facesheet_modulus_mpa",
+    "core_compression_modulus_mpa",
+    "core_shear_modulus_mpa",
+    "core_shear_allowable_mpa"
+  ],
+  "limits": {
+    "facesheet_stress_mpa": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "transverse_shear_n_per_mm": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "facesheet_thickness_mm": {
+      "min_exclusive": "0",
+      "max": "200"
+    },
+    "core_thickness_mm": {
+      "min_exclusive": "0",
+      "max": "2000"
+    },
+    "facesheet_modulus_mpa": {
+      "min_exclusive": "0",
+      "max": "1000000"
+    },
+    "core_compression_modulus_mpa": {
+      "min_exclusive": "0",
+      "max": "500000"
+    },
+    "core_shear_modulus_mpa": {
+      "min_exclusive": "0",
+      "max": "500000"
+    },
+    "core_shear_allowable_mpa": {
+      "min_exclusive": "0",
+      "max": "500"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "hoff-sandwich-wrinkling",
+      "uri": "https://aeroregu.local/cards/sandwich_core_shear_wrinkling",
+      "content_hash": "b802c42710408baac4b468aa943db2e464a75ad8599e7c3b1c30debcdde95198",
+      "label": "VERIFIED"
+    }
+  ]
+}

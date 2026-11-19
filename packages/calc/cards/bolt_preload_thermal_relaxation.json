@@ -1,0 +1,78 @@
+{
+  "method_id": "bolt_preload_thermal_relaxation",
+  "method_version": "bolt_preload_thermal_relaxation@1.0.0",
+  "title": "Preloaded Bolted Joint Thermal Mismatch & Gapping Separation",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "F_p_eff = F_p0 - F_emb - (k_b*k_p/(k_b+k_p))*(alpha_b - alpha_p)*dT*L_grip; F_clamp = F_p_eff - (1-phi)*F_ext; MS_gap = F_p_eff/((1-phi)*F_ext) - 1",
+  "note": "VDI 2230 joint diagram with differential thermal expansion and joint separation (gapping) margin.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "initial_preload_n": "newton",
+    "embedment_loss_n": "newton",
+    "bolt_cte_per_c": "1 / kelvin",
+    "plate_cte_per_c": "1 / kelvin",
+    "delta_temp_c": "delta_degC",
+    "bolt_stiffness_n_per_mm": "newton / millimeter",
+    "joint_stiffness_n_per_mm": "newton / millimeter",
+    "grip_length_mm": "millimeter",
+    "external_tensile_load_n": "newton"
+  },
+  "required": [
+    "initial_preload_n",
+    "embedment_loss_n",
+    "bolt_cte_per_c",
+    "plate_cte_per_c",
+    "delta_temp_c",
+    "bolt_stiffness_n_per_mm",
+    "joint_stiffness_n_per_mm",
+    "grip_length_mm",
+    "external_tensile_load_n"
+  ],
+  "limits": {
+    "initial_preload_n": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "embedment_loss_n": {
+      "min": "0",
+      "max": "10000000000"
+    },
+    "bolt_cte_per_c": {
+      "min_exclusive": "0",
+      "max": "0.001"
+    },
+    "plate_cte_per_c": {
+      "min_exclusive": "0",
+      "max": "0.001"
+    },
+    "delta_temp_c": {
+      "min": "-300",
+      "max": "1500"
+    },
+    "bolt_stiffness_n_per_mm": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "joint_stiffness_n_per_mm": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "grip_length_mm": {
+      "min_exclusive": "0",
+      "max": "5000"
+    },
+    "external_tensile_load_n": {
+      "min": "0",
+      "max": "10000000000"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "vdi2230-bolt-thermal-gapping",
+      "uri": "https://aeroregu.local/cards/bolt_preload_thermal_relaxation",
+      "content_hash": "77bad82b58dc362fb2434e30b1779b496a926d1a485bab4655006e39016d3b55",
+      "label": "VERIFIED"
+    }
+  ]
+}

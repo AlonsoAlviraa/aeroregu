@@ -1,0 +1,66 @@
+{
+  "method_id": "nasgro_paris_crack_growth",
+  "method_version": "nasgro_paris_crack_growth@1.0.0",
+  "title": "NASGRO / Paris Crack Growth Life Integration",
+  "label": "CERTIFICATION_SIZING",
+  "equation": "da/dN = C * (Delta_K)^m; a_c = (K_Ic / (Y * Delta_sigma))^2 / pi; N_f = integral_{a_0}^{a_c} da / (C * (Y*Delta_sigma*sqrt(pi*a))^m); MS = N_f / N_req - 1",
+  "note": "NASGRO / Airbus Damage Tolerance Manual closed-form Paris integration for constant-amplitude spectrum crack propagation.",
+  "quantum": "0.0001",
+  "not_a_certification_method": false,
+  "input_units": {
+    "initial_crack_mm": "millimeter",
+    "delta_sigma_mpa": "megapascal",
+    "geometry_factor_y": "dimensionless",
+    "fracture_toughness_mpa_sqrt_m": "megapascal * meter ** 0.5",
+    "paris_c": "dimensionless",
+    "paris_m": "dimensionless",
+    "required_cycles": "dimensionless"
+  },
+  "required": [
+    "initial_crack_mm",
+    "delta_sigma_mpa",
+    "geometry_factor_y",
+    "fracture_toughness_mpa_sqrt_m",
+    "paris_c",
+    "paris_m",
+    "required_cycles"
+  ],
+  "limits": {
+    "initial_crack_mm": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "delta_sigma_mpa": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    },
+    "geometry_factor_y": {
+      "min_exclusive": "0",
+      "max": "20"
+    },
+    "fracture_toughness_mpa_sqrt_m": {
+      "min_exclusive": "0",
+      "max": "500"
+    },
+    "paris_c": {
+      "min_exclusive": "0",
+      "max": "1"
+    },
+    "paris_m": {
+      "min_exclusive": "0",
+      "max": "20"
+    },
+    "required_cycles": {
+      "min_exclusive": "0",
+      "max": "10000000000"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "nasgro-paris-dt",
+      "uri": "https://aeroregu.local/cards/nasgro_paris_crack_growth",
+      "content_hash": "ca52129bdc72ca6904fa4bee1ba2035fb25e0eb27b9b16e7d8a2cf50ac8f1db5",
+      "label": "VERIFIED"
+    }
+  ]
+}
