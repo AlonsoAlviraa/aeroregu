@@ -26,6 +26,22 @@ Later code checks, after that 2436016 ms `make bench` and not a new 100000-case 
 - `packages/domain` holds the synthetic aircraft SL-1 and public requirement identifiers. Titles were not copied from a hashed regulatory PDF, so they are `NOT_VERIFIED`.
 - Phases 4–7 (criterion cards, connectors, qualification pack, extra agents) are specified in ADR-016 through ADR-020 and are not built.
 
+## Automated Aerospace & Rotorcraft Quotation Engine
+
+Full documentation and module map: [`docs/quotation/README.md`](docs/quotation/README.md)
+
+![AeroRegu Rotorcraft Quotation Architecture](docs/quotation/aeroregu_architecture_chalkboard.png)
+
+- **Zero LLM math:** All cost, contingency, PERT (`P50/P80/P90`), and margin calculations execute via deterministic `Decimal` cards with 50-digit `FLINT/Arb` interval enclosures and Z3 SMT formal margin floor proofs (`PROVED_UNSAT`).
+- **18 Rotorcraft Archetypes + 9 Country Profiles:** Covers `Q-DES-01..Q-TST-02` across `EU_DEFAULT` and `FR`, `DE`, `ES`, `IT`, `UK`, `US`, `PL`, `IN` (plus Onshore-CVE + Nearshore-Execution hybrid), calibrated against 6 published aerospace costing studies (`NASA NDARC`, `RAND NAFCOM`, `USC COSYSMO`, `Curran/Scanlan/Roy MDO`, `GARTEUR PVT`, `EASA AI / Part 21.A.239 CVE`).
+- **2,000+ Historical Bids, IDP Inspector & k-NN:** Bulk CSV/JSON/JSONL ingestion with `80/20` Buhlmann-PERT backtest calibration, objective Nastran `.bdf`/`.f06`/STEP physical feature extraction, and deterministic k-NN twin matching.
+
+```text
+uv run python -m evidence_api.cli quote archetypes
+uv run python -m evidence_api.cli quote helicopter --text "CS-29 HEMS rescue hoist STC" --country ES
+uv run python -m evidence_api.cli quote calibrate --archetype Q-STR-03 --country ES --synthetic-count 2160
+```
+
 ## Commands
 
 ```text
