@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import re
 from collections.abc import Iterator
@@ -63,9 +64,12 @@ def _iter_nastran_lines(
     raw: bytes,
     *,
     base_dir: Path | None = None,
+    current_dir: Path | None = None,
     _visited: set[Path] | None = None,
+    _depth: int = 0,
+    include_records: list[dict[str, Any]] | None = None,
 ) -> Iterator[str]:
-    """Stream physical NASTRAN lines and safely expand INCLUDE directives within base_dir."""
+    """Stream physical NASTRAN lines and safely expand nested INCLUDE directives."""
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
@@ -73,26 +77,48 @@ def _iter_nastran_lines(
 
     visited = _visited if _visited is not None else set()
     resolved_base = base_dir.resolve() if base_dir is not None else None
+    active_dir = (current_dir or base_dir).resolve() if (current_dir or base_dir) else None
 
     for line in io.StringIO(text):
         stripped = line.strip()
         if stripped.upper().startswith("INCLUDE"):
-            if resolved_base is None:
+            if resolved_base is None or active_dir is None or _depth >= 12:
                 continue
             m_inc = re.match(r"^INCLUDE\s+['\"]?([^'\"]+)['\"]?", stripped, re.IGNORECASE)
             if not m_inc:
                 continue
             rel = m_inc.group(1).strip()
-            candidate = (resolved_base / rel).resolve()
-            if not str(candidate).startswith(str(resolved_base)) or not candidate.is_file():
-                continue
-            if candidate in visited:
+            candidate_local = (active_dir / rel).resolve()
+            candidate_root = (resolved_base / rel).resolve()
+            candidate: Path | None = None
+            for cand in (candidate_local, candidate_root):
+                if cand.is_relative_to(resolved_base) and cand.is_file():
+                    candidate = cand
+                    break
+            if candidate is None or candidate in visited:
                 continue
             visited.add(candidate)
+            inc_bytes = candidate.read_bytes()
+            if include_records is not None:
+                try:
+                    rel_display = str(candidate.relative_to(resolved_base)).replace("\\", "/")
+                except ValueError:
+                    rel_display = candidate.name
+                include_records.append(
+                    {
+                        "relative_path": rel_display,
+                        "depth": _depth + 1,
+                        "sha256": hashlib.sha256(inc_bytes).hexdigest(),
+                        "line_count": len(inc_bytes.splitlines()),
+                    }
+                )
             yield from _iter_nastran_lines(
-                candidate.read_bytes(),
+                inc_bytes,
                 base_dir=resolved_base,
+                current_dir=candidate.parent,
                 _visited=visited,
+                _depth=_depth + 1,
+                include_records=include_records,
             )
             continue
         yield line
@@ -102,6 +128,7 @@ def _iter_nastran_cards(
     raw: bytes,
     *,
     base_dir: Path | None = None,
+    include_records: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], str | None, Iterator[tuple[str, list[str]]]]:
     """Stream Case Control SUBCASEs, optional unit comment, and bulk cards in O(1) card RAM."""
     subcases: list[dict[str, Any]] = []
@@ -111,7 +138,11 @@ def _iter_nastran_cards(
 
     # Peek Case Control until BEGIN BULK (or first bulk card if no BEGIN BULK)
     header_lines: list[str] = []
-    stream = _iter_nastran_lines(raw, base_dir=base_dir)
+    stream = _iter_nastran_lines(
+        raw,
+        base_dir=base_dir,
+        include_records=include_records,
+    )
     for line in stream:
         m_u = _UNIT_COMMENT_RE.match(line.strip())
         if m_u and detected_unit_system is None:
@@ -166,9 +197,26 @@ def _iter_nastran_cards(
                 "CONM2",
                 "PSHELL",
                 "PCOMP",
+                "PCOMPG",
+                "PBAR",
+                "PBARL",
+                "PBEAM",
+                "PBEAML",
+                "PSOLID",
                 "PBUSH",
                 "MAT1",
                 "MAT8",
+                "CORD2R",
+                "CORD2C",
+                "CORD2S",
+                "CORD1R",
+                "CORD1C",
+                "CORD1S",
+                "SPC",
+                "SPC1",
+                "RBE2",
+                "RBE3",
+                "MPC",
             }
             | _NASTRAN_ELEM_CARDS
         ):
@@ -223,11 +271,16 @@ def parse_nastran_bdf(
     unit_system: str | None = None,
 ) -> dict[str, Any]:
     """Stream-parse NASTRAN .bdf/.dat bulk data (GRID, loads, GRAV/LOAD, CONM2, props, mats)."""
-    subcases, comment_units, cards_iter = _iter_nastran_cards(raw, base_dir=base_dir)
+    include_records: list[dict[str, Any]] = []
+    subcases, comment_units, cards_iter = _iter_nastran_cards(
+        raw, base_dir=base_dir, include_records=include_records
+    )
     resolved_unit_system = unit_system or comment_units
 
     grids: dict[str, dict[str, str]] = {}
     grid_pts: list[tuple[Decimal, Decimal, Decimal]] = []
+    local_cp_grid_count = 0
+    coordinate_systems: list[dict[str, str]] = []
     forces: list[dict[str, Any]] = []
     moments: list[dict[str, Any]] = []
     pload4s: list[dict[str, Any]] = []
@@ -238,12 +291,23 @@ def parse_nastran_bdf(
     pshells: list[dict[str, Any]] = []
     pcomps: list[dict[str, Any]] = []
     pbushes: list[dict[str, Any]] = []
+    pbars: list[dict[str, Any]] = []
+    pbeams: list[dict[str, Any]] = []
+    psolids: list[dict[str, Any]] = []
     mat1s: list[dict[str, Any]] = []
     mat8s: list[dict[str, Any]] = []
+    spc_constrained_dofs = 0
+    mpc_rbe_dependent_dofs = 0
+    rbe2_count = 0
+    rbe3_count = 0
+    mpc_count = 0
     card_count = 0
 
     def _f(fields: list[str], idx: int) -> str:
         return fields[idx].strip() if idx < len(fields) else ""
+
+    def _dof_count(digits: str) -> int:
+        return len({ch for ch in digits if ch in "123456"})
 
     for name, fields in cards_iter:
         card_count += 1
@@ -253,10 +317,21 @@ def parse_nastran_bdf(
             x = _nastran_dec(_f(fields, 2))
             y = _nastran_dec(_f(fields, 3))
             z = _nastran_dec(_f(fields, 4))
+            ps_dof = _f(fields, 6)
             if gid and x is not None and y is not None and z is not None:
                 sx, sy, sz = decimal_str(x), decimal_str(y), decimal_str(z)
                 grids[gid] = {"id": gid, "cp": cp, "x": sx, "y": sy, "z": sz}
                 grid_pts.append((x, y, z))
+                if cp not in ("", "0"):
+                    local_cp_grid_count += 1
+                if ps_dof:
+                    spc_constrained_dofs += _dof_count(ps_dof)
+
+        elif name in {"CORD2R", "CORD2C", "CORD2S", "CORD1R", "CORD1C", "CORD1S"}:
+            cid = _f(fields, 0)
+            rid = _f(fields, 1) or "0"
+            if cid:
+                coordinate_systems.append({"cid": cid, "card_type": name, "rid": rid})
 
         elif name == "FORCE":
             sid = _f(fields, 0) or "1"
@@ -407,18 +482,23 @@ def parse_nastran_bdf(
             if pid and t is not None:
                 pshells.append({"pid": pid, "mid1": mid1, "thickness": decimal_str(t)})
 
-        elif name == "PCOMP":
+        elif name in {"PCOMP", "PCOMPG"}:
             pid = _f(fields, 0)
             lam_opt = _f(fields, 7).upper()
             symmetric = lam_opt == "SYM"
-            # Ply triplets/quads start at field index 8 (MID, T, THETA, SOUT)
+            step_w = 5 if name == "PCOMPG" else 4
             plies: list[dict[str, Any]] = []
             total_t = Decimal(0)
             idx_p = 8
             while idx_p + 1 < len(fields):
-                mid_p = _f(fields, idx_p)
-                t_p = _nastran_dec(_f(fields, idx_p + 1))
-                theta_p = _nastran_dec(_f(fields, idx_p + 2)) or Decimal(0)
+                if name == "PCOMPG":
+                    mid_p = _f(fields, idx_p + 1)
+                    t_p = _nastran_dec(_f(fields, idx_p + 2))
+                    theta_p = _nastran_dec(_f(fields, idx_p + 3)) or Decimal(0)
+                else:
+                    mid_p = _f(fields, idx_p)
+                    t_p = _nastran_dec(_f(fields, idx_p + 1))
+                    theta_p = _nastran_dec(_f(fields, idx_p + 2)) or Decimal(0)
                 if mid_p and t_p is not None:
                     plies.append(
                         {
@@ -428,7 +508,7 @@ def parse_nastran_bdf(
                         }
                     )
                     total_t += t_p
-                idx_p += 4
+                idx_p += step_w
             if pid:
                 eff_plies = len(plies) * 2 if symmetric else len(plies)
                 eff_total_t = total_t * Decimal(2) if symmetric else total_t
@@ -443,6 +523,42 @@ def parse_nastran_bdf(
                     }
                 )
 
+        elif name in {"PBAR", "PBARL"}:
+            pid = _f(fields, 0)
+            mid = _f(fields, 1)
+            if pid:
+                if name == "PBAR":
+                    area = _nastran_dec(_f(fields, 2))
+                    pbars.append(
+                        {
+                            "pid": pid,
+                            "mid": mid,
+                            "card_type": name,
+                            "area": decimal_str(area) if area is not None else None,
+                        }
+                    )
+                else:
+                    pbars.append(
+                        {
+                            "pid": pid,
+                            "mid": mid,
+                            "card_type": name,
+                            "section_type": _f(fields, 3) or _f(fields, 2),
+                        }
+                    )
+
+        elif name in {"PBEAM", "PBEAML"}:
+            pid = _f(fields, 0)
+            mid = _f(fields, 1)
+            if pid:
+                pbeams.append({"pid": pid, "mid": mid, "card_type": name})
+
+        elif name == "PSOLID":
+            pid = _f(fields, 0)
+            mid = _f(fields, 1)
+            if pid:
+                psolids.append({"pid": pid, "mid": mid})
+
         elif name == "PBUSH":
             pid = _f(fields, 0)
             # K values follow "K" keyword in fields[1:]
@@ -453,6 +569,48 @@ def parse_nastran_bdf(
                     k_vals.append(decimal_str(kd) if kd is not None else "0")
             if pid:
                 pbushes.append({"pid": pid, "stiffness_k": k_vals})
+
+        elif name == "SPC":
+            for g_idx, c_idx in ((1, 2), (4, 5)):
+                if _f(fields, g_idx) and _f(fields, c_idx):
+                    spc_constrained_dofs += _dof_count(_f(fields, c_idx))
+
+        elif name == "SPC1":
+            d_cnt = _dof_count(_f(fields, 1))
+            if d_cnt > 0:
+                toks = [t for t in fields[2:] if t]
+                grid_cnt = 0
+                i_t = 0
+                while i_t < len(toks):
+                    if (
+                        i_t + 2 < len(toks)
+                        and toks[i_t + 1].upper() == "THRU"
+                        and toks[i_t].isdigit()
+                        and toks[i_t + 2].isdigit()
+                    ):
+                        grid_cnt += max(1, int(toks[i_t + 2]) - int(toks[i_t]) + 1)
+                        i_t += 3
+                    elif toks[i_t].isdigit():
+                        grid_cnt += 1
+                        i_t += 1
+                    else:
+                        i_t += 1
+                spc_constrained_dofs += d_cnt * grid_cnt
+
+        elif name == "RBE2":
+            rbe2_count += 1
+            cm_digits = _dof_count(_f(fields, 2)) or 6
+            dep_grids = [t for t in fields[3:] if t and t.isdigit()]
+            mpc_rbe_dependent_dofs += cm_digits * max(1, len(dep_grids))
+
+        elif name == "RBE3":
+            rbe3_count += 1
+            refc_digits = _dof_count(_f(fields, 2)) or 6
+            mpc_rbe_dependent_dofs += refc_digits
+
+        elif name == "MPC":
+            mpc_count += 1
+            mpc_rbe_dependent_dofs += 1
 
         elif name == "MAT1":
             mid = _f(fields, 0)
@@ -498,6 +656,9 @@ def parse_nastran_bdf(
         and not grav_cards
         and not pshells
         and not pcomps
+        and not pbars
+        and not pbeams
+        and not psolids
     ):
         raise IngestAbstain("empty_nastran_bulk")
 
@@ -696,13 +857,33 @@ def parse_nastran_bdf(
         )
         offset += len(line) + 1
 
+    raw_dofs = 6 * len(grids)
+    active_dofs = max(0, raw_dofs - spc_constrained_dofs - mpc_rbe_dependent_dofs)
+    cbush_elem_count = sum(1 for el in elements if el.get("type") == "CBUSH")
+    structural_elem_count = len(elements) - cbush_elem_count
+
     return {
         "format": "nastran_bdf",
         "unit_system": resolved_unit_system,
         "subcases": subcases,
+        "include_tree": include_records,
+        "coordinate_systems": coordinate_systems,
+        "local_cp_grid_count": local_cp_grid_count,
+        "dof_summary": {
+            "node_count": len(grids),
+            "raw_dofs": raw_dofs,
+            "spc_constrained_dofs": spc_constrained_dofs,
+            "mpc_rbe_dependent_dofs": mpc_rbe_dependent_dofs,
+            "active_dofs": active_dofs,
+            "rbe2_count": rbe2_count,
+            "rbe3_count": rbe3_count,
+            "mpc_count": mpc_count,
+        },
         "mesh": {
             "node_count": len(grids),
             "element_count": len(elements),
+            "structural_element_count": structural_elem_count,
+            "cbush_element_count": cbush_elem_count,
             "nodes": list(grids.values())[:2500],
             "elements": elements[:2500],
             "bbox": bbox,
@@ -711,6 +892,9 @@ def parse_nastran_bdf(
             "pshell": pshells,
             "pcomp": pcomps,
             "pbush": pbushes,
+            "pbar": pbars,
+            "pbeam": pbeams,
+            "psolid": psolids,
         },
         "materials": {
             "mat1": mat1s,

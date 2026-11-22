@@ -116,6 +116,7 @@ class IDPPhysicalComplexityProfile:
     idp_feature_complexity_factor: str
     complexity_index: str
     quality_findings: tuple[str, ...] = field(default_factory=tuple)
+    deep_metrics: dict[str, Any] = field(default_factory=dict)
 
 
 def _hash_canonical(payload: dict[str, Any]) -> str:
@@ -351,21 +352,60 @@ def ingest_historical_quotations(
             raise FileNotFoundError(f"Historical quotation file not found: {path}")
         source_desc = str(path.name)
         suffix = path.suffix.lower()
-        text = path.read_text(encoding="utf-8")
-        if suffix == ".csv":
-            raw_rows = list(csv.DictReader(text.splitlines()))
-        elif suffix == ".jsonl":
-            raw_rows = [json.loads(line) for line in text.splitlines() if line.strip()]
-        elif suffix == ".json":
-            parsed = json.loads(text)
-            if isinstance(parsed, dict) and isinstance(parsed.get("records"), list):
-                raw_rows = list(parsed["records"])
-            elif isinstance(parsed, list):
-                raw_rows = list(parsed)
-            else:
-                raise ValueError("JSON corpus must be a list or dict with 'records' key")
+        if suffix == ".xlsx":
+            from evidence_ingest.xlsx import _guard_archive_safety
+            from openpyxl import load_workbook
+
+            raw_bytes = path.read_bytes()
+            _guard_archive_safety(raw_bytes)
+            from io import BytesIO
+
+            wb = load_workbook(BytesIO(raw_bytes), read_only=True, data_only=True)
+            try:
+                ws = (
+                    wb["Historical_Bids_Import"]
+                    if "Historical_Bids_Import" in wb.sheetnames
+                    else wb.active
+                )
+                rows_iter = ws.iter_rows(values_only=True)
+                header_row = next(rows_iter, None)
+                headers = [str(c).strip() if c is not None else "" for c in (header_row or ())]
+                raw_rows = []
+                for row in rows_iter:
+                    if not any(c is not None and str(c).strip() for c in row):
+                        continue
+                    row_dict = {
+                        headers[i]: (
+                            str(row[i]).strip() if i < len(row) and row[i] is not None else ""
+                        )
+                        for i in range(len(headers))
+                        if headers[i]
+                    }
+                    if row_dict.get("quote_id", "").startswith("#"):
+                        continue
+                    raw_rows.append(row_dict)
+            finally:
+                wb.close()
         else:
-            raise ValueError(f"Unsupported historical file extension: {suffix}")
+            text = path.read_text(encoding="utf-8")
+            if suffix == ".csv":
+                raw_rows = [
+                    r
+                    for r in csv.DictReader(text.splitlines())
+                    if not str(r.get("quote_id") or "").strip().startswith("#")
+                ]
+            elif suffix == ".jsonl":
+                raw_rows = [json.loads(line) for line in text.splitlines() if line.strip()]
+            elif suffix == ".json":
+                parsed = json.loads(text)
+                if isinstance(parsed, dict) and isinstance(parsed.get("records"), list):
+                    raw_rows = list(parsed["records"])
+                elif isinstance(parsed, list):
+                    raw_rows = list(parsed)
+                else:
+                    raise ValueError("JSON corpus must be a list or dict with 'records' key")
+            else:
+                raise ValueError(f"Unsupported historical file extension: {suffix}")
 
     records: list[HistoricalQuotationRecord] = []
     rejected_errors: list[str] = []
@@ -586,49 +626,78 @@ def extract_idp_physical_complexity(
     default_cosysmo: str = "NOMINAL",
     default_idp_maturity: str = "COMPLETE",
 ) -> IDPPhysicalComplexityProfile:
-    """Deterministically inspect Nastran .bdf/.f06, STEP, and DXF files for physical complexity."""
+    """Deterministically inspect BDF/OP2/H5/F06, STEP B-Rep, DXF, and PDF/XLSX/DOCX BOMs."""
+    from evidence_coverage.deep_idp_quotation_extractor import extract_deep_idp_engineering_package
+
     att = attachments or {}
     bdf_txt, bdf_name = _read_attachment_text(att, "bdf_text", "bdf_path")
     f06_txt, f06_name = _read_attachment_text(att, "f06_text", "f06_path")
     step_txt, step_name = _read_attachment_text(att, "step_text", "step_path")
     dxf_txt, dxf_name = _read_attachment_text(att, "dxf_text", "dxf_path")
 
-    artifacts: list[str] = []
-    hashes: dict[str, str] = {}
+    deep = extract_deep_idp_engineering_package(att)
+
+    artifacts: list[str] = list(deep.get("artifacts_analyzed") or [])
+    hashes: dict[str, str] = dict(deep.get("artifact_hashes") or {})
     for label, txt in (
         (bdf_name, bdf_txt),
         (f06_name, f06_txt),
         (step_name, step_txt),
         (dxf_name, dxf_txt),
     ):
-        if label and txt:
+        if label and txt and label not in hashes:
             artifacts.append(label)
             hashes[label] = hashlib.sha256(txt.encode("utf-8")).hexdigest()
 
-    # Nastran .bdf parsing
-    nodes = len(re.findall(r"(?m)^\s*GRID\*?\b", bdf_txt, re.IGNORECASE))
-    elems = len(
-        re.findall(
-            r"(?m)^\s*(?:CQUAD4|CTRIA3|CHEXA|CTETRA|CPENTA|CBAR|CBEAM|CROD|CSHEAR)\b",
-            bdf_txt,
-            re.IGNORECASE,
-        )
+    # Combine regex baseline counts with deep nested-INCLUDE BDF + OP2/H5 + STEP B-Rep counts
+    bdf_sum = deep.get("bdf_summary") or {}
+    nodes = max(
+        len(re.findall(r"(?m)^\s*GRID\*?\b", bdf_txt, re.IGNORECASE)),
+        int(bdf_sum.get("node_count") or 0),
     )
-    cbush = len(re.findall(r"(?m)^\s*(?:CBUSH|PBUSH|RBE2|RBE3|CGAP)\b", bdf_txt, re.IGNORECASE))
-    pcomp = len(re.findall(r"(?m)^\s*PCOMP[G]?\b", bdf_txt, re.IGNORECASE))
-    subcases = len(re.findall(r"(?im)^\s*SUBCASE\b", bdf_txt))
+    elems = max(
+        len(
+            re.findall(
+                r"(?m)^\s*(?:CQUAD4|CTRIA3|CHEXA|CTETRA|CPENTA|CBAR|CBEAM|CROD|CSHEAR)\b",
+                bdf_txt,
+                re.IGNORECASE,
+            )
+        ),
+        int(bdf_sum.get("structural_element_count") or bdf_sum.get("element_count") or 0),
+    )
+    cbush = max(
+        len(re.findall(r"(?m)^\s*(?:CBUSH|PBUSH|RBE2|RBE3|CGAP)\b", bdf_txt, re.IGNORECASE)),
+        int(bdf_sum.get("cbush_joints_count") or 0),
+    )
+    pcomp = max(
+        len(re.findall(r"(?m)^\s*PCOMP[G]?\b", bdf_txt, re.IGNORECASE)),
+        int(bdf_sum.get("pcomp_laminates_count") or 0),
+    )
+    subcases = max(
+        len(re.findall(r"(?im)^\s*SUBCASE\b", bdf_txt)),
+        int(bdf_sum.get("subcases_count") or 0),
+    )
     load_cards = len(re.findall(r"(?im)^\s*(?:FORCE|MOMENT|PLOAD\d?|LOAD)\b", bdf_txt))
     load_cases = max(subcases, min(load_cards, 200))
 
     # STEP parsing
-    step_solids = len(
-        re.findall(r"MANIFOLD_SOLID_BREP|BREP_WITH_VOIDS|CLOSED_SHELL", step_txt, re.IGNORECASE)
+    cad_sz = deep.get("cad_brep_sizing") or {}
+    step_solids = max(
+        len(
+            re.findall(r"MANIFOLD_SOLID_BREP|BREP_WITH_VOIDS|CLOSED_SHELL", step_txt, re.IGNORECASE)
+        ),
+        int(cad_sz.get("solid_count") or 0),
     )
-    step_faces = len(re.findall(r"ADVANCED_FACE", step_txt, re.IGNORECASE))
+    step_faces = max(
+        len(re.findall(r"ADVANCED_FACE", step_txt, re.IGNORECASE)),
+        int(cad_sz.get("face_count") or 0),
+    )
 
-    # DXF parsing
-    dxf_entities = len(
-        re.findall(r"(?m)^\s*(?:DIMENSION|INSERT|LWPOLYLINE|CIRCLE|LINE)\s*$", dxf_txt)
+    # DXF + BOM drawing parsing
+    bom_sz = deep.get("bom_and_drawings") or {}
+    dxf_entities = max(
+        len(re.findall(r"(?m)^\s*(?:DIMENSION|INSERT|LWPOLYLINE|CIRCLE|LINE)\s*$", dxf_txt)),
+        int(bom_sz.get("drawings_count") or 0),
     )
 
     # Nastran .f06 health audit
@@ -652,7 +721,10 @@ def extract_idp_physical_complexity(
             eps_max_dec = d
     eps_exceeded = eps_max_dec is not None and eps_max_dec > Decimal("1e-6")
 
-    findings: list[str] = []
+    cae_bin = deep.get("cae_binary_summary") or {}
+    has_bin_imbalance = bool(cae_bin.get("imbalanced_subcases"))
+
+    findings: list[str] = list(deep.get("quality_findings") or [])
     if not artifacts:
         return IDPPhysicalComplexityProfile(
             artifacts_analyzed=(),
@@ -675,19 +747,23 @@ def extract_idp_physical_complexity(
             idp_feature_complexity_factor="1.000",
             complexity_index="1.000",
             quality_findings=("No physical CAD/FEM files attached; nominal priors retained.",),
+            deep_metrics=deep,
         )
 
     # Determine objective IDP maturity
-    if has_fatal:
-        findings.append("Nastran .f06 contains FATAL MESSAGE.")
-    if eps_exceeded:
-        findings.append(f"Nastran .f06 EPSILON={eps_max_dec} exceeds 1e-6 equilibrium threshold.")
-    if f06_txt and not (has_gpwg and has_oload_spc):
-        findings.append("Nastran .f06 missing GPWG or OLOAD/SPCFORCE balance tables.")
-
-    if has_fatal or eps_exceeded or (f06_txt and not (has_gpwg and has_oload_spc)):
+    if (
+        has_fatal
+        or eps_exceeded
+        or has_bin_imbalance
+        or (f06_txt and not (has_gpwg and has_oload_spc))
+    ):
         derived_maturity = "INCOMPLETE"
-    elif (bdf_txt and f06_txt and nodes > 0) or (step_txt and step_solids > 0 and not bdf_txt):
+    elif (
+        (bdf_txt and f06_txt and nodes > 0)
+        or (bdf_txt and cae_bin.get("files_parsed", 0) > 0 and nodes > 0)
+        or (step_txt and step_solids > 0 and not bdf_txt)
+        or (bom_sz.get("bom_parts_count", 0) > 0 and not bdf_txt and not f06_txt)
+    ):
         derived_maturity = "COMPLETE"
     else:
         derived_maturity = "PARTIAL"
@@ -695,9 +771,14 @@ def extract_idp_physical_complexity(
             "Partial IDP artifacts supplied (missing paired solver audit or solid BREP)."
         )
 
-    # Exact Decimal feature complexity index
+    # Exact Decimal feature complexity index (includes B-Rep Buy-to-Fly & BOM complexity)
     with localcontext() as ctx:
         ctx.prec = 30
+        btf_extra = Decimal("0")
+        if cad_sz.get("buy_to_fly_ratio"):
+            btf_d = Decimal(str(cad_sz["buy_to_fly_ratio"]))
+            if btf_d > _ONE:
+                btf_extra = (btf_d - _ONE) * Decimal("0.080")
         score = (
             (Decimal(nodes) / Decimal("2000")) * Decimal("0.250")
             + (Decimal(cbush) / Decimal("25")) * Decimal("0.300")
@@ -705,6 +786,7 @@ def extract_idp_physical_complexity(
             + (Decimal(pcomp) / Decimal("10")) * Decimal("0.150")
             + ((Decimal(step_faces) / Decimal("80")) + (Decimal(dxf_entities) / Decimal("100")))
             * Decimal("0.100")
+            + btf_extra
         )
         if score < Decimal("0.600"):
             derived_cosysmo = "LOW"
@@ -718,7 +800,6 @@ def extract_idp_physical_complexity(
         else:
             derived_cosysmo = "HIGH"
             raw_factor = Decimal("1.350")
-        # Fine-grained factor bounded in [0.850, 1.650]
         feat_factor = min(Decimal("1.650"), max(Decimal("0.850"), raw_factor))
 
     return IDPPhysicalComplexityProfile(
@@ -741,7 +822,8 @@ def extract_idp_physical_complexity(
         derived_idp_maturity=derived_maturity,
         idp_feature_complexity_factor=format_quantum(feat_factor, _Q3),
         complexity_index=format_quantum(score, _Q3),
-        quality_findings=tuple(findings),
+        quality_findings=tuple(dict.fromkeys(findings)),
+        deep_metrics=deep,
     )
 
 

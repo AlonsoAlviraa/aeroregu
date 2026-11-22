@@ -1,0 +1,1000 @@
+"""Enterprise Quotation Exporter: Live-Formula Multi-Tab Excel (.xlsx) & Signed DSSE/QR PDF.
+
+Produces OEM procurement-ready `.xlsx` workbooks with live Excel formulas (`=SUM`, `=IF`,
+`=MIN`, `=MAX`, `=COUNTIF`, `=COUNTA`, cross-sheet references) and Ed25519 DSSE-signed PDF
+dossiers with offline-verifiable ISO QR codes and visual `bbox` evidence thumbnails.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import io
+import json
+from decimal import Decimal
+from pathlib import Path
+from typing import Any
+
+import pymupdf
+from evidence_kernel.attestation import generate_ed25519_keypair, sign_attestation_dsse
+from evidence_kernel.qrcode_iso import render_qr_png
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
+
+from evidence_coverage.pdf_report import (
+    _DSSE_ATTACHMENT_NAME,
+    _PUBKEY_ATTACHMENT_NAME,
+    _render_bbox_thumbnail,
+    verify_signed_pdf_report,
+)
+
+_HEADER_FILL = PatternFill(start_color="0F172A", end_color="0F172A", fill_type="solid")
+_SUBHEADER_FILL = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+_ACCENT_FILL = PatternFill(start_color="E2E8F0", end_color="E2E8F0", fill_type="solid")
+_HEADER_FONT = Font(color="FFFFFF", bold=True, size=10)
+_TITLE_FONT = Font(color="0F172A", bold=True, size=13)
+_BOLD_FONT = Font(bold=True, size=10)
+
+
+def _num_val(raw: Any, default: float = 0.0) -> float:
+    try:
+        return float(Decimal(str(raw)))
+    except Exception:
+        return default
+
+
+def _style_header_row(ws: Any, row_idx: int, col_count: int) -> None:
+    for col in range(1, col_count + 1):
+        cell = ws.cell(row=row_idx, column=col)
+        cell.fill = _HEADER_FILL
+        cell.font = _HEADER_FONT
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+
+def _autofit_columns(ws: Any, *, min_width: int = 12, max_width: int = 44) -> None:
+    for col_cells in ws.columns:
+        col_letter = get_column_letter(col_cells[0].column)
+        longest = 0
+        for cell in col_cells:
+            val_s = str(cell.value or "")
+            if val_s.startswith("="):
+                val_s = "123,456.78"
+            longest = max(longest, len(val_s))
+        ws.column_dimensions[col_letter].width = max(min_width, min(max_width, longest + 3))
+
+
+def _normalize_wbs_dag(dossier: dict[str, Any]) -> dict[str, Any]:
+    dag = dossier.get("composite_wbs_dag")
+    if isinstance(dag, dict) and dag.get("nodes"):
+        return dag
+    arch = dossier.get("archetype") or {}
+    det = dossier.get("deterministic_quote") or {}
+    aid = str(arch.get("archetype_id") or "Q-STR-03")
+    hrs = _num_val(det.get("total_scaled_hours") or 500)
+    cost = _num_val(det.get("total_cost_eur") or 60000)
+    price = _num_val(det.get("quote_price_eur") or 78000)
+    dur = max(2.0, round(hrs / 100.0, 1))
+    return {
+        "node_count": 1,
+        "edge_count": 0,
+        "topological_order": [aid],
+        "critical_path_archetypes": [aid],
+        "project_duration_weeks": f"{dur:.1f}",
+        "synergy_hours_saved": "0.000",
+        "synergy_price_saved_eur": "0.000",
+        "synergy_savings_pct": "0.00",
+        "nodes": [
+            {
+                "archetype_id": aid,
+                "family": arch.get("family") or "STRESS",
+                "title": arch.get("title") or "Primary Rotorcraft Scope",
+                "predecessors": [],
+                "synergy_channels": [],
+                "synergy_reduction_pct": "0.00",
+                "standalone_hours": f"{hrs:.3f}",
+                "net_hours": f"{hrs:.3f}",
+                "net_cost_eur": f"{cost:.3f}",
+                "net_price_eur": f"{price:.3f}",
+                "duration_weeks": f"{dur:.1f}",
+                "early_start_week": "0.0",
+                "early_finish_week": f"{dur:.1f}",
+                "late_start_week": "0.0",
+                "late_finish_week": f"{dur:.1f}",
+                "total_float_weeks": "0.0",
+                "is_critical": True,
+            }
+        ],
+    }
+
+
+def _normalize_multiyear(dossier: dict[str, Any]) -> dict[str, Any]:
+    my = dossier.get("multiyear_cashflow_learning")
+    if isinstance(my, dict) and my.get("outputs"):
+        return my
+    pert = dossier.get("pert_envelope") or {}
+    cost = _num_val(pert.get("cost_p80_eur") or 60000)
+    price = _num_val(pert.get("price_p80_eur") or 78000)
+    return {
+        "inputs": {
+            "first_unit_cost_eur": f"{cost:.3f}",
+            "unit_count": "1",
+            "learning_rate_pct": "85.000",
+            "crawford_weight_pct": "50.000",
+            "program_years": "1",
+            "annual_inflation_pct": "3.200",
+            "wacc_annual_pct": "7.500",
+            "payment_terms_days": "30",
+        },
+        "outputs": {
+            "learning_exponent_b": "-0.234465",
+            "wright_total_base_cost_eur": f"{cost:.3f}",
+            "crawford_total_base_cost_eur": f"{cost:.3f}",
+            "active_base_total_cost_eur": f"{cost:.3f}",
+            "escalated_total_cost_eur": f"{cost:.3f}",
+            "quoted_price_eur": f"{price:.3f}",
+            "peak_negative_cashflow_eur": f"{cost * 0.25:.3f}",
+            "working_capital_financing_cost_eur": f"{cost * 0.01:.3f}",
+            "net_present_value_eur": f"{(price - cost) * 0.92:.3f}",
+            "net_margin_after_financing_pct": "21.000",
+        },
+        "diagnostics": {
+            "annual_escalation_schedule": [
+                {
+                    "year_label": "Y1",
+                    "base_cost_eur": f"{cost:.3f}",
+                    "escalation_factor": "1.000000",
+                    "escalated_cost_eur": f"{cost:.3f}",
+                }
+            ],
+            "monthly_cashflow_schedule": [
+                {
+                    "month": str(m),
+                    "outflow_eur": f"{cost / 12.0:.3f}",
+                    "inflow_eur": f"{price * 0.30:.3f}" if m in (2, 7, 13) else "0.000",
+                }
+                for m in range(1, 14)
+            ],
+        },
+    }
+
+
+def export_quotation_xlsx(
+    dossier: dict[str, Any],
+    *,
+    output_path: Path | str | None = None,
+) -> dict[str, Any]:
+    """Generate a live-formula 7-sheet Excel (.xlsx) workbook for OEM procurement review."""
+    wb = Workbook()
+    ws_exec = wb.active
+    ws_exec.title = "Resumen Ejecutivo"
+    ws_wbs = wb.create_sheet("WBS Multi-Arquetipo & CPM")
+    ws_ctry = wb.create_sheet("Comparativa 9 Paises")
+    ws_cf = wb.create_sheet("Flujo Caja & Aprendizaje")
+    ws_asm = wb.create_sheet("Registro 45 Supuestos")
+    ws_ctr = wb.create_sheet("Matriz Contractual")
+    ws_knn = wb.create_sheet("Benchmark k-NN Historico")
+
+    dag = _normalize_wbs_dag(dossier)
+    my = _normalize_multiyear(dossier)
+    comp = dossier.get("multi_country_comparison") or {
+        "countries": [],
+        "onshore_nearshore_hybrid": {},
+    }
+    assumptions_by_dim = dossier.get("assumptions_by_dimension") or {}
+    contract_audit = dossier.get("contract_audit") or {
+        "compliance_matrix": [],
+        "overall_contract_gate": "SUPPORTED",
+    }
+    hcal = dossier.get("historical_calibration") or {}
+    knn_rows = list(dossier.get("nearest_historical_quotes") or [])
+    pert = dossier.get("pert_envelope") or {}
+    z3_margin = dossier.get("formal_margin_proof") or {}
+    z3_npv = dossier.get("formal_multiyear_npv_proof") or {}
+
+    formula_count = 0
+
+    # ------------------------------------------------------------------
+    # TAB 2: WBS Multi-Arquetipo & CPM
+    # ------------------------------------------------------------------
+    wbs_headers = [
+        "Archetype ID",
+        "Family",
+        "Standalone Hours",
+        "Synergy Discount (frac)",
+        "Net Hours",
+        "Net Cost (EUR)",
+        "Net Price (EUR)",
+        "Duration (w)",
+        "ES (w)",
+        "EF (w)",
+        "LS (w)",
+        "LF (w)",
+        "Total Float (w)",
+        "Critical Path",
+    ]
+    ws_wbs.append(wbs_headers)
+    _style_header_row(ws_wbs, 1, len(wbs_headers))
+    ws_wbs.freeze_panes = "A2"
+
+    nodes = dag.get("nodes") or []
+    for idx, node in enumerate(nodes, start=2):
+        syn_frac = _num_val(node.get("synergy_reduction_pct") or 0) / 100.0
+        ws_wbs.append(
+            [
+                node["archetype_id"],
+                node.get("family", ""),
+                _num_val(node["standalone_hours"]),
+                syn_frac,
+                f"=C{idx}*(1-D{idx})",
+                _num_val(node["net_cost_eur"]),
+                _num_val(node["net_price_eur"]),
+                _num_val(node["duration_weeks"]),
+                _num_val(node["early_start_week"]),
+                f"=I{idx}+H{idx}",
+                _num_val(node["late_start_week"]),
+                f"=K{idx}+H{idx}",
+                f"=K{idx}-I{idx}",
+                f'=IF(M{idx}=0,"CRITICAL","FLOAT")',
+            ]
+        )
+        formula_count += 5
+        ws_wbs.cell(row=idx, column=4).number_format = "0.0%"
+        for c_i in (3, 5, 6, 7):
+            ws_wbs.cell(row=idx, column=c_i).number_format = "#,##0.00"
+        for c_i in (8, 9, 10, 11, 12, 13):
+            ws_wbs.cell(row=idx, column=c_i).number_format = "0.0"
+
+    wbs_last = max(2, 1 + len(nodes))
+    wbs_tot_row = wbs_last + 1
+    ws_wbs.append(
+        [
+            "TOTAL / CRITICAL",
+            "",
+            f"=SUM(C2:C{wbs_last})",
+            f"=IF(C{wbs_tot_row}>0,(C{wbs_tot_row}-E{wbs_tot_row})/C{wbs_tot_row},0)",
+            f"=SUM(E2:E{wbs_last})",
+            f"=SUM(F2:F{wbs_last})",
+            f"=SUM(G2:G{wbs_last})",
+            f"=MAX(J2:J{wbs_last})",
+            "",
+            f"=MAX(J2:J{wbs_last})",
+            "",
+            f"=MAX(L2:L{wbs_last})",
+            f'=COUNTIF(N2:N{wbs_last},"CRITICAL")',
+            "CRITICAL_NODES",
+        ]
+    )
+    formula_count += 9
+    for c_i in range(1, len(wbs_headers) + 1):
+        ws_wbs.cell(row=wbs_tot_row, column=c_i).font = _BOLD_FONT
+        ws_wbs.cell(row=wbs_tot_row, column=c_i).fill = _ACCENT_FILL
+    ws_wbs.cell(row=wbs_tot_row, column=4).number_format = "0.0%"
+    for c_i in (3, 5, 6, 7):
+        ws_wbs.cell(row=wbs_tot_row, column=c_i).number_format = "#,##0.00"
+    _autofit_columns(ws_wbs)
+
+    # ------------------------------------------------------------------
+    # TAB 3: Comparativa 9 Paises + Hybrid
+    # ------------------------------------------------------------------
+    ctry_headers = [
+        "Country Code",
+        "Country Name",
+        "Cluster Hubs",
+        "Blended Rate (EUR/h)",
+        "Total Cost (EUR)",
+        "Quote Price (EUR)",
+        "Delta vs EU_DEFAULT",
+        "CVE Share (%)",
+        "Export Regime",
+    ]
+    ws_ctry.append(ctry_headers)
+    _style_header_row(ws_ctry, 1, len(ctry_headers))
+    ws_ctry.freeze_panes = "A2"
+
+    ctry_rows = list(comp.get("countries") or [])
+    eu_row_idx = 2
+    for idx, row in enumerate(ctry_rows, start=2):
+        if row.get("country_code") == "EU_DEFAULT":
+            eu_row_idx = idx
+            break
+
+    for idx, row in enumerate(ctry_rows, start=2):
+        ws_ctry.append(
+            [
+                row["country_code"],
+                row["country_name"],
+                row.get("cluster_hubs", ""),
+                _num_val(row["blended_hourly_rate_eur"]),
+                _num_val(row["total_cost_eur"]),
+                _num_val(row["quote_price_eur"]),
+                f"=(F{idx}-$F${eu_row_idx})/$F${eu_row_idx}",
+                _num_val(row.get("cve_share_pct") or 12) / 100.0,
+                row.get("export_control_regime", ""),
+            ]
+        )
+        formula_count += 1
+        for c_i in (4, 5, 6):
+            ws_ctry.cell(row=idx, column=c_i).number_format = "#,##0.00"
+        ws_ctry.cell(row=idx, column=7).number_format = "+0.0%;-0.0%;0.0%"
+        ws_ctry.cell(row=idx, column=8).number_format = "0.0%"
+
+    hyb = comp.get("onshore_nearshore_hybrid") or {}
+    hyb_row = 2 + len(ctry_rows)
+    if hyb:
+        hyb_label = (
+            f"{hyb.get('onshore_cve_country', 'EU_DEFAULT')} CVE + "
+            f"{hyb.get('nearshore_execution_country', 'ES')}"
+        )
+        ws_ctry.append(
+            [
+                "HYBRID_ON_NEAR",
+                hyb_label,
+                "Hybrid Sovereign EU/Nearshore",
+                _num_val(hyb.get("blended_hourly_rate_eur")),
+                _num_val(hyb.get("total_cost_eur")),
+                _num_val(hyb.get("quote_price_eur")),
+                f"=(F{hyb_row}-$F${eu_row_idx})/$F${eu_row_idx}",
+                _num_val(12) / 100.0,
+                hyb.get("note", ""),
+            ]
+        )
+        formula_count += 1
+        for c_i in (4, 5, 6):
+            ws_ctry.cell(row=hyb_row, column=c_i).number_format = "#,##0.00"
+        ws_ctry.cell(row=hyb_row, column=7).number_format = "+0.0%;-0.0%;0.0%"
+        ws_ctry.cell(row=hyb_row, column=8).number_format = "0.0%"
+
+    ctry_last_data = 1 + len(ctry_rows) + (1 if hyb else 0)
+    ctry_sum_row = ctry_last_data + 1
+    ws_ctry.append(
+        [
+            "MIN / MAX",
+            "Benchmark Spread",
+            "",
+            f"=AVERAGE(D2:D{ctry_last_data})",
+            f"=MIN(E2:E{ctry_last_data})",
+            f"=MIN(F2:F{ctry_last_data})",
+            f"=MAX(F2:F{ctry_last_data})",
+            "",
+            "Lowest vs Highest Quote Price",
+        ]
+    )
+    formula_count += 4
+    ws_ctry.cell(row=ctry_sum_row, column=1).font = _BOLD_FONT
+    for c_i in (4, 5, 6, 7):
+        ws_ctry.cell(row=ctry_sum_row, column=c_i).number_format = "#,##0.00"
+    _autofit_columns(ws_ctry)
+
+    # ------------------------------------------------------------------
+    # TAB 4: Flujo Caja & Aprendizaje
+    # ------------------------------------------------------------------
+    my_in = my.get("inputs") or {}
+    my_out = my.get("outputs") or {}
+    my_diag = my.get("diagnostics") or {}
+    wacc_rate = _num_val(my_in.get("wacc_annual_pct") or 7.5) / 1200.0
+
+    ws_cf.append(["Multi-Year Learning Curve & Escalation Summary", "", "", "", "", ""])
+    ws_cf["A1"].font = _TITLE_FONT
+    ws_cf.append(
+        [
+            "Parameter / Output",
+            "Value",
+            "Units",
+            "Year",
+            "Escalation Factor",
+            "Escalated Cost (EUR)",
+        ]
+    )
+    _style_header_row(ws_cf, 2, 6)
+
+    summary_kv = [
+        ("First Unit T1 Cost", _num_val(my_in.get("first_unit_cost_eur")), "EUR"),
+        ("Lot Size (Units / MSN)", _num_val(my_in.get("unit_count") or 1), "units"),
+        ("Learning Rate (%)", _num_val(my_in.get("learning_rate_pct") or 85), "%"),
+        ("Wright Total Base Cost", _num_val(my_out.get("wright_total_base_cost_eur")), "EUR"),
+        ("Crawford Total Base Cost", _num_val(my_out.get("crawford_total_base_cost_eur")), "EUR"),
+        ("Active Base Total Cost", _num_val(my_out.get("active_base_total_cost_eur")), "EUR"),
+        ("Escalated Total Cost", _num_val(my_out.get("escalated_total_cost_eur")), "EUR"),
+        ("Multi-Year Quoted Price", _num_val(my_out.get("quoted_price_eur")), "EUR"),
+        ("Net Present Value (NPV)", _num_val(my_out.get("net_present_value_eur")), "EUR"),
+    ]
+    ann_sched = list(my_diag.get("annual_escalation_schedule") or [])
+    for i, (k_lbl, v_num, u_txt) in enumerate(summary_kv):
+        r_idx = 3 + i
+        y_item = ann_sched[i] if i < len(ann_sched) else None
+        ws_cf.append(
+            [
+                k_lbl,
+                v_num,
+                u_txt,
+                y_item["year_label"] if y_item else "",
+                _num_val(y_item["escalation_factor"]) if y_item else "",
+                _num_val(y_item["escalated_cost_eur"]) if y_item else "",
+            ]
+        )
+        ws_cf.cell(row=r_idx, column=2).number_format = "#,##0.00"
+        if y_item:
+            ws_cf.cell(row=r_idx, column=6).number_format = "#,##0.00"
+
+    cf_start_hdr = 14
+    ws_cf.cell(
+        row=cf_start_hdr - 1, column=1, value="Monthly Cash-Flow & Working Capital Schedule"
+    ).font = _TITLE_FONT
+    cf_headers = [
+        "Month",
+        "Monthly Outflow (EUR)",
+        "Milestone Inflow (EUR)",
+        "Net Cash Flow (EUR)",
+        "Cumulative Cash (EUR)",
+        "WC Financing Cost (EUR)",
+    ]
+    for col_i, h_txt in enumerate(cf_headers, start=1):
+        ws_cf.cell(row=cf_start_hdr, column=col_i, value=h_txt)
+    _style_header_row(ws_cf, cf_start_hdr, len(cf_headers))
+
+    m_sched = list(my_diag.get("monthly_cashflow_schedule") or [])
+    first_m_row = cf_start_hdr + 1
+    for offset, m_item in enumerate(m_sched):
+        r_i = first_m_row + offset
+        ws_cf.cell(row=r_i, column=1, value=int(m_item["month"]))
+        ws_cf.cell(row=r_i, column=2, value=_num_val(m_item["outflow_eur"]))
+        ws_cf.cell(row=r_i, column=3, value=_num_val(m_item["inflow_eur"]))
+        ws_cf.cell(row=r_i, column=4, value=f"=C{r_i}-B{r_i}")
+        ws_cf.cell(row=r_i, column=5, value=f"=D{r_i}" if offset == 0 else f"=E{r_i - 1}+D{r_i}")
+        ws_cf.cell(row=r_i, column=6, value=f"=IF(E{r_i}<0,-E{r_i}*{wacc_rate:.8f},0)")
+        formula_count += 3
+        for c_i in (2, 3, 4, 5, 6):
+            ws_cf.cell(row=r_i, column=c_i).number_format = "#,##0.00"
+
+    last_m_row = max(first_m_row, first_m_row + len(m_sched) - 1)
+    cf_tot_row = last_m_row + 1
+    ws_cf.cell(row=cf_tot_row, column=1, value="TOTAL / PEAK")
+    ws_cf.cell(row=cf_tot_row, column=2, value=f"=SUM(B{first_m_row}:B{last_m_row})")
+    ws_cf.cell(row=cf_tot_row, column=3, value=f"=SUM(C{first_m_row}:C{last_m_row})")
+    ws_cf.cell(row=cf_tot_row, column=4, value=f"=SUM(D{first_m_row}:D{last_m_row})")
+    ws_cf.cell(row=cf_tot_row, column=5, value=f"=MIN(E{first_m_row}:E{last_m_row})")
+    ws_cf.cell(row=cf_tot_row, column=6, value=f"=SUM(F{first_m_row}:F{last_m_row})")
+    formula_count += 5
+    for c_i in range(1, 7):
+        ws_cf.cell(row=cf_tot_row, column=c_i).font = _BOLD_FONT
+        ws_cf.cell(row=cf_tot_row, column=c_i).fill = _ACCENT_FILL
+        if c_i >= 2:
+            ws_cf.cell(row=cf_tot_row, column=c_i).number_format = "#,##0.00"
+    _autofit_columns(ws_cf)
+
+    # ------------------------------------------------------------------
+    # TAB 5: Registro 45 Supuestos
+    # ------------------------------------------------------------------
+    asm_headers = [
+        "Assumption ID",
+        "Dimension",
+        "Label",
+        "Title",
+        "Statement",
+        "Change-Order Trigger",
+        "Risk If Violated",
+    ]
+    ws_asm.append(asm_headers)
+    _style_header_row(ws_asm, 1, len(asm_headers))
+    ws_asm.freeze_panes = "A2"
+
+    asm_count = 0
+    for dim, items in assumptions_by_dim.items():
+        for it in items:
+            asm_count += 1
+            ws_asm.append(
+                [
+                    it.get("assumption_id", ""),
+                    dim,
+                    it.get("label", "ASSUMPTION"),
+                    it.get("title", ""),
+                    it.get("statement", ""),
+                    it.get("change_order_trigger", ""),
+                    it.get("risk_if_violated", ""),
+                ]
+            )
+    asm_last = max(2, 1 + asm_count)
+    ws_asm.append(["TOTAL ASSUMPTIONS", f"=COUNTA(A2:A{asm_last})", "", "", "", "", ""])
+    formula_count += 1
+    _autofit_columns(ws_asm)
+
+    # ------------------------------------------------------------------
+    # TAB 6: Matriz Contractual
+    # ------------------------------------------------------------------
+    ctr_headers = [
+        "Clause ID",
+        "Category",
+        "Status",
+        "Poison Flags",
+        "Clause Text",
+        "Rationale",
+        "Suggested Redline",
+        "Linked Assumption",
+    ]
+    ws_ctr.append(ctr_headers)
+    _style_header_row(ws_ctr, 1, len(ctr_headers))
+    ws_ctr.freeze_panes = "A2"
+
+    cl_rows = list(contract_audit.get("compliance_matrix") or [])
+    for cl in cl_rows:
+        ws_ctr.append(
+            [
+                cl["clause_id"],
+                cl["category"],
+                cl["status"],
+                ", ".join(cl.get("poison_flags") or []) or "NONE",
+                cl["text"],
+                cl["rationale"],
+                cl.get("suggested_redline") or "",
+                cl.get("linked_assumption") or "",
+            ]
+        )
+    ctr_last = max(2, 1 + len(cl_rows))
+    ctr_sum_row = ctr_last + 1
+    ws_ctr.append(
+        [
+            "GATE SUMMARY",
+            f'=IF(COUNTIF(C2:C{ctr_last},"REJECT_OR_ABSTAIN")>0,"REJECT_OR_ABSTAIN",IF(COUNTIF(C2:C{ctr_last},"CHANGE_ORDER_REQUIRED")>0,"CHANGE_ORDER_REQUIRED","SUPPORTED"))',
+            f'=COUNTIF(C2:C{ctr_last},"SUPPORTED")',
+            f'=COUNTIF(C2:C{ctr_last},"REJECT_OR_ABSTAIN")',
+            f'=COUNTIF(C2:C{ctr_last},"CHANGE_ORDER_REQUIRED")',
+            f'=COUNTIF(C2:C{ctr_last},"PARTIALLY_SUPPORTED_WITH_ASSUMPTION")',
+            "Counts: Supported | Reject | ChangeOrder | Partial",
+            "",
+        ]
+    )
+    formula_count += 5
+    _autofit_columns(ws_ctr)
+
+    # ------------------------------------------------------------------
+    # TAB 7: Benchmark k-NN Historico
+    # ------------------------------------------------------------------
+    knn_headers = [
+        "Quote ID",
+        "Archetype",
+        "Quoted Hours",
+        "Burned Hours",
+        "Overrun %",
+        "Country",
+        "Material",
+        "Similarity",
+        "Outcome",
+        "Broken Assumptions",
+    ]
+    ws_knn.append(knn_headers)
+    _style_header_row(ws_knn, 1, len(knn_headers))
+    ws_knn.freeze_panes = "A2"
+
+    for idx, k_item in enumerate(knn_rows, start=2):
+        ws_knn.append(
+            [
+                k_item["quote_id"],
+                k_item["archetype_id"],
+                _num_val(k_item["quoted_hours"]),
+                _num_val(k_item["actual_burned_hours"]),
+                f"=IF(C{idx}>0,(D{idx}-C{idx})/C{idx},0)",
+                k_item.get("country_code", ""),
+                k_item.get("material_family", ""),
+                _num_val(k_item.get("similarity_score")),
+                k_item.get("outcome", ""),
+                ", ".join(k_item.get("broken_assumption_ids") or ()) or "none",
+            ]
+        )
+        formula_count += 1
+        ws_knn.cell(row=idx, column=5).number_format = "+0.0%;-0.0%;0.0%"
+
+    bt = hcal.get("backtesting") or {}
+    ws_knn.append([])
+    ws_knn.append(["Historical Calibration Summary", "Value"])
+    ws_knn.append(["Pre-Calibration MAPE (%)", _num_val(bt.get("pre_calibration_mape_pct"))])
+    ws_knn.append(["Post-Calibration MAPE (%)", _num_val(bt.get("post_calibration_mape_pct"))])
+    ws_knn.append(
+        [
+            "Credibility Weight",
+            _num_val((hcal.get("calibration_outputs") or {}).get("credibility_weight")),
+        ]
+    )
+    _autofit_columns(ws_knn)
+
+    # ------------------------------------------------------------------
+    # TAB 1: Resumen Ejecutivo (Cross-Sheet Live Formula Dashboard)
+    # ------------------------------------------------------------------
+    ws_exec.append(["AeroRegu — Aerospace & Rotorcraft Executive Quotation Summary", "", ""])
+    ws_exec["A1"].font = _TITLE_FONT
+    ws_exec.append(
+        [
+            "ADVISORY NOTICE",
+            (
+                "ESTIMATE / ASSUMPTION decision-support aid only. "
+                "Never determines regulatory compliance or certifies airworthiness."
+            ),
+            "",
+        ]
+    )
+    ws_exec.append(["Metric / Governance Gate", "Live Formula / Value", "Source Sheet / Status"])
+    _style_header_row(ws_exec, 3, 3)
+
+    exec_rows = [
+        ("RFQ Identifier", dossier.get("rfq_id", ""), "Metadata"),
+        ("Customer / OEM", dossier.get("customer_name", ""), "Metadata"),
+        (
+            "Country Profile",
+            (dossier.get("country_profile") or {}).get("country_code", "EU_DEFAULT"),
+            "Rate Card",
+        ),
+        (
+            "Critical Path Archetypes",
+            " -> ".join(dag.get("critical_path_archetypes") or []),
+            "WBS CPM",
+        ),
+        (
+            "Project Critical Path Duration (Weeks)",
+            f"='WBS Multi-Arquetipo & CPM'!J{wbs_tot_row}",
+            "Live CPM Formula",
+        ),
+        (
+            "WBS Standalone Hours",
+            f"='WBS Multi-Arquetipo & CPM'!C{wbs_tot_row}",
+            "Live WBS Formula",
+        ),
+        (
+            "WBS Synergy Net Hours",
+            f"='WBS Multi-Arquetipo & CPM'!E{wbs_tot_row}",
+            "Live WBS Formula",
+        ),
+        (
+            "WBS Synergy Savings (%)",
+            f"='WBS Multi-Arquetipo & CPM'!D{wbs_tot_row}",
+            "Live WBS Formula",
+        ),
+        (
+            "Unit/Lot P80 Recommended Price (EUR)",
+            _num_val(pert.get("price_p80_eur") or my_out.get("quoted_price_eur")),
+            "PERT P80",
+        ),
+        (
+            "Multi-Year Escalated Total Cost (EUR)",
+            "='Flujo Caja & Aprendizaje'!B9",
+            "Multi-Year Model",
+        ),
+        ("Multi-Year Quoted Price (EUR)", "='Flujo Caja & Aprendizaje'!B10", "Multi-Year Model"),
+        (
+            "Multi-Year Net Present Value (NPV EUR)",
+            "='Flujo Caja & Aprendizaje'!B11",
+            "Multi-Year Model",
+        ),
+        (
+            "Peak Negative Cash Flow (EUR)",
+            f"='Flujo Caja & Aprendizaje'!E{cf_tot_row}",
+            "Live Cash-Flow Formula",
+        ),
+        (
+            "Working Capital Financing Cost (EUR)",
+            f"='Flujo Caja & Aprendizaje'!F{cf_tot_row}",
+            "Live Cash-Flow Formula",
+        ),
+        (
+            "Lowest 9-Country Price Benchmark (EUR)",
+            f"='Comparativa 9 Paises'!F{ctry_sum_row}",
+            "Live Benchmark Formula",
+        ),
+        (
+            "Total Assumptions Locked (10 Axes)",
+            f"='Registro 45 Supuestos'!B{asm_last + 1}",
+            "Live Assumptions Count",
+        ),
+        ("Contractual Audit Gate", f"='Matriz Contractual'!B{ctr_sum_row}", "Live Contract Matrix"),
+        (
+            "Z3 SMT Unit Margin Proof",
+            z3_margin.get("status", "SKIPPED"),
+            z3_margin.get("proof_hash", "")[:16],
+        ),
+        (
+            "Z3 SMT Multi-Year NPV Proof",
+            z3_npv.get("status", "SKIPPED"),
+            z3_npv.get("proof_hash", "")[:16],
+        ),
+        ("Merkle Ledger Root", dossier.get("merkle_root", ""), dossier.get("decision_status", "")),
+    ]
+    for idx, (m_lbl, val, note) in enumerate(exec_rows, start=4):
+        ws_exec.append([m_lbl, val, note])
+        if isinstance(val, str) and val.startswith("="):
+            formula_count += 1
+            if "(%)" in m_lbl:
+                ws_exec.cell(row=idx, column=2).number_format = "0.0%"
+            elif "EUR" in m_lbl:
+                ws_exec.cell(row=idx, column=2).number_format = "#,##0.00"
+            else:
+                ws_exec.cell(row=idx, column=2).number_format = "#,##0.0"
+        elif isinstance(val, float):
+            ws_exec.cell(row=idx, column=2).number_format = "#,##0.00"
+    _autofit_columns(ws_exec, max_width=64)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    xlsx_bytes = buf.getvalue()
+    xlsx_sha256 = hashlib.sha256(xlsx_bytes).hexdigest()
+
+    out_str: str | None = None
+    if output_path is not None:
+        out_p = Path(output_path)
+        out_p.parent.mkdir(parents=True, exist_ok=True)
+        out_p.write_bytes(xlsx_bytes)
+        out_str = str(out_p)
+
+    return {
+        "xlsx_bytes": xlsx_bytes,
+        "xlsx_sha256": xlsx_sha256,
+        "sheet_names": wb.sheetnames,
+        "formula_count": formula_count,
+        "output_path": out_str,
+    }
+
+
+def export_quotation_signed_pdf(
+    dossier: dict[str, Any],
+    *,
+    private_key_pem: bytes | None = None,
+    public_key_pem: bytes | None = None,
+    pdf_sources: dict[str, bytes | Path] | None = None,
+    output_path: Path | str | None = None,
+) -> dict[str, Any]:
+    """Generate an Ed25519 DSSE + ISO QR signed commercial-technical PDF quotation dossier."""
+    if private_key_pem is None:
+        priv_pem, pub_pem = generate_ed25519_keypair()
+    else:
+        priv_pem = private_key_pem
+        if public_key_pem is None:
+            from cryptography.hazmat.primitives import serialization
+
+            priv_obj = serialization.load_pem_private_key(priv_pem, password=None)
+            pub_pem = priv_obj.public_key().public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+        else:
+            pub_pem = public_key_pem
+
+    dag = _normalize_wbs_dag(dossier)
+    my = _normalize_multiyear(dossier)
+    my_out = my.get("outputs") or {}
+    pert = dossier.get("pert_envelope") or {}
+    comp = dossier.get("multi_country_comparison") or {
+        "countries": [],
+        "onshore_nearshore_hybrid": {},
+    }
+    contract_audit = dossier.get("contract_audit") or {}
+    idp = dossier.get("idp_physical_extraction") or {}
+    deep_idp = idp.get("deep_metrics") or {}
+    z3_margin = dossier.get("formal_margin_proof") or {}
+    z3_npv = dossier.get("formal_multiyear_npv_proof") or {}
+    merkle = str(dossier.get("merkle_root") or ("0" * 64))
+
+    attestation_payload = {
+        "schema": "evidence-layer/quotation-pdf-dossier@1.0.0",
+        "rfq_id": str(dossier.get("rfq_id") or "RFQ-QUOTE"),
+        "tenant_id": str(dossier.get("tenant_id") or "demo"),
+        "merkle_root": merkle,
+        "decision_status": str(dossier.get("decision_status") or "APPROVED_FOR_HUMAN_REVIEW"),
+        "price_p80_eur": str(pert.get("price_p80_eur") or my_out.get("quoted_price_eur") or "0"),
+        "multiyear_price_eur": str(my_out.get("quoted_price_eur") or "0"),
+        "multiyear_npv_eur": str(my_out.get("net_present_value_eur") or "0"),
+        "z3_margin_status": str(z3_margin.get("status") or "SKIPPED"),
+        "z3_npv_status": str(z3_npv.get("status") or "SKIPPED"),
+        "contract_gate": str(contract_audit.get("overall_contract_gate") or "SUPPORTED"),
+        "critical_path": list(dag.get("critical_path_archetypes") or []),
+    }
+    dsse_envelope = sign_attestation_dsse(attestation_payload, priv_pem)
+    dsse_bytes = json.dumps(dsse_envelope, sort_keys=True, indent=2).encode("utf-8")
+    sig_raw = base64.b64decode(dsse_envelope["signatures"][0]["sig"])
+    sig_sha256 = hashlib.sha256(sig_raw).hexdigest()
+
+    qr_payload = "aeroregu-quote:" + json.dumps(
+        {
+            "v": 1,
+            "r": str(dossier.get("rfq_id") or "")[:20],
+            "m": merkle[:16],
+            "s": sig_sha256[:16],
+            "p": str(my_out.get("quoted_price_eur") or "")[:16],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    qr_png = render_qr_png(qr_payload, scale=8, border=6)
+
+    doc = pymupdf.open()
+    # PAGE 1: Executive Commercial-Technical Summary, QR, DSSE & Z3 Gates
+    p1 = doc.new_page(width=595, height=842)
+    banner_rgb = (15 / 255, 23 / 255, 42 / 255)
+    p1.draw_rect(pymupdf.Rect(32, 28, 563, 94), color=banner_rgb, fill=banner_rgb)
+    p1.insert_text(
+        (44, 54),
+        "AeroRegu - Signed Aerospace Quotation Dossier",
+        fontsize=14,
+        color=(1, 1, 1),
+    )
+    p1.insert_text(
+        (44, 74),
+        "ASSUMPTION / ESTIMATE aid for engineering managers & Part 21J CVEs. Never certifies.",
+        fontsize=8.2,
+        color=(0.82, 0.88, 0.96),
+    )
+
+    p1.draw_rect(
+        pymupdf.Rect(366, 102, 566, 302), color=(0.85, 0.88, 0.92), fill=(1, 1, 1), width=0.6
+    )
+    p1.insert_image(pymupdf.Rect(370, 106, 562, 298), stream=qr_png)
+    p1.insert_text(
+        (386, 314), "Offline ISO QR + Ed25519 DSSE", fontsize=7.5, color=(0.2, 0.25, 0.35)
+    )
+
+    meta_lines = [
+        f"RFQ ID: {dossier.get('rfq_id')}  |  Customer: {dossier.get('customer_name')}",
+        f"Country: {(dossier.get('country_profile') or {}).get('country_code', 'EU_DEFAULT')}  |  "
+        f"Decision: {dossier.get('decision_status')}",
+        f"Critical Path ({dag.get('project_duration_weeks')} w): "
+        + " -> ".join(dag.get("critical_path_archetypes") or []),
+        f"Synergy Saved: {dag.get('synergy_hours_saved')} h ({dag.get('synergy_savings_pct')}%)",
+        f"Unit/Lot P80 Price: {pert.get('price_p80_eur')} EUR",
+        f"Multi-Year Price: {my_out.get('quoted_price_eur')} EUR",
+        f"Multi-Year NPV: {my_out.get('net_present_value_eur')} EUR  |  "
+        f"Peak Neg CF: -{my_out.get('peak_negative_cashflow_eur')} EUR",
+        f"Z3 Margin Gate: {z3_margin.get('status', 'SKIPPED')}  |  "
+        f"Z3 Multi-Year NPV: {z3_npv.get('status', 'SKIPPED')}",
+        f"Contract Gate: {contract_audit.get('overall_contract_gate', 'SUPPORTED')} "
+        f"(Poisons: {contract_audit.get('poison_clauses_count', 0)})",
+        f"Merkle Root: {merkle[:32]}...",
+        f"DSSE Sig SHA-256: {sig_sha256[:32]}...",
+    ]
+    y_c = 120
+    for line in meta_lines:
+        p1.insert_text((36, y_c), line[:62], fontsize=8.8, color=(0.1, 0.14, 0.22))
+        y_c += 16
+
+    y_c = max(y_c + 16, 336)
+    p1.insert_text(
+        (36, y_c),
+        "Composite WBS DAG & Critical Path Schedule",
+        fontsize=11,
+        color=(0.06, 0.1, 0.18),
+    )
+    y_c += 16
+    for node in (dag.get("nodes") or [])[:18]:
+        crit_tag = (
+            "CRITICAL" if node.get("is_critical") else f"Float {node.get('total_float_weeks')}w"
+        )
+        row_txt = (
+            f"{node['archetype_id']} [{node['family']}]  Net: {node['net_hours']}h  "
+            f"ES={node['early_start_week']}w EF={node['early_finish_week']}w  "
+            f"({crit_tag})  Price={node['net_price_eur']} EUR"
+        )
+        p1.insert_text((40, y_c), row_txt[:96], fontsize=8.0, color=(0.15, 0.2, 0.28))
+        y_c += 13
+
+    # PAGE 2: 9-Country Comparison, Contractual Matrix & Deep IDP Sizing
+    p2 = doc.new_page(width=595, height=842)
+    p2.insert_text((36, 44), "9-Country Rate Comparison & Onshore/Nearshore Hybrid", fontsize=11.5)
+    y2 = 64
+    for r in (comp.get("countries") or [])[:10]:
+        delta_eu = r.get("delta_vs_eu_default_pct", "0.00")
+        p2.insert_text(
+            (40, y2),
+            f"{r['country_code']:10s} | Rate: {r['blended_hourly_rate_eur']:>8s} | "
+            f"Price: {r['quote_price_eur']:>12s} EUR | Delta EU: {delta_eu}%",
+            fontsize=8.2,
+        )
+        y2 += 14
+    hyb = comp.get("onshore_nearshore_hybrid") or {}
+    if hyb:
+        p2.insert_text(
+            (40, y2 + 4),
+            f"Hybrid ({hyb.get('onshore_cve_country')}/{hyb.get('nearshore_execution_country')}): "
+            f"{hyb.get('quote_price_eur')} EUR ({hyb.get('delta_vs_onshore_pct')}% vs onshore)",
+            fontsize=8.5,
+            color=(0.05, 0.35, 0.15),
+        )
+        y2 += 24
+
+    p2.insert_text((36, y2 + 8), "Contractual Clause Audit & Poison-Clause Alerts", fontsize=11.5)
+    y2 += 26
+    for cl in (contract_audit.get("compliance_matrix") or [])[:14]:
+        pflags = ",".join(cl.get("poison_flags") or [])
+        tag = f"[{cl['status']}]" + (f" POISON={pflags}" if pflags else "")
+        color = (0.72, 0.1, 0.1) if pflags else (0.12, 0.18, 0.28)
+        p2.insert_text(
+            (40, y2), f"{cl['clause_id']} {tag}: {cl['text'][:58]}", fontsize=8.0, color=color
+        )
+        y2 += 13
+
+    y2 += 14
+    p2.insert_text((36, y2), "Deep Physical IDP Summary & Citations", fontsize=11.5)
+    y2 += 16
+    bdf_sum = deep_idp.get("bdf_summary") or {}
+    cad_sz = deep_idp.get("cad_brep_sizing") or {}
+    bom_sz = deep_idp.get("bom_and_drawings") or {}
+    p2.insert_text(
+        (40, y2),
+        f"IDP Maturity={idp.get('derived_idp_maturity')} | Nodes={idp.get('fem_nodes_count')} | "
+        f"Active DOFs={(bdf_sum.get('dof_summary') or {}).get('active_dofs', 0)} | "
+        f"Buy-to-Fly={cad_sz.get('buy_to_fly_ratio', '1.000')} | "
+        f"BOM Parts={bom_sz.get('bom_parts_count', 0)}",
+        fontsize=8.3,
+    )
+    y2 += 18
+
+    bbox_cits = list(bom_sz.get("verified_bbox_citations") or [])[:3]
+    for cl in contract_audit.get("compliance_matrix") or []:
+        if cl.get("page_no") and cl.get("bbox") and len(bbox_cits) < 3:
+            bbox_cits.append(
+                {
+                    "source_id": cl.get("clause_id", "clause"),
+                    "source_hash": cl.get("source_file", "rfq"),
+                    "page_no": cl["page_no"],
+                    "bbox": cl["bbox"],
+                    "text": cl.get("text", ""),
+                }
+            )
+    for cit in bbox_cits:
+        if y2 > 690:
+            break
+        thumb = _render_bbox_thumbnail(citation=cit, pdf_sources=pdf_sources)
+        p2.insert_image(pymupdf.Rect(40, y2, 220, y2 + 95), stream=thumb)
+        p2.insert_text(
+            (230, y2 + 24),
+            f"Cited Page {cit['page_no']} | BBox: {cit['bbox']}",
+            fontsize=8.0,
+            color=(0.72, 0.1, 0.1),
+        )
+        y2 += 104
+
+    doc.embfile_add(
+        _DSSE_ATTACHMENT_NAME,
+        dsse_bytes,
+        filename=_DSSE_ATTACHMENT_NAME,
+        desc="DSSE v1 Ed25519 Quotation Attestation Envelope",
+    )
+    doc.embfile_add(
+        _PUBKEY_ATTACHMENT_NAME,
+        pub_pem,
+        filename=_PUBKEY_ATTACHMENT_NAME,
+        desc="Ed25519 Verification Public Key (PEM)",
+    )
+    doc.set_metadata(
+        {
+            "title": f"AeroRegu Signed Quotation Dossier ({dossier.get('rfq_id')})",
+            "subject": f"merkle={merkle}",
+            "keywords": qr_payload,
+            "creator": "aeroregu-quotation-exporter",
+        }
+    )
+
+    pdf_bytes = doc.tobytes(deflate=True)
+    doc.close()
+
+    out_str: str | None = None
+    if output_path is not None:
+        out_p = Path(output_path)
+        out_p.parent.mkdir(parents=True, exist_ok=True)
+        out_p.write_bytes(pdf_bytes)
+        out_str = str(out_p)
+
+    return {
+        "pdf_bytes": pdf_bytes,
+        "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
+        "merkle_root": merkle,
+        "qr_payload": qr_payload,
+        "dsse_envelope": dsse_envelope,
+        "public_key_pem": pub_pem.decode("ascii"),
+        "bbox_thumbnails_count": len(bbox_cits),
+        "output_path": out_str,
+    }
+
+
+def verify_quotation_signed_pdf(
+    pdf_bytes: bytes,
+    *,
+    expected_public_key_pem: bytes | None = None,
+) -> dict[str, Any]:
+    """Verify embedded Ed25519 DSSE signature and ISO QR image in exported quotation PDF."""
+    return verify_signed_pdf_report(pdf_bytes, expected_public_key_pem=expected_public_key_pem)

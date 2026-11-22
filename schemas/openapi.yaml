@@ -1039,6 +1039,16 @@ paths:
             application/javascript:
               schema:
                 type: string
+  /static/quotation_cockpit.js:
+    get:
+      operationId: quotationCockpitScript
+      responses:
+        "200":
+          description: Interactive Year-1 Q1-Q4 helicopter multi-archetype quotation cockpit UI controller.
+          content:
+            application/javascript:
+              schema:
+                type: string
   /metrics:
     get:
       operationId: prometheusMetrics
@@ -1559,6 +1569,283 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Envelope"
+  /nafems/audit:
+    post:
+      operationId: runNafemsAudit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Run deterministic NAFEMS benchmark/equilibrium audit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /nafems/bdf-diff:
+    post:
+      operationId: runNafemsBdfDiff
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Run structural diff across baseline and modified Nastran BDF models.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /quotations/catalog:
+    get:
+      operationId: getQuotationCatalog
+      responses:
+        "200":
+          description: Return standard engineering quotation catalog and default assumption registry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /quotations/generate:
+    post:
+      operationId: generateQuotation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Generate an 8-agent supervised aerospace engineering quotation dossier.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /quotations/sensitivity:
+    post:
+      operationId: quotationSensitivity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Compute PERT tornado sensitivity and margin stress envelope for a quotation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /quotations/repos-benchmark:
+    get:
+      operationId: getQuotationReposBenchmark
+      responses:
+        "200":
+          description: Return offline benchmark across 32 GitHub quotation repos and 18 commercial platforms.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /quotations/scrape-repos:
+    post:
+      operationId: scrapeQuotationRepos
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Refresh/score GitHub & web quoting benchmark sources.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /quotations/rotorcraft/catalog:
+    get:
+      operationId: getRotorcraftQuotationCatalog
+      responses:
+        "200":
+          description: Return 18 rotorcraft archetypes, 9 country profiles, 6 scientific costing studies, and 45 assumptions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /quotations/rotorcraft/generate:
+    post:
+      operationId: generateRotorcraftQuotation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Generate a single-archetype rotorcraft quotation with IDP and historical k-NN matching.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /quotations/rotorcraft/calibrate-historical:
+    post:
+      operationId: calibrateRotorcraftHistorical
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Run 80/20 Buhlmann-PERT historical backtest calibration and k-NN twin retrieval.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /quotations/rotorcraft/composite-dag:
+    post:
+      operationId: generateCompositeRotorcraftDagQuotation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Generate a Composite Multi-Archetype WBS DAG quotation with CPM, reuse synergy, deep IDP, contractual gate, and Z3 SMT NPV/margin proofs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /quotations/rotorcraft/multiyear-cashflow:
+    post:
+      operationId: runRotorcraftMultiyearCashflow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Evaluate deterministic Decimal + FLINT/Arb 50-digit Wright/Crawford learning curve, country inflation, and monthly working-capital cash flow.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /quotations/rotorcraft/idp-deep-inspect:
+    post:
+      operationId: inspectDeepIdpPackage
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Inspect nested-INCLUDE Nastran BDF, OP2/H5 binaries, F06 audits, STEP B-Rep Buy-to-Fly, and PDF/XLSX/DOCX BOMs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /quotations/rotorcraft/contract-audit:
+    post:
+      operationId: auditRfqContractClauses
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Audit RFQ clauses deterministically into SUPPORTED / ASSUMPTION / CHANGE_ORDER / REJECT_OR_ABSTAIN and detect 6 poison-clause patterns.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /quotations/rotorcraft/export-xlsx:
+    post:
+      operationId: exportRotorcraftQuotationXlsx
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Download native 7-tab live-formula Excel (.xlsx) OEM quotation workbook.
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+  /quotations/rotorcraft/export-pdf:
+    post:
+      operationId: exportRotorcraftQuotationPdf
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Download Ed25519 DSSE and ISO QR signed commercial-technical PDF dossier.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  /quotations/rotorcraft/advanced-calibration:
+    post:
+      operationId: runRotorcraftAdvancedCalibration
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Run IQR/MAD outlier detection, stratified K-Fold CV, drift diagnostics, and P50..P90 Win-Rate calibration.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /quotations/rotorcraft/erp-template:
+    get:
+      operationId: downloadRotorcraftErpTemplate
+      parameters:
+        - in: query
+          name: format
+          required: false
+          schema:
+            type: string
+            enum: [xlsx, csv]
+      responses:
+        "200":
+          description: Download ERP/SAP historical bid import template (.xlsx or .csv).
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+            text/csv:
+              schema:
+                type: string
 components:
   schemas:
     Envelope:

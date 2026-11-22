@@ -776,6 +776,150 @@ def evaluate_rotorcraft_historical_calibration_intervals(
     }
 
 
+def evaluate_aerospace_multiyear_cashflow_learning_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Evaluate aerospace_multiyear_cashflow_learning via 50-digit Arb balls."""
+    ctx.dps = _BALL_DPS
+    t1 = _arb_from_decimal_text(str(inputs["first_unit_cost_eur"]))
+    n_units = int(Decimal(str(inputs["unit_count"])))
+    lr_pct = _arb_from_decimal_text(str(inputs["learning_rate_pct"]))
+    crawford_w_pct = _arb_from_decimal_text(str(inputs["crawford_weight_pct"]))
+    n_years = int(Decimal(str(inputs["program_years"])))
+    inf_pct = _arb_from_decimal_text(str(inputs["annual_inflation_pct"]))
+    target_margin_pct = _arb_from_decimal_text(str(inputs["target_margin_pct"]))
+    wacc_pct = _arb_from_decimal_text(str(inputs["wacc_annual_pct"]))
+    n_days = int(Decimal(str(inputs["payment_terms_days"])))
+
+    m_ko = _arb_from_decimal_text(str(inputs["milestone_ko_pct"]))
+    m_pdr = _arb_from_decimal_text(str(inputs["milestone_pdr_pct"]))
+    m_cdr = _arb_from_decimal_text(str(inputs["milestone_cdr_pct"]))
+    m_test = _arb_from_decimal_text(str(inputs["milestone_test_pct"]))
+    m_cve = _arb_from_decimal_text(str(inputs["milestone_cve_pct"]))
+
+    b_exp = (lr_pct / arb(100)).log() / arb(2).log()
+    wright_cum_avg = t1 * (b_exp * arb(n_units).log()).exp() if n_units > 1 else t1
+    wright_total = arb(n_units) * wright_cum_avg
+    if n_units > 1:
+        wright_prev = arb(n_units - 1) * t1 * (b_exp * arb(n_units - 1).log()).exp()
+        wright_last = wright_total - wright_prev
+    else:
+        wright_last = t1
+
+    crawford_total = arb(0)
+    crawford_last = t1
+    for k in range(1, n_units + 1):
+        u_cost = t1 * (b_exp * arb(k).log()).exp() if k > 1 else t1
+        crawford_total = crawford_total + u_cost
+        crawford_last = u_cost
+
+    w_crawford = crawford_w_pct / arb(100)
+    active_base = ((arb(1) - w_crawford) * wright_total) + (w_crawford * crawford_total)
+
+    inf_rate = inf_pct / arb(100)
+    annual_base = active_base / arb(n_years)
+    year_costs: list[arb] = []
+    for y in range(n_years):
+        year_costs.append(annual_base * ((arb(1) + inf_rate) ** y))
+
+    escalated_total = arb(0)
+    for yc in year_costs:
+        escalated_total = escalated_total + yc
+    inflation_esc = escalated_total - active_base
+    eff_esc_factor = escalated_total / active_base
+    margin_denom = arb(1) - (target_margin_pct / arb(100))
+    quoted_price = escalated_total / margin_denom
+
+    total_program_months = 12 * n_years
+    lag_months = (n_days + 29) // 30
+    horizon_months = total_program_months + lag_months
+
+    outflows = [arb(0)] * (horizon_months + 1)
+    inflows = [arb(0)] * (horizon_months + 1)
+    for m in range(1, total_program_months + 1):
+        outflows[m] = year_costs[(m - 1) // 12] / arb(12)
+
+    milestone_specs = (
+        (1, m_ko),
+        (max(1, (total_program_months * 25 + 50) // 100), m_pdr),
+        (max(1, (total_program_months * 50 + 50) // 100), m_cdr),
+        (max(1, (total_program_months * 80 + 50) // 100), m_test),
+        (total_program_months, m_cve),
+    )
+    for bill_m, pct in milestone_specs:
+        cash_m = bill_m + lag_months
+        inflows[cash_m] = inflows[cash_m] + quoted_price * (pct / arb(100))
+
+    r_month = wacc_pct / arb(1200)
+    cum_cash = arb(0)
+    peak_negative = arb(0)
+    peak_neg_mid = Decimal("0")
+    wc_financing = arb(0)
+    npv = arb(0)
+
+    for m in range(1, horizon_months + 1):
+        net_m = inflows[m] - outflows[m]
+        cum_cash = cum_cash + net_m
+        cum_mid = Decimal(cum_cash.mid().str(30, radius=False))
+        if cum_mid < Decimal("0"):
+            deficit = -cum_cash
+            neg_mid = -cum_mid
+            if neg_mid > peak_neg_mid:
+                peak_neg_mid = neg_mid
+                peak_negative = deficit
+            wc_financing = wc_financing + (deficit * r_month)
+        npv = npv + (net_m / ((arb(1) + r_month) ** m))
+
+    net_margin_eur = quoted_price - escalated_total - wc_financing
+    net_margin_pct = (net_margin_eur / quoted_price) * arb(100)
+
+    return {
+        "learning_exponent_b": _drift_entry(b_exp, str(staged_outputs["learning_exponent_b"])),
+        "wright_cumulative_avg_unit_cost_eur": _drift_entry(
+            wright_cum_avg, str(staged_outputs["wright_cumulative_avg_unit_cost_eur"])
+        ),
+        "wright_total_base_cost_eur": _drift_entry(
+            wright_total, str(staged_outputs["wright_total_base_cost_eur"])
+        ),
+        "wright_last_unit_cost_eur": _drift_entry(
+            wright_last, str(staged_outputs["wright_last_unit_cost_eur"])
+        ),
+        "crawford_total_base_cost_eur": _drift_entry(
+            crawford_total, str(staged_outputs["crawford_total_base_cost_eur"])
+        ),
+        "crawford_last_unit_cost_eur": _drift_entry(
+            crawford_last, str(staged_outputs["crawford_last_unit_cost_eur"])
+        ),
+        "active_base_total_cost_eur": _drift_entry(
+            active_base, str(staged_outputs["active_base_total_cost_eur"])
+        ),
+        "inflation_escalation_eur": _drift_entry(
+            inflation_esc, str(staged_outputs["inflation_escalation_eur"])
+        ),
+        "effective_escalation_factor": _drift_entry(
+            eff_esc_factor, str(staged_outputs["effective_escalation_factor"])
+        ),
+        "escalated_total_cost_eur": _drift_entry(
+            escalated_total, str(staged_outputs["escalated_total_cost_eur"])
+        ),
+        "quoted_price_eur": _drift_entry(quoted_price, str(staged_outputs["quoted_price_eur"])),
+        "peak_negative_cashflow_eur": _drift_entry(
+            peak_negative, str(staged_outputs["peak_negative_cashflow_eur"])
+        ),
+        "working_capital_financing_cost_eur": _drift_entry(
+            wc_financing, str(staged_outputs["working_capital_financing_cost_eur"])
+        ),
+        "net_present_value_eur": _drift_entry(npv, str(staged_outputs["net_present_value_eur"])),
+        "net_margin_after_financing_eur": _drift_entry(
+            net_margin_eur, str(staged_outputs["net_margin_after_financing_eur"])
+        ),
+        "net_margin_after_financing_pct": _drift_entry(
+            net_margin_pct, str(staged_outputs["net_margin_after_financing_pct"])
+        ),
+    }
+
+
 def evaluate_method_intervals(
     method_id: str,
     inputs: dict[str, Any],
@@ -806,6 +950,8 @@ def evaluate_method_intervals(
         return evaluate_rotorcraft_archetype_quote_intervals(inputs, staged_outputs)
     if method_id == "rotorcraft_historical_calibration":
         return evaluate_rotorcraft_historical_calibration_intervals(inputs, staged_outputs)
+    if method_id == "aerospace_multiyear_cashflow_learning":
+        return evaluate_aerospace_multiyear_cashflow_learning_intervals(inputs, staged_outputs)
     if method_id in STRESS_MANUAL_RUNNERS:
         return evaluate_stress_manual_intervals(method_id, inputs, staged_outputs)
     if card is not None and card.get("plugin") and card.get("formulas"):

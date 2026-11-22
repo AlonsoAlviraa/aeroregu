@@ -32,14 +32,19 @@ Full documentation and module map: [`docs/quotation/README.md`](docs/quotation/R
 
 ![AeroRegu Rotorcraft Quotation Architecture](docs/quotation/aeroregu_architecture_chalkboard.png)
 
-- **Zero LLM math:** All cost, contingency, PERT (`P50/P80/P90`), and margin calculations execute via deterministic `Decimal` cards with 50-digit `FLINT/Arb` interval enclosures and Z3 SMT formal margin floor proofs (`PROVED_UNSAT`).
-- **18 Rotorcraft Archetypes + 9 Country Profiles:** Covers `Q-DES-01..Q-TST-02` across `EU_DEFAULT` and `FR`, `DE`, `ES`, `IT`, `UK`, `US`, `PL`, `IN` (plus Onshore-CVE + Nearshore-Execution hybrid), calibrated against 6 published aerospace costing studies (`NASA NDARC`, `RAND NAFCOM`, `USC COSYSMO`, `Curran/Scanlan/Roy MDO`, `GARTEUR PVT`, `EASA AI / Part 21.A.239 CVE`).
-- **2,000+ Historical Bids, IDP Inspector & k-NN:** Bulk CSV/JSON/JSONL ingestion with `80/20` Buhlmann-PERT backtest calibration, objective Nastran `.bdf`/`.f06`/STEP physical feature extraction, and deterministic k-NN twin matching.
+- **Zero LLM math & Z3 SMT Formal Proofs (Q1):** Five deterministic `Decimal` calculation cards (including `aerospace_multiyear_cashflow_learning`) with 50-digit `FLINT/Arb` interval enclosures compute unit PERT (`P50/P80/P90`), Wright & Crawford learning curves, Y1–Y5 country inflation, monthly working-capital cash flow, and Z3 SMT proofs (`PROVED_UNSAT`) for both unit margin and multi-year post-financing NPV/margin floors.
+- **Composite WBS DAG + 18 Archetypes + 9 Country Profiles (Q1):** Builds multi-archetype acyclic WBS DAGs across `Q-DES-01..Q-TST-02` and `EU_DEFAULT`, `FR`, `DE`, `ES`, `IT`, `UK`, `US`, `PL`, `IN` (plus Onshore-CVE + Nearshore hybrid), computing deterministic Critical Path Method schedules (`ES/EF/LS/LF/Float`), GFEM/loads reuse synergy (preserving the mandatory CVE floor), and calibration against 6 aerospace studies (`NASA NDARC`, `RAND NAFCOM`, `USC COSYSMO`, `Curran/Scanlan/Roy MDO`, `GARTEUR PVT`, `EASA AI / Part 21.A.239 CVE`).
+- **Deep Physical IDP Inspector (Q2):** Resolves multi-level nested Nastran `INCLUDE` trees, local `CORD1/2` coordinate systems, structural vs. `CBUSH` element/DOF counts (`SPC/RBE2/RBE3/MPC`), binary `.op2`/`.h5` & `.f06` diagnostics, STEP B-Rep surface area / PCA OBB geometric Buy-to-Fly ratios, and PDF (`bbox`)/XLSX/DOCX BOM & Drawing Lists.
+- **Clause-by-Clause Contractual Auditor & OEM Exports (Q3):** Classifies RFQ clauses deterministically (`SUPPORTED`, `PARTIALLY_SUPPORTED_WITH_ASSUMPTION`, `CHANGE_ORDER_REQUIRED`, `REJECT_OR_ABSTAIN`), detects 6 high-risk poison clauses (uncapped LDs, unlimited free redesign, Background IP assignment, open-ended authority payment gate, excessive warranty retention, CVE waiver), and exports native 7-tab live-formula `.xlsx` workbooks plus Ed25519 DSSE & ISO QR signed `.pdf` dossiers.
+- **2,000+ Historical Bids, K-Fold CV & Interactive Web Cockpit (Q4):** CSV/JSON/JSONL/XLSX ingestion, IQR/MAD outlier isolation, stratified K-Fold backtesting (`18.59% -> 3.66%` MAPE on the 2,160-bid corpus), drift diagnostics, Win-Rate vs. `P50..P90` calibration, ERP/SAP import templates, k-NN twin matching, and the `#tab-quote` (`Alt+7`) cockpit in `demo.html` (all commercial/financial figures labeled as `ESTIMATE` / `ASSUMPTION`).
 
 ```text
 uv run python -m evidence_api.cli quote archetypes
 uv run python -m evidence_api.cli quote helicopter --text "CS-29 HEMS rescue hoist STC" --country ES
-uv run python -m evidence_api.cli quote calibrate --archetype Q-STR-03 --country ES --synthetic-count 2160
+uv run python -m evidence_api.cli quote composite --archetypes Q-DES-02,Q-DES-04,Q-STR-01,Q-STR-02,Q-STR-03,Q-FDT-01,Q-DOA-02,Q-TST-01 --country ES
+uv run python -m evidence_api.cli quote audit-contract --text "Payment contingent on EASA approval without long-stop date"
+uv run python -m evidence_api.cli quote kfold-calibrate --country ES --synthetic-count 2160 --k-folds 5
+uv run python -m evidence_api.cli quote erp-template --output erp_historical_template.xlsx
 ```
 
 ## Commands

@@ -780,6 +780,103 @@ MCP_TOOLS: tuple[dict[str, Any], ...] = (
             },
         },
     },
+    {
+        "name": "generate_composite_rotorcraft_quotation",
+        "description": (
+            "Generate a Composite Multi-Archetype WBS DAG quotation with deterministic Critical "
+            "Path (CPM), engineering reuse synergy, multi-year Wright/Crawford learning curve, "
+            "country inflation/cash-flow NPV, deep physical IDP inspection, contractual "
+            "poison-clause audit, and formal Z3 SMT margin & NPV proofs."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "rfq_text": {"type": "string"},
+                "archetype_ids": {"type": "array", "items": {"type": "string"}},
+                "country_code": {"type": "string", "default": "EU_DEFAULT"},
+                "cert_basis": {"type": "string", "default": "CS-29"},
+                "material_family": {"type": "string", "default": "HYBRID_AL_CFRP"},
+                "unit_count": {"type": "integer", "default": 1},
+                "program_years": {"type": "integer", "default": 3},
+                "learning_rate_pct": {"type": "string", "default": "85.000"},
+                "payment_terms_days": {"type": "integer", "default": 60},
+                "target_margin_pct": {"type": "string", "default": "22.000"},
+                "min_acceptable_margin_pct": {"type": "string", "default": "10.000"},
+                "tenant_id": {"type": "string", "default": "demo"},
+                "enable_formal_smt": {"type": "boolean", "default": True},
+                "enforce_contract_gate": {"type": "boolean", "default": True},
+                "idp_attachments": {"type": "object"},
+            },
+            "required": ["rfq_text"],
+        },
+    },
+    {
+        "name": "audit_rfq_contract_clauses",
+        "description": (
+            "Audit RFQ contractual clauses deterministically into SUPPORTED, "
+            "PARTIALLY_SUPPORTED_WITH_ASSUMPTION, CHANGE_ORDER_REQUIRED, or REJECT_OR_ABSTAIN, "
+            "detecting uncapped LDs, free redesign, background IP assignment, open-ended payment "
+            "gates, excessive retention, and CVE waivers."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "rfq_text": {"type": "string"},
+                "clauses": {"type": "array", "items": {"type": "object"}},
+                "filename": {"type": "string", "default": "rfq.txt"},
+            },
+        },
+    },
+    {
+        "name": "inspect_deep_idp_package",
+        "description": (
+            "Inspect nested-INCLUDE Nastran .bdf models (DOFs, local coords, properties), binary "
+            ".op2/.h5 files, .f06 audits, STEP B-Rep Buy-to-Fly & surface area, and "
+            "PDF/XLSX/DOCX BOMs."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "idp_attachments": {"type": "object"},
+            },
+        },
+    },
+    {
+        "name": "export_quotation_oem_artifacts",
+        "description": (
+            "Export a live-formula 7-tab Excel (.xlsx) workbook and an Ed25519 DSSE + ISO QR "
+            "signed PDF dossier for a composite rotorcraft quotation."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "rfq_text": {"type": "string"},
+                "archetype_ids": {"type": "array", "items": {"type": "string"}},
+                "country_code": {"type": "string", "default": "EU_DEFAULT"},
+                "tenant_id": {"type": "string", "default": "demo"},
+                "xlsx_output_path": {"type": "string"},
+                "pdf_output_path": {"type": "string"},
+            },
+            "required": ["rfq_text"],
+        },
+    },
+    {
+        "name": "run_advanced_quotation_calibration",
+        "description": (
+            "Run stratified K-fold cross-validation, IQR/MAD outlier filtering, temporal drift "
+            "diagnostics, and P50..P90 Win-Rate calibration over historical quotation corpora."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "archetype_id": {"type": "string", "default": "Q-STR-03"},
+                "country_code": {"type": "string", "default": "EU_DEFAULT"},
+                "k_folds": {"type": "integer", "default": 5},
+                "synthetic_count": {"type": "integer", "default": 2160},
+                "exclude_outliers": {"type": "boolean", "default": True},
+            },
+        },
+    },
 )
 
 MCP_RESOURCES: tuple[dict[str, Any], ...] = (
@@ -1003,6 +1100,7 @@ def _call_tool(
                 "evidence_webhooks_dlq_replay",
                 "generate_multiagent_quotation",
                 "generate_rotorcraft_archetype_quotation",
+                "generate_composite_rotorcraft_quotation",
             }
             or (
                 name in {"evidence_calc_run", "evidence_ingest_document"}
@@ -2041,6 +2139,136 @@ def _call_tool(
             synthetic_count=int(arguments.get("synthetic_count") or 2160),
             idp_attachments=arguments.get("idp_attachments"),
             top_k=int(arguments.get("top_k") or 3),
+        )
+
+    if name == "generate_composite_rotorcraft_quotation":
+        from evidence_coverage.composite_dag_quotation import (
+            CompositeRotorcraftQuotationSpec,
+            run_composite_rotorcraft_quotation,
+        )
+
+        tenant = _validate_tenant(arguments.get("tenant_id") or "demo")
+        if tenant is None:
+            return True, {"error": "invalid_tenant"}
+        ledger = open_ledger(tenant)
+        raw_archs = arguments.get("archetype_ids") or ()
+        spec = CompositeRotorcraftQuotationSpec(
+            rfq_text=str(arguments.get("rfq_text") or ""),
+            archetype_ids=tuple(str(a) for a in raw_archs if str(a).strip()),
+            country_code=str(arguments.get("country_code") or "EU_DEFAULT"),
+            cert_basis=str(arguments.get("cert_basis") or "CS-29"),
+            material_family=str(arguments.get("material_family") or "HYBRID_AL_CFRP"),
+            unit_count=int(arguments.get("unit_count") or 1),
+            program_years=int(arguments.get("program_years") or 3),
+            learning_rate_pct=str(arguments.get("learning_rate_pct") or "85.000"),
+            payment_terms_days=(
+                int(arguments["payment_terms_days"])
+                if arguments.get("payment_terms_days") is not None
+                else None
+            ),
+            target_margin_pct=str(arguments.get("target_margin_pct") or "22.000"),
+            min_acceptable_margin_pct=str(arguments.get("min_acceptable_margin_pct") or "10.000"),
+            tenant_id=tenant,
+            created_at=str(arguments.get("created_at") or _now()),
+            enable_formal_smt=bool(arguments.get("enable_formal_smt", True)),
+            enforce_contract_gate=bool(arguments.get("enforce_contract_gate", True)),
+            idp_attachments=dict(arguments.get("idp_attachments") or {}),
+        )
+        return False, run_composite_rotorcraft_quotation(ledger, spec)
+
+    if name == "audit_rfq_contract_clauses":
+        from evidence_coverage.contract_clause_auditor import audit_rfq_contract_clauses
+
+        return False, audit_rfq_contract_clauses(
+            str(arguments.get("rfq_text") or ""),
+            clauses=(
+                list(arguments["clauses"]) if isinstance(arguments.get("clauses"), list) else None
+            ),
+            filename=str(arguments.get("filename") or "rfq.txt"),
+        )
+
+    if name == "inspect_deep_idp_package":
+        from evidence_coverage.deep_idp_quotation_extractor import (
+            extract_deep_idp_engineering_package,
+        )
+
+        return False, extract_deep_idp_engineering_package(
+            arguments.get("idp_attachments") or arguments
+        )
+
+    if name == "export_quotation_oem_artifacts":
+        from evidence_coverage.composite_dag_quotation import (
+            CompositeRotorcraftQuotationSpec,
+            run_composite_rotorcraft_quotation,
+        )
+        from evidence_coverage.quotation_exporter import (
+            export_quotation_signed_pdf,
+            export_quotation_xlsx,
+        )
+
+        from evidence_api.app import _attestation_keypair
+
+        tenant = _validate_tenant(arguments.get("tenant_id") or "demo")
+        if tenant is None:
+            return True, {"error": "invalid_tenant"}
+        raw_archs = arguments.get("archetype_ids") or ()
+        spec = CompositeRotorcraftQuotationSpec(
+            rfq_text=str(arguments.get("rfq_text") or ""),
+            archetype_ids=tuple(str(a) for a in raw_archs if str(a).strip()),
+            country_code=str(arguments.get("country_code") or "EU_DEFAULT"),
+            tenant_id=tenant,
+            created_at=_now(),
+        )
+        dossier = run_composite_rotorcraft_quotation(open_ledger(tenant), spec)
+        if dossier.get("confidence") == "abstain":
+            return True, {"error": dossier.get("abstain_reason") or "abstain"}
+        xlsx_p = (
+            _confine_path(
+                str(arguments["xlsx_output_path"]),
+                allowed_roots=(evidence_home(), Path.cwd()),
+                default_dir=evidence_home(),
+            )
+            if arguments.get("xlsx_output_path")
+            else None
+        )
+        pdf_p = (
+            _confine_path(
+                str(arguments["pdf_output_path"]),
+                allowed_roots=(evidence_home(), Path.cwd()),
+                default_dir=evidence_home(),
+            )
+            if arguments.get("pdf_output_path")
+            else None
+        )
+        x_res = export_quotation_xlsx(dossier, output_path=xlsx_p)
+        priv_pem, pub_pem = _attestation_keypair()
+        p_res = export_quotation_signed_pdf(
+            dossier, private_key_pem=priv_pem, public_key_pem=pub_pem, output_path=pdf_p
+        )
+        return False, {
+            "rfq_id": dossier["rfq_id"],
+            "xlsx_sha256": x_res["xlsx_sha256"],
+            "xlsx_sheet_names": x_res["sheet_names"],
+            "xlsx_formula_count": x_res["formula_count"],
+            "xlsx_output_path": x_res["output_path"],
+            "pdf_sha256": p_res["pdf_sha256"],
+            "pdf_merkle_root": p_res["merkle_root"],
+            "pdf_output_path": p_res["output_path"],
+        }
+
+    if name == "run_advanced_quotation_calibration":
+        from evidence_coverage.advanced_quotation_calibration import run_advanced_calibration_suite
+        from evidence_coverage.historical_quotation_calibrator import (
+            generate_reference_historical_corpus,
+        )
+
+        corpus = generate_reference_historical_corpus(int(arguments.get("synthetic_count") or 2160))
+        return False, run_advanced_calibration_suite(
+            corpus=corpus,
+            archetype_id=str(arguments.get("archetype_id") or "Q-STR-03"),
+            country_code=str(arguments.get("country_code") or "EU_DEFAULT"),
+            k_folds=int(arguments.get("k_folds") or 5),
+            exclude_outliers=bool(arguments.get("exclude_outliers", True)),
         )
 
     return True, {"error": f"unknown_tool: {name}"}

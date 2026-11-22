@@ -30,6 +30,8 @@ packages = ["src/evidence_api"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/evidence_api/static/demo.html" = "evidence_api/static/demo.html"
 "src/evidence_api/static/viewer3d.js" = "evidence_api/static/viewer3d.js"
+"src/evidence_api/static/q4_ux_modules.js" = "evidence_api/static/q4_ux_modules.js"
+"src/evidence_api/static/quotation_cockpit.js" = "evidence_api/static/quotation_cockpit.js"
 
 [tool.uv.sources]
 evidence-calc = { workspace = true }

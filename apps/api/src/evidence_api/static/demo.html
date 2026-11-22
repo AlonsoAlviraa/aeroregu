@@ -1782,6 +1782,7 @@ try {
           <button type="button" role="tab" id="tab-docs"><span>📄 Documentos IA</span><span class="tab-kbd">Alt+4</span></button>
           <button type="button" role="tab" id="tab-audit"><span>🛡️ Certificar PDF</span><span class="tab-kbd">Alt+5</span></button>
           <button type="button" role="tab" id="tab-mcp"><span>🔌 Catálogo IA</span><span class="tab-kbd">Alt+6</span></button>
+          <button type="button" role="tab" id="tab-quote"><span>💼 Cotizador</span><span class="tab-kbd">Alt+7</span></button>
         </div>
       </div>
 
@@ -2644,6 +2645,237 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
             <div class="row">
               <button id="mcp-invoke-tool" class="primary" type="button">▶ Ejecutar Herramienta</button>
               <button id="mcp-scan-text" class="expert-only" type="button">Escanear Texto Seguridad</button>
+            </div>
+          </section>
+        </div>
+
+        <!-- TAB 6: MULTI-ARCHETYPE ROTORCRAFT QUOTATION COCKPIT -->
+        <div role="tabpanel" aria-labelledby="tab-quote" hidden="until-found">
+          <section class="panel-card">
+            <div class="panel-head">
+              <h2 id="quote-cockpit-heading">💼 Cabina de Cotización Aeroespacial (DAG + Z3 SMT + IDP)</h2>
+              <span class="status-pill">ESTIMATE / ASSUMPTION</span>
+            </div>
+
+            <form id="quote-cockpit-form" method="POST" action="/quotations/rotorcraft/composite-dag" aria-labelledby="quote-cockpit-heading">
+              <fieldset style="border:1px solid var(--border);border-radius:10px;padding:0.75rem;margin-block-end:0.9rem;">
+                <legend>1. Arquetipos Rotorcraft (Multi-Arquetipo DAG)</legend>
+                <div class="row" style="margin-block-end:0.5rem;">
+                  <button type="button" id="quote-preset-hems-btn" class="subtle">Preset HEMS STC (8 Nodos)</button>
+                  <button type="button" id="quote-clear-archs-btn" class="subtle">Limpiar Selección</button>
+                </div>
+                <div id="quote-archetype-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:0.4rem;"></div>
+              </fieldset>
+
+              <fieldset style="border:1px solid var(--border);border-radius:10px;padding:0.75rem;margin-block-end:0.9rem;">
+                <legend>2. País, Horizonte Plurianual y Curva de Aprendizaje</legend>
+                <div class="sub-grid">
+                  <div class="field">
+                    <label for="quote-country">País Principal (9 Perfiles)</label>
+                    <select id="quote-country" name="country_code">
+                      <option value="EU_DEFAULT">EU_DEFAULT — Unión Europea</option>
+                      <option value="ES">ES — España (Albacete/Madrid)</option>
+                      <option value="FR">FR — Francia (Marignane/Toulouse)</option>
+                      <option value="DE">DE — Alemania (Donauwörth/Múnich)</option>
+                      <option value="IT">IT — Italia (Cascina Costa/Turín)</option>
+                      <option value="UK">UK — Reino Unido (Yeovil/Bristol)</option>
+                      <option value="US">US — Estados Unidos (Fort Worth)</option>
+                      <option value="PL">PL — Polonia (Mielec/Świdnik)</option>
+                      <option value="IN">IN — India (Bengaluru GCC)</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="quote-nearshore">Ejecución Nearshore Híbrida</label>
+                    <select id="quote-nearshore" name="nearshore_country">
+                      <option value="ES">ES — España</option>
+                      <option value="PL">PL — Polonia</option>
+                      <option value="IT">IT — Italia</option>
+                      <option value="IN">IN — India</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="quote-cert-basis">Base de Certificación</label>
+                    <select id="quote-cert-basis" name="cert_basis">
+                      <option value="CS-29">CS-29 (Rotorcraft Pesado)</option>
+                      <option value="CS-27">CS-27 (Rotorcraft Ligero)</option>
+                      <option value="STC">STC (Modificación Misión)</option>
+                      <option value="PART21J_REPAIR">Part 21J Repair / MRB</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="quote-material">Familia de Material</label>
+                    <select id="quote-material" name="material_family">
+                      <option value="HYBRID_AL_CFRP">Híbrido Al + CFRP</option>
+                      <option value="CFRP_PRIMARY_HONEYCOMB">CFRP Primario / Honeycomb</option>
+                      <option value="TI_6AL_4V">Titanio Ti-6Al-4V</option>
+                      <option value="ALUMINUM_2024_7075">Aluminio 2024/7075</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="quote-units">Unidades / MSN Lote</label>
+                    <input type="number" id="quote-units" name="unit_count" value="3" min="1" max="500" required>
+                  </div>
+                  <div class="field">
+                    <label for="quote-years">Horizonte Plurianual (Años)</label>
+                    <input type="number" id="quote-years" name="program_years" value="3" min="1" max="5" required>
+                  </div>
+                  <div class="field">
+                    <label for="quote-lr">Curva Aprendizaje (%)</label>
+                    <input type="text" id="quote-lr" name="learning_rate_pct" value="85.000" inputmode="decimal" required>
+                  </div>
+                  <div class="field">
+                    <label for="quote-pay-days">Plazo de Cobro (Días Net)</label>
+                    <select id="quote-pay-days" name="payment_terms_days">
+                      <option value="30">Net 30 días</option>
+                      <option value="60" selected>Net 60 días</option>
+                      <option value="90">Net 90 días</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="quote-target-margin">Margen Objetivo (%)</label>
+                    <input type="text" id="quote-target-margin" name="target_margin_pct" value="22.000" inputmode="decimal" required>
+                  </div>
+                  <div class="field">
+                    <label for="quote-min-margin">Suelo Z3 Margen (%)</label>
+                    <input type="text" id="quote-min-margin" name="min_acceptable_margin_pct" value="10.000" inputmode="decimal" required>
+                  </div>
+                </div>
+              </fieldset>
+
+              <fieldset style="border:1px solid var(--border);border-radius:10px;padding:0.75rem;margin-block-end:0.9rem;">
+                <legend>3. Adjuntos Físicos IDP (.bdf / .f06 / .stp)</legend>
+                <div class="sub-grid">
+                  <div class="field">
+                    <label for="quote-bdf-file">Modelo Nastran (.bdf / .dat)</label>
+                    <input type="file" id="quote-bdf-file" name="bdf_file" accept=".bdf,.dat,.nas">
+                  </div>
+                  <div class="field">
+                    <label for="quote-f06-file">Resultados Nastran (.f06)</label>
+                    <input type="file" id="quote-f06-file" name="f06_file" accept=".f06,.txt">
+                  </div>
+                  <div class="field">
+                    <label for="quote-step-file">Geometría B-Rep STEP (.stp / .step)</label>
+                    <input type="file" id="quote-step-file" name="step_file" accept=".stp,.step">
+                  </div>
+                </div>
+              </fieldset>
+
+              <fieldset style="border:1px solid var(--border);border-radius:10px;padding:0.75rem;margin-block-end:0.9rem;">
+                <legend>4. Pliego RFQ y Cláusulas Contractuales</legend>
+                <div class="field">
+                  <label for="quote-rfq-text">Texto de Pliego / Alcance RFQ</label>
+                  <textarea id="quote-rfq-text" name="rfq_text" rows="4" required>CS-29 HEMS rescue hoist composite frame static stress, GFEM, F&amp;DT, STC integration and test rig correlation. DOA Part 21J quality, Net 60 payment terms, independent CVE review required.</textarea>
+                </div>
+              </fieldset>
+
+              <div class="row" style="flex-wrap:wrap;gap:0.5rem;">
+                <button type="submit" id="quote-run-btn" class="primary">▶ Cotizar DAG + Prueba Z3 SMT</button>
+                <button type="button" id="quote-export-xlsx-btn" class="subtle">📊 Descargar Excel (.xlsx Formulado)</button>
+                <button type="button" id="quote-export-pdf-btn" class="subtle">📜 Descargar PDF Firmado DSSE+QR</button>
+                <button type="button" id="quote-kfold-btn" class="subtle">📈 Calibración K-Fold &amp; Win-Rate</button>
+                <button type="button" id="quote-erp-template-btn" class="subtle">📥 Plantilla ERP/SAP (.xlsx)</button>
+              </div>
+            </form>
+
+            <div id="quote-live-status" role="status" aria-live="polite" style="margin-top:0.85rem;padding:0.65rem 0.85rem;border-radius:8px;border:1px solid var(--border);background:var(--surface-alt);">
+              Listo para cotizar. Selecciona arquetipos, país y pulsa <strong>Cotizar DAG + Prueba Z3 SMT</strong>.
+            </div>
+
+            <div id="quote-z3-badges" class="row" style="margin-top:0.75rem;flex-wrap:wrap;gap:0.5rem;"></div>
+            <div id="quote-poison-alert" style="margin-top:0.65rem;"></div>
+
+            <div style="margin-top:0.9rem;">
+              <h3 id="quote-dag-heading">Grafo Acíclico WBS y Ruta Crítica (CPM)</h3>
+              <div id="quote-dag-svg-wrap" style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;padding:0.5rem;background:var(--surface-alt);min-height:140px;"></div>
+            </div>
+
+            <div style="margin-top:0.9rem;">
+              <h3 id="quote-wbs-caption">Desglose WBS Multi-Arquetipo, Sinergia y Holgura</h3>
+              <div tabindex="0" role="region" aria-labelledby="quote-wbs-caption" class="table-wrapper">
+                <table id="quote-wbs-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Arquetipo</th>
+                      <th scope="col">Horas Base</th>
+                      <th scope="col">Sinergia</th>
+                      <th scope="col">Horas Netas</th>
+                      <th scope="col">ES / EF (sem)</th>
+                      <th scope="col">Holgura</th>
+                      <th scope="col">Precio Neto (EUR)</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="sub-grid" style="margin-top:0.9rem;">
+              <div>
+                <h3 id="quote-tornado-caption">Sensibilidad Tornado (P80)</h3>
+                <div tabindex="0" role="region" aria-labelledby="quote-tornado-caption" class="table-wrapper">
+                  <table id="quote-tornado-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Driver</th>
+                        <th scope="col">Min EUR</th>
+                        <th scope="col">Max EUR</th>
+                        <th scope="col">Swing</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <h3 id="quote-countries-caption">Comparativa 9 Países + Híbrido</h3>
+                <div tabindex="0" role="region" aria-labelledby="quote-countries-caption" class="table-wrapper">
+                  <table id="quote-countries-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">País</th>
+                        <th scope="col">Tarifa EUR/h</th>
+                        <th scope="col">Precio EUR</th>
+                        <th scope="col">vs EU</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div class="sub-grid" style="margin-top:0.9rem;">
+              <div>
+                <h3 id="quote-contract-caption">Matriz Contractual y Cláusulas Trampa</h3>
+                <div tabindex="0" role="region" aria-labelledby="quote-contract-caption" class="table-wrapper">
+                  <table id="quote-contract-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Cláusula</th>
+                        <th scope="col">Estado</th>
+                        <th scope="col">Riesgo / Redline</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <h3 id="quote-kfold-caption">Calibración K-Fold y Win-Rate</h3>
+                <div tabindex="0" role="region" aria-labelledby="quote-kfold-caption" class="table-wrapper">
+                  <table id="quote-kfold-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Percentil</th>
+                        <th scope="col">Precio Oferta</th>
+                        <th scope="col">Win-Rate</th>
+                        <th scope="col">Valor Esperado</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </section>
         </div>
@@ -5611,5 +5843,6 @@ Object.assign(window, {
 });
 </script>
 <script src="/static/q4_ux_modules.js"></script>
+<script src="/static/quotation_cockpit.js"></script>
 </body>
 </html>

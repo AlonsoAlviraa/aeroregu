@@ -2979,6 +2979,221 @@ def quote_calibrate_cmd(
     console.print(kt)
 
 
+@quote_app.command("composite")
+def quote_composite_cmd(
+    text: str = typer.Option(..., "--text", "-t", help="Helicopter RFQ text."),
+    archetypes: str = typer.Option(
+        "Q-DES-02,Q-DES-04,Q-STR-01,Q-STR-02,Q-STR-03,Q-FDT-01,Q-DOA-02,Q-TST-01",
+        "--archetypes",
+        help="Comma-separated archetype IDs for composite DAG.",
+    ),
+    country: str = typer.Option("EU_DEFAULT", "--country", help="9-country rate profile."),
+    units: int = typer.Option(1, "--units", help="Lot / MSN units for Wright-Crawford curve."),
+    years: int = typer.Option(3, "--years", help="Program duration in years (1..5)."),
+    learning_rate: str = typer.Option("85.000", "--learning-rate", help="Learning rate (%)."),
+    payment_days: int = typer.Option(60, "--payment-days", help="Net payment terms in days."),
+    bdf_file: Path | None = typer.Option(None, "--bdf-file", exists=True, help="Nastran .bdf IDP."),
+    f06_file: Path | None = typer.Option(None, "--f06-file", exists=True, help="Nastran .f06 IDP."),
+    step_file: Path | None = typer.Option(None, "--step-file", exists=True, help="STEP .stp IDP."),
+    xlsx_out: Path | None = typer.Option(None, "--xlsx-out", help="Export formulated .xlsx path."),
+    pdf_out: Path | None = typer.Option(None, "--pdf-out", help="Export DSSE-signed .pdf path."),
+    tenant: str = typer.Option("demo", "--tenant", help="Tenant ID."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Run Composite Multi-Archetype DAG (CPM + Synergy) & Multi-Year Quotation."""
+    from evidence_coverage.composite_dag_quotation import (
+        CompositeRotorcraftQuotationSpec,
+        run_composite_rotorcraft_quotation,
+    )
+    from evidence_coverage.quotation_exporter import (
+        export_quotation_signed_pdf,
+        export_quotation_xlsx,
+    )
+
+    from evidence_api.app import _attestation_keypair, _now, open_ledger
+
+    att: dict[str, Any] = {}
+    if bdf_file is not None:
+        att["bdf_path"] = str(bdf_file)
+    if f06_file is not None:
+        att["f06_path"] = str(f06_file)
+    if step_file is not None:
+        att["step_path"] = str(step_file)
+
+    arch_tuple = tuple(a.strip() for a in archetypes.split(",") if a.strip())
+    checked = _tenant_or_exit(tenant)
+    spec = CompositeRotorcraftQuotationSpec(
+        rfq_text=text,
+        archetype_ids=arch_tuple,
+        country_code=country,
+        unit_count=units,
+        program_years=years,
+        learning_rate_pct=learning_rate,
+        payment_terms_days=payment_days,
+        idp_attachments=att,
+        tenant_id=checked,
+        created_at=_now(),
+    )
+    dossier = run_composite_rotorcraft_quotation(open_ledger(checked), spec)
+    if xlsx_out is not None and dossier.get("confidence") != "abstain":
+        export_quotation_xlsx(dossier, output_path=xlsx_out)
+    if pdf_out is not None and dossier.get("confidence") != "abstain":
+        priv_pem, pub_pem = _attestation_keypair()
+        export_quotation_signed_pdf(
+            dossier, private_key_pem=priv_pem, public_key_pem=pub_pem, output_path=pdf_out
+        )
+
+    if _wants_json(json_out):
+        _emit_json(dossier)
+        if dossier.get("confidence") == "abstain":
+            raise typer.Exit(code=2)
+        return
+    if dossier.get("confidence") == "abstain":
+        err_console.print(f"[red]ABSTAIN:[/red] {dossier.get('abstain_reason')}")
+        raise typer.Exit(code=2)
+
+    dag = dossier["composite_wbs_dag"]
+    my = dossier["multiyear_cashflow_learning"]["outputs"]
+    console.print(
+        f"[green]Composite DAG ({dag['node_count']} nodes)[/green] "
+        f"CP={' -> '.join(dag['critical_path_archetypes'])} ({dag['project_duration_weeks']}w) | "
+        f"MultiYear={my['quoted_price_eur']} EUR | NPV={my['net_present_value_eur']} EUR | "
+        f"Z3={dossier['formal_multiyear_npv_proof'].get('status')}"
+    )
+
+
+@quote_app.command("audit-contract")
+def quote_audit_contract_cmd(
+    text: str | None = typer.Option(None, "--text", "-t", help="Contract / RFQ clause text."),
+    file: Path | None = typer.Option(
+        None, "--file", "-f", exists=True, help="RFQ PDF or TXT path."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Run clause-by-clause contractual compliance matrix & poison-clause detection."""
+    from evidence_coverage.contract_clause_auditor import audit_rfq_contract_clauses
+
+    if file is not None:
+        if file.suffix.lower() == ".pdf":
+            res = audit_rfq_contract_clauses(pdf_bytes=file.read_bytes(), filename=file.name)
+        else:
+            res = audit_rfq_contract_clauses(
+                file.read_text(encoding="utf-8", errors="ignore"), filename=file.name
+            )
+    elif text is not None:
+        res = audit_rfq_contract_clauses(text)
+    else:
+        err_console.print("[red]Provide --text or --file.[/red]")
+        raise typer.Exit(code=1)
+
+    if _wants_json(json_out):
+        _emit_json(res)
+        return
+    console.print(
+        f"Gate=[bold]{res['overall_contract_gate']}[/bold] | "
+        f"Clauses={res['total_clauses']} | Poisons={res['poison_clauses_count']}"
+    )
+
+
+@quote_app.command("deep-idp")
+def quote_deep_idp_cmd(
+    bdf_file: Path | None = typer.Option(None, "--bdf-file", exists=True, help="Nastran .bdf IDP."),
+    op2_file: Path | None = typer.Option(
+        None, "--op2-file", exists=True, help="Nastran .op2 binary."
+    ),
+    h5_file: Path | None = typer.Option(None, "--h5-file", exists=True, help="CAE .h5 binary."),
+    f06_file: Path | None = typer.Option(None, "--f06-file", exists=True, help="Nastran .f06."),
+    step_file: Path | None = typer.Option(None, "--step-file", exists=True, help="STEP solid."),
+    bom_file: Path | None = typer.Option(
+        None, "--bom-file", exists=True, help="BOM PDF/XLSX/DOCX."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Deep physical IDP inspection (nested INCLUDE, DOFs, OP2/H5, B-Rep BTF & BOM/Drawings)."""
+    from evidence_coverage.deep_idp_quotation_extractor import extract_deep_idp_engineering_package
+
+    att: dict[str, Any] = {}
+    if bdf_file is not None:
+        att["bdf_path"] = str(bdf_file)
+    if op2_file is not None:
+        att["op2_path"] = str(op2_file)
+    if h5_file is not None:
+        att["h5_path"] = str(h5_file)
+    if f06_file is not None:
+        att["f06_path"] = str(f06_file)
+    if step_file is not None:
+        att["step_path"] = str(step_file)
+    if bom_file is not None:
+        att["rfq_documents"] = [{"path": str(bom_file), "filename": bom_file.name}]
+
+    res = extract_deep_idp_engineering_package(att)
+    if _wants_json(json_out):
+        _emit_json(res)
+        return
+    console.print(
+        f"IDP Artifacts={len(res['artifacts_analyzed'])} | "
+        f"Active DOFs={res['bdf_summary']['dof_summary']['active_dofs']} | "
+        f"Buy-to-Fly={res['cad_brep_sizing']['buy_to_fly_ratio']} | "
+        f"Est Solve Hours={res['estimated_solve_postproc_hours']}"
+    )
+
+
+@quote_app.command("kfold-calibrate")
+def quote_kfold_calibrate_cmd(
+    archetype: str = typer.Option("Q-STR-03", "--archetype", help="Archetype ID."),
+    country: str = typer.Option("EU_DEFAULT", "--country", help="Country code."),
+    k_folds: int = typer.Option(5, "--k-folds", help="Stratified folds (2..10)."),
+    corpus_file: Path | None = typer.Option(
+        None, "--corpus-file", exists=True, help="Historical CSV/JSON/JSONL/XLSX file."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Run stratified K-fold CV, outlier detection, drift diagnostics & Win-Rate analytics."""
+    from evidence_coverage.advanced_quotation_calibration import run_advanced_calibration_suite
+    from evidence_coverage.historical_quotation_calibrator import (
+        generate_reference_historical_corpus,
+        ingest_historical_quotations,
+    )
+
+    corpus = (
+        ingest_historical_quotations(corpus_file)["records"]
+        if corpus_file is not None
+        else generate_reference_historical_corpus(2160)
+    )
+    res = run_advanced_calibration_suite(
+        corpus=corpus, archetype_id=archetype, country_code=country, k_folds=k_folds
+    )
+    if _wants_json(json_out):
+        _emit_json(res)
+        return
+    cv = res["kfold_cv"]
+    wr = res["win_rate_calibration"]
+    console.print(
+        f"K-Fold ({cv['k_folds']}): MAPE {cv['global_pre_mape_pct']}% -> "
+        f"{cv['global_post_mape_pct']}% | Drift={res['drift_diagnostics']['drift_status']} | "
+        f"Optimal Percentile={wr['recommended_percentile']}"
+    )
+
+
+@quote_app.command("erp-template")
+def quote_erp_template_cmd(
+    fmt: str = typer.Option("xlsx", "--format", help="Template format: xlsx | csv"),
+    output: Path = typer.Option(..., "--output", "-o", help="Output file path."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON summary."),
+) -> None:
+    """Export official ERP/SAP bulk historical quotation import template."""
+    from evidence_coverage.advanced_quotation_calibration import export_erp_sap_import_template
+
+    res = export_erp_sap_import_template(fmt=fmt, output_path=output)
+    summary = {k: v for k, v in res.items() if k != "content_bytes"}
+    if _wants_json(json_out):
+        _emit_json(summary)
+        return
+    console.print(
+        f"[green]ERP/SAP Template saved:[/green] {res['output_path']} ({res['sha256'][:16]}...)"
+    )
+
+
 def main() -> None:
     app()
 

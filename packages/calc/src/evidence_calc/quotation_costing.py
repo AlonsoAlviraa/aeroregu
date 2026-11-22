@@ -471,3 +471,195 @@ def run_rotorcraft_historical_calibration(
             "calibrated_sigma_hours": format_quantum(cal_sigma, quantum),
         },
     )
+
+
+def run_aerospace_multiyear_cashflow_learning(
+    inputs: dict[str, Any],
+    card: dict[str, Any],
+) -> dict[str, Any]:
+    """Compute Wright/Crawford learning curves, multi-year inflation, cashflow, WC cost & NPV."""
+    _require_fields(inputs, list(card["required"]))
+    quantum = Decimal(str(card["quantum"]))
+    limits = card["limits"]
+
+    t1 = parse_limited_decimal(inputs["first_unit_cost_eur"], limits["first_unit_cost_eur"])
+    unit_count = parse_limited_decimal(inputs["unit_count"], limits["unit_count"])
+    lr_pct = parse_limited_decimal(inputs["learning_rate_pct"], limits["learning_rate_pct"])
+    crawford_w_pct = parse_limited_decimal(
+        inputs["crawford_weight_pct"], limits["crawford_weight_pct"]
+    )
+    program_years = parse_limited_decimal(inputs["program_years"], limits["program_years"])
+    inf_pct = parse_limited_decimal(inputs["annual_inflation_pct"], limits["annual_inflation_pct"])
+    target_margin_pct = parse_limited_decimal(
+        inputs["target_margin_pct"], limits["target_margin_pct"]
+    )
+    wacc_pct = parse_limited_decimal(inputs["wacc_annual_pct"], limits["wacc_annual_pct"])
+    pay_days = parse_limited_decimal(inputs["payment_terms_days"], limits["payment_terms_days"])
+
+    m_ko = parse_limited_decimal(inputs["milestone_ko_pct"], limits["milestone_ko_pct"])
+    m_pdr = parse_limited_decimal(inputs["milestone_pdr_pct"], limits["milestone_pdr_pct"])
+    m_cdr = parse_limited_decimal(inputs["milestone_cdr_pct"], limits["milestone_cdr_pct"])
+    m_test = parse_limited_decimal(inputs["milestone_test_pct"], limits["milestone_test_pct"])
+    m_cve = parse_limited_decimal(inputs["milestone_cve_pct"], limits["milestone_cve_pct"])
+
+    for int_val in (unit_count, program_years, pay_days):
+        if int_val != int_val.to_integral_value():
+            raise AbstainError("outside_validity")
+
+    n_units = int(unit_count)
+    n_years = int(program_years)
+    n_days = int(pay_days)
+    milestone_sum = m_ko + m_pdr + m_cdr + m_test + m_cve
+    if (milestone_sum - _HUNDRED).copy_abs() > Decimal("0.01"):
+        raise AbstainError("outside_validity")
+
+    two = Decimal("2")
+    twelve = Decimal("12")
+    zero = Decimal("0")
+    ln_two = two.ln()
+
+    with localcontext() as ctx:
+        ctx.prec = 50
+        margin_denom = _ONE - (target_margin_pct / _HUNDRED)
+        if margin_denom <= zero:
+            raise AbstainError("outside_validity")
+
+        lr_ratio = lr_pct / _HUNDRED
+        b_exp = lr_ratio.ln() / ln_two
+
+        n_dec = Decimal(n_units)
+        wright_cum_avg = t1 * (b_exp * n_dec.ln()).exp() if n_units > 1 else t1
+        wright_total = n_dec * wright_cum_avg
+        if n_units > 1:
+            n_prev = Decimal(n_units - 1)
+            wright_prev_total = n_prev * t1 * (b_exp * n_prev.ln()).exp()
+            wright_last = wright_total - wright_prev_total
+        else:
+            wright_last = t1
+
+        crawford_total = zero
+        crawford_last = t1
+        for k in range(1, n_units + 1):
+            u_cost = t1 * (b_exp * Decimal(k).ln()).exp() if k > 1 else t1
+            crawford_total += u_cost
+            crawford_last = u_cost
+
+        w_crawford = crawford_w_pct / _HUNDRED
+        active_base = ((_ONE - w_crawford) * wright_total) + (w_crawford * crawford_total)
+
+        inf_rate = inf_pct / _HUNDRED
+        annual_base = active_base / Decimal(n_years)
+        year_costs: list[Decimal] = []
+        annual_schedule: list[dict[str, str]] = []
+        for y in range(n_years):
+            esc_factor_y = (_ONE + inf_rate) ** y
+            y_cost = annual_base * esc_factor_y
+            year_costs.append(y_cost)
+            annual_schedule.append(
+                {
+                    "year_index": str(y + 1),
+                    "year_label": f"Y{y + 1}",
+                    "base_cost_eur": format_quantum(annual_base, quantum),
+                    "escalation_factor": format_quantum(esc_factor_y, Decimal("0.000001")),
+                    "escalated_cost_eur": format_quantum(y_cost, quantum),
+                }
+            )
+
+        escalated_total = sum(year_costs, zero)
+        inflation_escalation = escalated_total - active_base
+        eff_escalation_factor = escalated_total / active_base if active_base > zero else _ONE
+        quoted_price = escalated_total / margin_denom
+
+        total_program_months = 12 * n_years
+        lag_months = (n_days + 29) // 30
+        horizon_months = total_program_months + lag_months
+
+        outflows: list[Decimal] = [zero] * (horizon_months + 1)
+        inflows: list[Decimal] = [zero] * (horizon_months + 1)
+        for m in range(1, total_program_months + 1):
+            y_idx = (m - 1) // 12
+            outflows[m] = year_costs[y_idx] / twelve
+
+        milestone_specs = (
+            ("KO", 1, m_ko),
+            ("PDR", max(1, (total_program_months * 25 + 50) // 100), m_pdr),
+            ("CDR", max(1, (total_program_months * 50 + 50) // 100), m_cdr),
+            ("Test", max(1, (total_program_months * 80 + 50) // 100), m_test),
+            ("CVE_Signoff", total_program_months, m_cve),
+        )
+        milestone_events: list[dict[str, str]] = []
+        for m_name, bill_m, pct in milestone_specs:
+            cash_m = bill_m + lag_months
+            amt = quoted_price * (pct / _HUNDRED)
+            inflows[cash_m] += amt
+            milestone_events.append(
+                {
+                    "milestone": m_name,
+                    "billing_month": str(bill_m),
+                    "cash_receipt_month": str(cash_m),
+                    "share_pct": format_quantum(pct, Decimal("0.01")),
+                    "amount_eur": format_quantum(amt, quantum),
+                }
+            )
+
+        r_month = wacc_pct / Decimal("1200")
+        cum_cash = zero
+        peak_negative = zero
+        wc_financing_cost = zero
+        npv = zero
+        monthly_schedule: list[dict[str, str]] = []
+
+        for m in range(1, horizon_months + 1):
+            net_m = inflows[m] - outflows[m]
+            cum_cash += net_m
+            deficit = -cum_cash if cum_cash < zero else zero
+            if deficit > peak_negative:
+                peak_negative = deficit
+            fin_m = deficit * r_month
+            wc_financing_cost += fin_m
+            disc = (_ONE + r_month) ** m
+            npv += net_m / disc
+            monthly_schedule.append(
+                {
+                    "month": str(m),
+                    "outflow_eur": format_quantum(outflows[m], quantum),
+                    "inflow_eur": format_quantum(inflows[m], quantum),
+                    "net_cashflow_eur": format_quantum(net_m, quantum),
+                    "cumulative_cashflow_eur": format_quantum(cum_cash, quantum),
+                    "working_capital_interest_eur": format_quantum(fin_m, quantum),
+                }
+            )
+
+        net_margin_eur = quoted_price - escalated_total - wc_financing_cost
+        net_margin_pct = (net_margin_eur / quoted_price) * _HUNDRED if quoted_price > zero else zero
+
+    outputs = {
+        "learning_exponent_b": format_quantum(b_exp, Decimal("0.000001")),
+        "wright_cumulative_avg_unit_cost_eur": format_quantum(wright_cum_avg, quantum),
+        "wright_total_base_cost_eur": format_quantum(wright_total, quantum),
+        "wright_last_unit_cost_eur": format_quantum(wright_last, quantum),
+        "crawford_total_base_cost_eur": format_quantum(crawford_total, quantum),
+        "crawford_last_unit_cost_eur": format_quantum(crawford_last, quantum),
+        "active_base_total_cost_eur": format_quantum(active_base, quantum),
+        "inflation_escalation_eur": format_quantum(inflation_escalation, quantum),
+        "effective_escalation_factor": format_quantum(eff_escalation_factor, Decimal("0.000001")),
+        "escalated_total_cost_eur": format_quantum(escalated_total, quantum),
+        "quoted_price_eur": format_quantum(quoted_price, quantum),
+        "peak_negative_cashflow_eur": format_quantum(peak_negative, quantum),
+        "working_capital_financing_cost_eur": format_quantum(wc_financing_cost, quantum),
+        "net_present_value_eur": format_quantum(npv, quantum),
+        "net_margin_after_financing_eur": format_quantum(net_margin_eur, quantum),
+        "net_margin_after_financing_pct": format_quantum(net_margin_pct, quantum),
+    }
+    return _wrap_result(
+        card,
+        outputs,
+        diagnostics={
+            "unit_count": str(n_units),
+            "program_years": str(n_years),
+            "payment_lag_months": str(lag_months),
+            "annual_escalation_schedule": annual_schedule,
+            "milestone_billing_schedule": milestone_events,
+            "monthly_cashflow_schedule": monthly_schedule,
+        },
+    )

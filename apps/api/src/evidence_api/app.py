@@ -2027,6 +2027,13 @@ def create_app() -> FastAPI:
             media_type="application/javascript",
         )
 
+    @app.get("/static/quotation_cockpit.js")
+    def quotation_cockpit_script() -> FileResponse:
+        return FileResponse(
+            Path(__file__).parent / "static" / "quotation_cockpit.js",
+            media_type="application/javascript",
+        )
+
     @app.post("/cad/ingest")
     def cad_ingest(body: dict[str, Any], request: Request) -> JSONResponse:
         tenant_id = _validate_tenant(body.get("tenant_id"))
@@ -4176,6 +4183,306 @@ def create_app() -> FastAPI:
                 {"archetype_id": archetype_id, "country_code": country_code},
                 payload,
             )
+        )
+
+    def _build_composite_spec(body: dict[str, Any], *, tenant_id: str, actor_id: str | None) -> Any:
+        from evidence_coverage.composite_dag_quotation import CompositeRotorcraftQuotationSpec
+
+        raw_archs = body.get("archetype_ids") or ()
+        arch_tuple = tuple(str(a).strip() for a in raw_archs if str(a).strip())
+        raw_edges = body.get("custom_edges") or ()
+        edges_tuple = tuple(
+            (str(e[0]), str(e[1]), str(e[2]) if len(e) > 2 else "CAD_DMU")
+            for e in raw_edges
+            if isinstance(e, (list, tuple)) and len(e) >= 2
+        )
+        return CompositeRotorcraftQuotationSpec(
+            rfq_text=str(body.get("rfq_text") or ""),
+            archetype_ids=arch_tuple,
+            custom_edges=edges_tuple,
+            country_code=str(body.get("country_code") or "EU_DEFAULT"),
+            nearshore_country=str(body.get("nearshore_country") or "ES"),
+            cert_basis=str(body.get("cert_basis") or "CS-29"),
+            material_family=str(body.get("material_family") or "HYBRID_AL_CFRP"),
+            cosysmo_complexity=str(body.get("cosysmo_complexity") or "NOMINAL"),
+            idp_maturity=str(body.get("idp_maturity") or "COMPLETE"),
+            target_margin_pct=str(body.get("target_margin_pct") or "22.000"),
+            min_acceptable_margin_pct=str(body.get("min_acceptable_margin_pct") or "10.000"),
+            min_npv_eur=str(body.get("min_npv_eur") or "0.000"),
+            unit_count=int(body.get("unit_count") or 1),
+            learning_rate_pct=str(body.get("learning_rate_pct") or "85.000"),
+            crawford_weight_pct=str(body.get("crawford_weight_pct") or "50.000"),
+            program_years=int(body.get("program_years") or 3),
+            annual_inflation_pct=(
+                str(body["annual_inflation_pct"])
+                if body.get("annual_inflation_pct") is not None
+                else None
+            ),
+            wacc_annual_pct=(
+                str(body["wacc_annual_pct"]) if body.get("wacc_annual_pct") is not None else None
+            ),
+            payment_terms_days=(
+                int(body["payment_terms_days"])
+                if body.get("payment_terms_days") is not None
+                else None
+            ),
+            milestone_ko_pct=str(body.get("milestone_ko_pct") or "25.000"),
+            milestone_pdr_pct=str(body.get("milestone_pdr_pct") or "20.000"),
+            milestone_cdr_pct=str(body.get("milestone_cdr_pct") or "25.000"),
+            milestone_test_pct=str(body.get("milestone_test_pct") or "15.000"),
+            milestone_cve_pct=str(body.get("milestone_cve_pct") or "15.000"),
+            cve_min_ratio_pct=(
+                str(body["cve_min_ratio_pct"])
+                if body.get("cve_min_ratio_pct") is not None
+                else None
+            ),
+            enable_formal_smt=bool(body.get("enable_formal_smt", True)),
+            export_control_restricted=bool(body.get("export_control_restricted", False)),
+            enforce_contract_gate=bool(body.get("enforce_contract_gate", True)),
+            contract_clauses=(
+                list(body["contract_clauses"])
+                if isinstance(body.get("contract_clauses"), list)
+                else None
+            ),
+            idp_attachments=dict(body.get("idp_attachments") or {}),
+            use_historical_calibration=bool(body.get("use_historical_calibration", True)),
+            historical_corpus_path=(
+                str(body["historical_corpus_path"]) if body.get("historical_corpus_path") else None
+            ),
+            historical_top_k=int(body.get("historical_top_k") or 3),
+            assumption_overrides=dict(body.get("assumption_overrides") or {}),
+            tenant_id=tenant_id,
+            actor_id=actor_id or str(body.get("actor_id") or "author"),
+            created_at=str(body.get("created_at") or _now()),
+            rfq_id=str(body.get("rfq_id") or "RFQ-COMP-001"),
+            customer_name=str(body.get("customer_name") or "Rotorcraft OEM / DOA Client"),
+            currency=str(body.get("currency") or "EUR"),
+        )
+
+    @app.post("/quotations/rotorcraft/composite-dag")
+    def rotorcraft_composite_dag_endpoint(body: dict[str, Any], request: Request) -> JSONResponse:
+        from evidence_coverage.composite_dag_quotation import run_composite_rotorcraft_quotation
+
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(
+                _abstain("composite_rotorcraft_quotation@1.0.0", {}, "invalid_tenant"),
+                status_code=400,
+            )
+        actor_id, auth_err = _check_endpoint_access(
+            request, tenant_id=tenant_id, requested_actor=body.get("actor_id")
+        )
+        if auth_err is not None:
+            return auth_err
+        spec = _build_composite_spec(body, tenant_id=tenant_id, actor_id=actor_id)
+        ledger = open_ledger(tenant_id)
+        dossier = run_composite_rotorcraft_quotation(ledger, spec)
+        if dossier["confidence"] == "abstain":
+            abstain_payload = _abstain(
+                "composite_rotorcraft_quotation@1.0.0",
+                {"rfq_id": spec.rfq_id},
+                dossier.get("abstain_reason") or "abstain",
+            )
+            abstain_payload["decision_status"] = dossier["decision_status"]
+            abstain_payload["contract_audit"] = dossier.get("contract_audit")
+            abstain_payload["event_hashes"] = dossier["event_hashes"]
+            abstain_payload["merkle_root"] = dossier["merkle_root"]
+            return JSONResponse(abstain_payload)
+        return JSONResponse(
+            _ok(
+                "composite_rotorcraft_quotation@1.0.0",
+                {
+                    "rfq_id": dossier["rfq_id"],
+                    "country_code": dossier["country_profile"]["country_code"],
+                    "critical_path": dossier["composite_wbs_dag"]["critical_path_archetypes"],
+                },
+                dossier,
+            )
+        )
+
+    @app.post("/quotations/rotorcraft/multiyear-cashflow")
+    def rotorcraft_multiyear_cashflow_endpoint(body: dict[str, Any]) -> JSONResponse:
+        inputs = dict(body.get("inputs") or body)
+        try:
+            ran = run_method(
+                "aerospace_multiyear_cashflow_learning", inputs, include_intervals=True
+            )
+        except AbstainError as exc:
+            return JSONResponse(
+                _abstain("aerospace_multiyear_cashflow_learning@1.0.0", inputs, exc.reason),
+                status_code=400,
+            )
+        return JSONResponse(_ok("aerospace_multiyear_cashflow_learning@1.0.0", inputs, ran))
+
+    @app.post("/quotations/rotorcraft/idp-deep-inspect")
+    def rotorcraft_idp_deep_inspect_endpoint(
+        body: dict[str, Any] | None = None,
+    ) -> JSONResponse:
+        from evidence_coverage.deep_idp_quotation_extractor import (
+            extract_deep_idp_engineering_package,
+        )
+
+        req = body or {}
+        res = extract_deep_idp_engineering_package(req.get("idp_attachments") or req)
+        return JSONResponse(_ok("deep_idp_extractor@1.0.0", {}, res))
+
+    @app.post("/quotations/rotorcraft/contract-audit")
+    def rotorcraft_contract_audit_endpoint(body: dict[str, Any]) -> JSONResponse:
+        from evidence_coverage.contract_clause_auditor import audit_rfq_contract_clauses
+
+        pdf_bytes = base64.b64decode(str(body["pdf_base64"])) if body.get("pdf_base64") else None
+        res = audit_rfq_contract_clauses(
+            str(body.get("rfq_text") or ""),
+            clauses=body.get("clauses") if isinstance(body.get("clauses"), list) else None,
+            pdf_bytes=pdf_bytes,
+            filename=str(body.get("filename") or "rfq.txt"),
+        )
+        return JSONResponse(_ok("contract_clause_auditor@1.0.0", {}, res))
+
+    @app.post("/quotations/rotorcraft/export-xlsx")
+    def rotorcraft_export_xlsx_endpoint(body: dict[str, Any], request: Request) -> Response:
+        from evidence_coverage.composite_dag_quotation import run_composite_rotorcraft_quotation
+        from evidence_coverage.quotation_exporter import export_quotation_xlsx
+
+        if isinstance(body.get("dossier"), dict):
+            dossier = body["dossier"]
+        else:
+            tenant_id = _validate_tenant(body.get("tenant_id"))
+            if tenant_id is None:
+                return JSONResponse(
+                    _abstain("quotation_exporter_xlsx@1.0.0", {}, "invalid_tenant"),
+                    status_code=400,
+                )
+            actor_id, auth_err = _check_endpoint_access(
+                request, tenant_id=tenant_id, requested_actor=body.get("actor_id")
+            )
+            if auth_err is not None:
+                return auth_err
+            spec = _build_composite_spec(body, tenant_id=tenant_id, actor_id=actor_id)
+            dossier = run_composite_rotorcraft_quotation(open_ledger(tenant_id), spec)
+            if dossier.get("confidence") == "abstain":
+                return JSONResponse(
+                    _abstain(
+                        "quotation_exporter_xlsx@1.0.0",
+                        {},
+                        dossier.get("abstain_reason") or "abstain",
+                    ),
+                    status_code=422,
+                )
+
+        exported = export_quotation_xlsx(dossier)
+        rfq_id = str(dossier.get("rfq_id") or "quotation").replace('"', "")
+        return Response(
+            content=exported["xlsx_bytes"],
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f'attachment; filename="{rfq_id}_quotation.xlsx"',
+                "X-AeroRegu-SHA256": exported["xlsx_sha256"],
+                "X-AeroRegu-Formula-Count": str(exported["formula_count"]),
+            },
+        )
+
+    @app.post("/quotations/rotorcraft/export-pdf")
+    def rotorcraft_export_pdf_endpoint(body: dict[str, Any], request: Request) -> Response:
+        from evidence_coverage.composite_dag_quotation import run_composite_rotorcraft_quotation
+        from evidence_coverage.quotation_exporter import export_quotation_signed_pdf
+
+        if isinstance(body.get("dossier"), dict):
+            dossier = body["dossier"]
+        else:
+            tenant_id = _validate_tenant(body.get("tenant_id"))
+            if tenant_id is None:
+                return JSONResponse(
+                    _abstain("quotation_exporter_pdf@1.0.0", {}, "invalid_tenant"),
+                    status_code=400,
+                )
+            actor_id, auth_err = _check_endpoint_access(
+                request, tenant_id=tenant_id, requested_actor=body.get("actor_id")
+            )
+            if auth_err is not None:
+                return auth_err
+            spec = _build_composite_spec(body, tenant_id=tenant_id, actor_id=actor_id)
+            dossier = run_composite_rotorcraft_quotation(open_ledger(tenant_id), spec)
+            if dossier.get("confidence") == "abstain":
+                return JSONResponse(
+                    _abstain(
+                        "quotation_exporter_pdf@1.0.0",
+                        {},
+                        dossier.get("abstain_reason") or "abstain",
+                    ),
+                    status_code=422,
+                )
+
+        priv_pem, pub_pem = _attestation_keypair()
+        exported = export_quotation_signed_pdf(
+            dossier, private_key_pem=priv_pem, public_key_pem=pub_pem
+        )
+        rfq_id = str(dossier.get("rfq_id") or "quotation").replace('"', "")
+        return Response(
+            content=exported["pdf_bytes"],
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{rfq_id}_signed_quote.pdf"',
+                "X-AeroRegu-SHA256": exported["pdf_sha256"],
+                "X-AeroRegu-Merkle-Root": exported["merkle_root"],
+            },
+        )
+
+    @app.post("/quotations/rotorcraft/advanced-calibration")
+    def rotorcraft_advanced_calibration_endpoint(
+        body: dict[str, Any] | None = None,
+    ) -> JSONResponse:
+        from evidence_coverage.advanced_quotation_calibration import (
+            run_advanced_calibration_suite,
+        )
+        from evidence_coverage.historical_quotation_calibrator import (
+            generate_reference_historical_corpus,
+            ingest_historical_quotations,
+        )
+
+        req = body or {}
+        if req.get("corpus_path"):
+            corpus = ingest_historical_quotations(str(req["corpus_path"]))["records"]
+        elif isinstance(req.get("records"), list):
+            corpus = ingest_historical_quotations(list(req["records"]))["records"]
+        else:
+            corpus = generate_reference_historical_corpus(int(req.get("synthetic_count") or 2160))
+
+        payload = run_advanced_calibration_suite(
+            corpus=corpus,
+            archetype_id=str(req.get("archetype_id") or "Q-STR-03"),
+            country_code=str(req.get("country_code") or "EU_DEFAULT"),
+            k_folds=int(req.get("k_folds") or 5),
+            exclude_outliers=bool(req.get("exclude_outliers", True)),
+            target_margin_pct=str(req.get("target_margin_pct") or "22.000"),
+            min_acceptable_margin_pct=str(req.get("min_acceptable_margin_pct") or "10.000"),
+        )
+        return JSONResponse(_ok("advanced_quotation_calibration@1.0.0", {}, payload))
+
+    @app.get("/quotations/rotorcraft/erp-template")
+    def rotorcraft_erp_template_endpoint(format: str = "xlsx") -> Response:
+        from evidence_coverage.advanced_quotation_calibration import export_erp_sap_import_template
+
+        try:
+            res = export_erp_sap_import_template(fmt=format)
+        except ValueError as exc:
+            return JSONResponse(
+                _abstain("erp_sap_template@1.0.0", {"format": format}, str(exc)),
+                status_code=400,
+            )
+        media = (
+            "text/csv"
+            if res["format"] == "csv"
+            else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        disposition = f'attachment; filename="aeroregu_erp_sap_bids_template.{res["format"]}"'
+        return Response(
+            content=res["content_bytes"],
+            media_type=media,
+            headers={
+                "Content-Disposition": disposition,
+                "X-AeroRegu-SHA256": res["sha256"],
+            },
         )
 
     @app.get("/mcp/catalog")

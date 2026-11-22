@@ -570,6 +570,31 @@ def compute_exact_mass_properties(mesh: TriangleMesh) -> dict[str, Any]:
 
     bmin = np.min(verts, axis=0)
     bmax = np.max(verts, axis=0)
+    aabb_dims = np.maximum(bmax - bmin, 0.0)
+    aabb_vol_mm3 = float(np.prod(aabb_dims))
+
+    # Surface area from triangle cross-products
+    tri_cross = np.cross(v1 - v0, v2 - v0)
+    surface_area_mm2 = 0.5 * float(np.sum(np.linalg.norm(tri_cross, axis=1)))
+    surface_area_m2 = surface_area_mm2 * 1e-6
+
+    # PCA-aligned Minimum Oriented Bounding Box (OBB) for Buy-to-Fly stock envelope
+    obb_dims = aabb_dims
+    obb_vol_mm3 = aabb_vol_mm3
+    if verts.shape[0] >= 3:
+        centered = verts - np.mean(verts, axis=0)
+        cov = np.cov(centered.T)
+        if cov.shape == (3, 3) and np.all(np.isfinite(cov)):
+            _eigvals, eigvecs = np.linalg.eigh(cov)
+            proj = centered @ eigvecs
+            cand_dims = np.maximum(np.max(proj, axis=0) - np.min(proj, axis=0), 0.0)
+            cand_vol = float(np.prod(cand_dims))
+            if cand_vol > 1e-6 and cand_vol < obb_vol_mm3:
+                obb_vol_mm3 = cand_vol
+                obb_dims = np.sort(cand_dims)[::-1]
+
+    stock_bbox_volume_mm3 = max(vol_mm3, min(aabb_vol_mm3, obb_vol_mm3))
+    buy_to_fly_ratio = max(1.0, stock_bbox_volume_mm3 / vol_mm3) if vol_mm3 > 0 else 1.0
 
     return {
         "solid_id": mesh.solid_id,
@@ -578,6 +603,11 @@ def compute_exact_mass_properties(mesh: TriangleMesh) -> dict[str, Any]:
         "density_kg_m3": decimal_str(Decimal(str(density)), "0.001"),
         "volume_mm3": decimal_str(Decimal(f"{vol_mm3:.6f}"), "0.0001"),
         "volume_m3": decimal_str(Decimal(f"{vol_m3:.12f}"), "0.0000000001"),
+        "surface_area_mm2": decimal_str(Decimal(f"{surface_area_mm2:.6f}"), "0.0001"),
+        "surface_area_m2": decimal_str(Decimal(f"{surface_area_m2:.10f}"), "0.00000001"),
+        "stock_bbox_volume_mm3": decimal_str(Decimal(f"{stock_bbox_volume_mm3:.6f}"), "0.0001"),
+        "obb_dims_mm": [decimal_str(Decimal(f"{v:.4f}"), "0.001") for v in obb_dims],
+        "buy_to_fly_ratio": decimal_str(Decimal(f"{buy_to_fly_ratio:.6f}"), "0.001"),
         "mass_kg": decimal_str(Decimal(f"{mass_kg:.12f}"), "0.0000000001"),
         "cg_mm": [decimal_str(Decimal(f"{v:.6f}"), "0.0001") for v in cg_mm],
         "cg_m": [decimal_str(Decimal(f"{v:.8f}"), "0.000001") for v in cg_m],
@@ -911,6 +941,8 @@ def analyze_step_brep(
     web_reports: list[dict[str, Any]] = []
     total_mass = 0.0
     total_vol_mm3 = 0.0
+    total_stock_vol_mm3 = 0.0
+    total_surface_mm2 = 0.0
     weighted_cg = np.zeros(3, dtype=np.float64)
 
     for mesh in meshes:
@@ -923,9 +955,13 @@ def analyze_step_brep(
         web_reports.append(web)
         m_val = float(prop["mass_kg"])
         v_val = float(prop["volume_mm3"])
+        s_vol = float(prop["stock_bbox_volume_mm3"])
+        s_area = float(prop["surface_area_mm2"])
         cg_vec = np.array([float(c) for c in prop["cg_mm"]], dtype=np.float64)
         total_mass += m_val
         total_vol_mm3 += v_val
+        total_stock_vol_mm3 += s_vol
+        total_surface_mm2 += s_area
         weighted_cg += m_val * cg_vec
 
     assembly_cg_mm = (weighted_cg / total_mass) if total_mass > 1e-12 else np.zeros(3)
@@ -939,6 +975,16 @@ def analyze_step_brep(
     min_web_overall = (
         decimal_str(Decimal(f"{min(min_web_vals):.4f}"), "0.0001") if min_web_vals else None
     )
+    assembly_btf = max(1.0, total_stock_vol_mm3 / total_vol_mm3) if total_vol_mm3 > 1e-12 else 1.0
+    total_tris = sum(int(p.get("triangle_count") or 0) for p in solid_reports)
+    thin_web_pen = 0.25 if (min_web_vals and min(min_web_vals) < 3.0) else 0.0
+    machining_complexity = min(
+        5.0,
+        1.0
+        + 0.12 * max(0.0, assembly_btf - 1.0)
+        + 0.005 * (total_tris / max(1, len(solid_reports)))
+        + thin_web_pen,
+    )
 
     params: list[dict[str, Any]] = []
     if solid_reports:
@@ -949,6 +995,20 @@ def analyze_step_brep(
                     name="mass_kg",
                     value=decimal_str(Decimal(f"{total_mass:.8f}"), "0.000001"),
                     unit="kg",
+                    source_kind="step_brep",
+                ),
+                make_param_entry(
+                    path="STEP_BREP\\ASSEMBLY\\buy_to_fly_ratio",
+                    name="buy_to_fly_ratio",
+                    value=decimal_str(Decimal(f"{assembly_btf:.6f}"), "0.001"),
+                    unit="1",
+                    source_kind="step_brep",
+                ),
+                make_param_entry(
+                    path="STEP_BREP\\ASSEMBLY\\surface_area_m2",
+                    name="surface_area_m2",
+                    value=decimal_str(Decimal(f"{total_surface_mm2 * 1e-6:.10f}"), "0.000001"),
+                    unit="m2",
                     source_kind="step_brep",
                 ),
                 make_param_entry(
@@ -1001,6 +1061,13 @@ def analyze_step_brep(
         "solid_count": len(solid_reports),
         "solids": solid_reports,
         "assembly_volume_mm3": decimal_str(Decimal(f"{total_vol_mm3:.4f}"), "0.0001"),
+        "assembly_stock_volume_mm3": decimal_str(Decimal(f"{total_stock_vol_mm3:.4f}"), "0.0001"),
+        "assembly_buy_to_fly_ratio": decimal_str(Decimal(f"{assembly_btf:.6f}"), "0.001"),
+        "assembly_surface_area_mm2": decimal_str(Decimal(f"{total_surface_mm2:.4f}"), "0.0001"),
+        "assembly_surface_area_m2": decimal_str(
+            Decimal(f"{total_surface_mm2 * 1e-6:.10f}"), "0.000001"
+        ),
+        "machining_complexity_index": decimal_str(Decimal(f"{machining_complexity:.6f}"), "0.001"),
         "assembly_mass_kg": decimal_str(Decimal(f"{total_mass:.8f}"), "0.000001"),
         "assembly_cg_mm": [decimal_str(Decimal(f"{v:.4f}"), "0.0001") for v in assembly_cg_mm],
         "assembly_cg_m": [decimal_str(Decimal(f"{v:.7f}"), "0.000001") for v in assembly_cg_m],

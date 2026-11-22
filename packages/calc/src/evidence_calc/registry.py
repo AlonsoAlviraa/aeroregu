@@ -16,6 +16,7 @@ from evidence_calc.plugins import (
     run_declarative_card,
 )
 from evidence_calc.quotation_costing import (
+    run_aerospace_multiyear_cashflow_learning,
     run_aerospace_quotation_costing,
     run_engineering_workpackage_quote,
     run_rotorcraft_archetype_quote,
@@ -40,6 +41,7 @@ _RUNNERS = {
     "palmgren_miner_fatigue": run_palmgren_miner_fatigue,
     "composite_failure_criteria": run_composite_failure_criteria,
     "aerospace_quotation_costing": run_aerospace_quotation_costing,
+    "aerospace_multiyear_cashflow_learning": run_aerospace_multiyear_cashflow_learning,
     "engineering_workpackage_quote": run_engineering_workpackage_quote,
     "rotorcraft_archetype_quote": run_rotorcraft_archetype_quote,
     "rotorcraft_historical_calibration": run_rotorcraft_historical_calibration,
