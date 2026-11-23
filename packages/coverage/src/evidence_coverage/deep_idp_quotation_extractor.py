@@ -23,7 +23,11 @@ from evidence_ingest.cae_binary import (
     parse_nastran_op2_bytes,
     parse_nastran_op2_file,
 )
-from evidence_ingest.fem_parsers import parse_nastran_bdf
+from evidence_ingest.fem_parsers import (
+    parse_abaqus_inp,
+    parse_nastran_bdf,
+    parse_nastran_f06,
+)
 
 _Q2 = Decimal("0.01")
 _Q3 = Decimal("0.001")
@@ -63,10 +67,11 @@ def _read_text_attachment(
     *,
     text_key: str,
     path_key: str,
+    base_dir_key: str = "bdf_base_dir",
 ) -> tuple[str, str | None, Path | None]:
     raw_txt = att.get(text_key)
     if isinstance(raw_txt, str) and raw_txt.strip():
-        base_dir = Path(str(att["bdf_base_dir"])) if att.get("bdf_base_dir") else None
+        base_dir = Path(str(att[base_dir_key])) if att.get(base_dir_key) else None
         return raw_txt, f"inline:{text_key}", base_dir
     raw_p = att.get(path_key)
     if raw_p:
@@ -254,11 +259,74 @@ def extract_deep_idp_engineering_package(
         except IngestAbstain as exc:
             quality_findings.append(f"Binary .h5 notice: {exc.reason}")
 
-    # 3. Nastran .f06 solver audit
+    # 2b. Optional Abaqus .inp with nested *INCLUDE tree & *SHELL SECTION, COMPOSITE
+    abq_txt, abq_name, abq_path = _read_text_attachment(
+        att,
+        text_key="abaqus_text",
+        path_key="abaqus_path",
+        base_dir_key="abaqus_base_dir",
+    )
+    abaqus_summary: dict[str, Any] = {
+        "present": False,
+        "node_count": 0,
+        "element_count": 0,
+        "include_count": 0,
+        "include_tree": [],
+        "composite_sections": [],
+        "total_composite_plies": 0,
+        "load_cases_count": 0,
+    }
+    if abq_txt and abq_name:
+        artifacts_analyzed.append(abq_name)
+        abq_bytes = abq_txt.encode("utf-8")
+        abq_hash = hashlib.sha256(abq_bytes).hexdigest()
+        artifact_hashes[abq_name] = abq_hash
+        abq_base_dir = (
+            abq_path.parent
+            if isinstance(abq_path, Path) and abq_path.is_file()
+            else (abq_path if isinstance(abq_path, Path) and abq_path.is_dir() else None)
+        )
+        try:
+            abq_parsed = parse_abaqus_inp(abq_bytes, abq_hash, base_dir=abq_base_dir)
+            abq_inc = list(abq_parsed.get("include_tree") or [])
+            for inc in abq_inc:
+                inc_label = str(inc["relative_path"])
+                artifacts_analyzed.append(inc_label)
+                artifact_hashes[inc_label] = str(inc["sha256"])
+            abq_mesh = abq_parsed.get("mesh") or {}
+            abq_comp = list(abq_parsed.get("composite_sections") or [])
+            abq_plies = sum(int(s.get("ply_count") or 0) for s in abq_comp)
+            abq_lcs = len((abq_parsed.get("loads") or {}).get("load_cases") or [])
+            abaqus_summary = {
+                "present": True,
+                "node_count": int(abq_mesh.get("node_count") or 0),
+                "element_count": int(abq_mesh.get("element_count") or 0),
+                "include_count": len(abq_inc),
+                "include_tree": abq_inc,
+                "composite_sections": abq_comp,
+                "total_composite_plies": abq_plies,
+                "load_cases_count": abq_lcs,
+            }
+            bdf_nodes = max(bdf_nodes, abaqus_summary["node_count"])
+            bdf_elems = max(bdf_elems, abaqus_summary["element_count"])
+            bdf_struct_elems = max(bdf_struct_elems, abaqus_summary["element_count"])
+            bdf_pcomp = max(bdf_pcomp, len(abq_comp))
+            bdf_subcases = max(bdf_subcases, abq_lcs)
+        except IngestAbstain as exc:
+            quality_findings.append(f"Abaqus .inp parser notice: {exc.reason}")
+
+    # 3. Nastran .f06 solver audit (OLOAD/SPCFORCE/GPWG/EPSILON/SOL103/SOL105/GPFORCE)
     f06_txt, f06_name, _ = _read_text_attachment(att, text_key="f06_text", path_key="f06_path")
+    f06_parsed: dict[str, Any] | None = None
     if f06_txt and f06_name:
         artifacts_analyzed.append(f06_name)
-        artifact_hashes[f06_name] = hashlib.sha256(f06_txt.encode("utf-8")).hexdigest()
+        f06_bytes = f06_txt.encode("utf-8")
+        f06_hash = hashlib.sha256(f06_bytes).hexdigest()
+        artifact_hashes[f06_name] = f06_hash
+        try:
+            f06_parsed = parse_nastran_f06(f06_bytes, f06_hash)
+        except IngestAbstain:
+            f06_parsed = None
     f06_upper = f06_txt.upper()
     has_gpwg = ("WEIGHT GENERATOR" in f06_upper) or (
         "G R I D   P O I N T   W E I G H T" in f06_upper
@@ -278,13 +346,26 @@ def extract_deep_idp_engineering_package(
         if eps_max_dec is None or d > eps_max_dec:
             eps_max_dec = d
     eps_exceeded = eps_max_dec is not None and eps_max_dec > Decimal("1e-6")
+    buckling_modes = list((f06_parsed or {}).get("buckling_eigenvalues") or [])
+    modal_modes = list((f06_parsed or {}).get("modal_eigenvalues") or [])
+    crit_buckling = (f06_parsed or {}).get("critical_buckling_factor")
+    buckling_ms_min = (f06_parsed or {}).get("buckling_ms_min")
+    gpforce_freebody = (f06_parsed or {}).get("gpforce_freebody")
+    buckling_unstable = False
+    if crit_buckling is not None and Decimal(str(crit_buckling)) < _ONE:
+        buckling_unstable = True
+        quality_findings.append(f"Nastran SOL 105 critical buckling factor {crit_buckling} < 1.0.")
+    if gpforce_freebody is not None and not gpforce_freebody.get("freebody_balanced", True):
+        quality_findings.append(
+            "Nastran GPFORCE freebody nodal residual exceeds equilibrium tolerance."
+        )
     if has_fatal:
         quality_findings.append("Nastran .f06 contains FATAL MESSAGE.")
     if eps_exceeded:
         quality_findings.append(
             f"Nastran .f06 EPSILON={eps_max_dec} exceeds 1e-6 equilibrium threshold."
         )
-    if f06_txt and not (has_gpwg and has_oload_spc):
+    if f06_txt and not (has_gpwg and has_oload_spc) and not (buckling_modes or gpforce_freebody):
         quality_findings.append("Nastran .f06 missing GPWG or OLOAD/SPCFORCE balance tables.")
 
     # 4. STEP AP203/214/242 B-Rep Buy-to-Fly, Surface Area & Machining Complexity
@@ -383,7 +464,8 @@ def extract_deep_idp_engineering_package(
             (Decimal(active_dofs) / Decimal("5000")) * Decimal("1.500")
             + Decimal(effective_subcases) * Decimal("0.450")
             + (Decimal(cae_stress_rows) / Decimal("50000")) * Decimal("2.000")
-            + Decimal(prop_counts["pcomp"]) * Decimal("0.600")
+            + Decimal(prop_counts["pcomp"] + len(abaqus_summary["composite_sections"]))
+            * Decimal("0.600")
             + Decimal(dof_summary.get("rbe2_count", 0) + dof_summary.get("rbe3_count", 0))
             * Decimal("0.150")
         )
@@ -391,6 +473,8 @@ def extract_deep_idp_engineering_package(
             solve_hrs += Decimal("8.000") + Decimal("4.000") * Decimal(len(cae_imbalanced))
         if min_ms is not None and min_ms < _ZERO:
             solve_hrs += Decimal("16.000")
+        if buckling_unstable:
+            solve_hrs += Decimal("14.000")
         if has_fatal or eps_exceeded:
             solve_hrs += Decimal("12.000")
 
@@ -441,7 +525,13 @@ def extract_deep_idp_engineering_package(
             "has_fatal": has_fatal,
             "epsilon_max": str(eps_max_dec) if eps_max_dec is not None else None,
             "epsilon_exceeded": eps_exceeded,
+            "modal_modes_count": len(modal_modes),
+            "buckling_modes_count": len(buckling_modes),
+            "critical_buckling_factor": crit_buckling,
+            "buckling_ms_min": buckling_ms_min,
+            "gpforce_freebody": gpforce_freebody,
         },
+        "abaqus_summary": abaqus_summary,
         "cae_binary_summary": {
             "files_parsed": len(cae_binary_reports),
             "reports": cae_binary_reports,

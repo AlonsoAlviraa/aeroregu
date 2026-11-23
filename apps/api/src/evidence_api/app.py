@@ -4723,6 +4723,96 @@ def create_app() -> FastAPI:
         )
         return JSONResponse(_ok("portfolio_capacity_leveler@1.0.0", {}, res))
 
+    @app.post("/quotations/rotorcraft/fx-hedging")
+    def rotorcraft_fx_hedging_endpoint(body: dict[str, Any]) -> JSONResponse:
+        from evidence_coverage.quotation_fx_hedging import evaluate_quotation_fx_hedging
+
+        try:
+            res = evaluate_quotation_fx_hedging(
+                quoted_price_eur=body.get("quoted_price_eur") or "500000",
+                cost_eur=body.get("cost_eur") or "380000",
+                billing_currency=str(body.get("billing_currency") or "USD"),
+                cost_currency=str(body.get("cost_currency") or "EUR"),
+                hedge_ratio_pct=str(body.get("hedge_ratio_pct") or "80.000"),
+                forward_carry_bps_per_year=str(body.get("forward_carry_bps_per_year") or "85.000"),
+                program_years=int(body.get("program_years") or 3),
+                fx_shock_band_pct=str(body.get("fx_shock_band_pct") or "10.000"),
+                cost_drift_band_pct=str(body.get("cost_drift_band_pct") or "5.000"),
+                min_acceptable_margin_pct=str(body.get("min_acceptable_margin_pct") or "10.000"),
+            )
+        except ValueError as exc:
+            return JSONResponse(
+                _abstain("quotation_fx_hedging@1.0.0", {}, str(exc)),
+                status_code=400,
+            )
+        return JSONResponse(_ok("quotation_fx_hedging@1.0.0", {}, res))
+
+    @app.post("/quotations/rotorcraft/evm-postmortem")
+    def rotorcraft_evm_postmortem_endpoint(body: dict[str, Any], request: Request) -> JSONResponse:
+        from evidence_coverage.bid_actual_postmortem import run_bid_actual_evm_postmortem
+        from evidence_coverage.composite_dag_quotation import run_composite_rotorcraft_quotation
+
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(
+                _abstain("bid_actual_postmortem@1.0.0", {}, "invalid_tenant"),
+                status_code=400,
+            )
+        actor_id, auth_err = _check_endpoint_access(
+            request, tenant_id=tenant_id, requested_actor=body.get("actor_id")
+        )
+        if auth_err is not None:
+            return auth_err
+        ledger = open_ledger(tenant_id)
+
+        baseline = body.get("baseline_dossier")
+        if not isinstance(baseline, dict) or not baseline.get("composite_wbs_dag"):
+            b_spec = dict(body.get("baseline_spec") or {})
+            if not b_spec:
+                b_spec = {
+                    "rfq_id": body.get("rfq_id") or "RFQ-BASE-001",
+                    "rfq_text": str(body.get("baseline_rfq_text") or "CS-29 frame static Net 60."),
+                    "archetype_ids": body.get("baseline_archetypes")
+                    or ["Q-DES-02", "Q-STR-03", "Q-DOA-02"],
+                    "country_code": str(body.get("country_code") or "EU_DEFAULT"),
+                }
+            spec = _build_composite_spec(
+                b_spec,
+                tenant_id=tenant_id,
+                actor_id=actor_id or str(body.get("actor_id") or "stress-office-controller"),
+            )
+            baseline = run_composite_rotorcraft_quotation(ledger, spec)
+            if baseline.get("confidence") == "abstain":
+                return JSONResponse(
+                    _abstain(
+                        "bid_actual_postmortem@1.0.0",
+                        {},
+                        str(baseline.get("abstain_reason") or "baseline_abstain"),
+                    ),
+                    status_code=400,
+                )
+
+        try:
+            res = run_bid_actual_evm_postmortem(
+                ledger,
+                baseline,
+                body.get("actuals"),
+                actuals_csv=body.get("actuals_csv"),
+                project_id=body.get("project_id"),
+                actual_ecn_iterations=int(body.get("actual_ecn_iterations") or 0),
+                idp_rework_hours=str(body.get("idp_rework_hours") or "0"),
+                unbilled_scope_hours=str(body.get("unbilled_scope_hours") or "0"),
+                cve_rework_hours=str(body.get("cve_rework_hours") or "0"),
+                actor_id=actor_id or str(body.get("actor_id") or "stress-office-controller"),
+                created_at=body.get("created_at") or _now(),
+            )
+        except ValueError as exc:
+            return JSONResponse(
+                _abstain("bid_actual_postmortem@1.0.0", {}, str(exc)),
+                status_code=400,
+            )
+        return JSONResponse(_ok("bid_actual_postmortem@1.0.0", {}, res))
+
     @app.get("/mcp/catalog")
     def get_mcp_catalog_endpoint() -> JSONResponse:
         from evidence_api.mcp_server import get_mcp_catalog

@@ -57,6 +57,12 @@ METHOD_FAMILIES: dict[str, str] = {
     "ground_resonance_coleman_screen": "rotorcraft_dynamics",
     "cs29_crashworthiness_561_562_load": "rotorcraft_dynamics",
     "multirow_bolt_load_distribution": "fasteners_joints",
+    # Rotorcraft & Composite Stress Office Extensions (Sprint 3)
+    "larc04_composite_failure": "composites_cmh17",
+    "cs29_bird_strike_penetration_screen": "rotorcraft_dynamics",
+    "campbell_rotor_harmonic_clearance": "rotorcraft_dynamics",
+    "tailboom_boxbeam_combined_stress": "thin_walled_stability",
+    "statistical_ab_basis_tolerance_bound": "composites_cmh17",
 }
 
 METHOD_DEFAULT_INPUTS: dict[str, dict[str, Any]] = {
@@ -387,6 +393,54 @@ METHOD_DEFAULT_INPUTS: dict[str, dict[str, Any]] = {
         "bolt_diameter_mm": "6.350",
         "bolt_modulus_mpa": "205000",
         "bearing_allowable_mpa": "720",
+    },
+    "larc04_composite_failure": {
+        "sigma_1_mpa": "-380",
+        "sigma_2_mpa": "-42",
+        "tau_12_mpa": "28",
+        "x_t_mpa": "2200",
+        "x_c_mpa": "1350",
+        "y_t_mpa": "60",
+        "y_c_mpa": "220",
+        "s_l_mpa": "85",
+        "alpha_0_deg": "53",
+        "eta_l": "0.28",
+        "g_12_mpa": "4700",
+        "phi_0_deg": "1.5",
+    },
+    "cs29_bird_strike_penetration_screen": {
+        "bird_mass_kg": "1.0",
+        "impact_velocity_m_s": "75",
+        "bird_density_kg_m3": "950",
+        "bird_diameter_mm": "120",
+        "panel_thickness_mm": "6.5",
+        "panel_shear_allowable_mpa": "180",
+        "safety_factor": "1.5",
+    },
+    "campbell_rotor_harmonic_clearance": {
+        "omega_min_rpm": "360",
+        "omega_max_rpm": "400",
+        "blade_count": "4",
+        "structural_freq_hz": "38.5",
+        "min_clearance_pct": "10",
+    },
+    "tailboom_boxbeam_combined_stress": {
+        "bending_moment_n_m": "18500",
+        "torque_n_m": "9200",
+        "transverse_shear_n": "14000",
+        "box_width_mm": "320",
+        "box_height_mm": "420",
+        "skin_thickness_mm": "2.2",
+        "cap_area_mm2": "340",
+        "yield_allowable_mpa": "310",
+        "shear_buckling_allowable_mpa": "95",
+        "safety_factor": "1.5",
+    },
+    "statistical_ab_basis_tolerance_bound": {
+        "sample_count": "30",
+        "sample_mean_mpa": "620",
+        "sample_std_mpa": "24",
+        "design_stress_mpa": "420",
     },
 }
 
@@ -1949,6 +2003,239 @@ def _prove_builtin_method(
             build_violation=_v_mr,
             proved_reason="Peak elastic fastener row bearing load stays within F_bru across bounds",
             cex_reason="Critical fastener row exceeds bearing allowable stress",
+        ).to_dict()
+
+    if method_id == "larc04_composite_failure":
+        keys = [
+            "sigma_1_mpa",
+            "sigma_2_mpa",
+            "tau_12_mpa",
+            "x_t_mpa",
+            "x_c_mpa",
+            "y_t_mpa",
+            "y_c_mpa",
+            "s_l_mpa",
+        ]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+        a0 = float(Decimal(str(merged["alpha_0_deg"])))
+        eta_l = float(Decimal(str(merged["eta_l"])))
+        g12 = float(Decimal(str(merged["g_12_mpa"])))
+        phi0 = float(Decimal(str(merged["phi_0_deg"])))
+        eta_t_val = -1.0 / math.tan(math.radians(2.0 * a0))
+        ca = math.cos(math.radians(a0))
+        sa = math.sin(math.radians(a0))
+        st_factor = ca * (sa - eta_t_val * ca)
+        s1_lo = _bound_extrema(b, c, "sigma_1_mpa")[0]
+        abs_s1_max = min(abs(s1_lo), 0.899 * g12) if s1_lo < 0 else 0.0
+        phi_kink_hi = phi0 * g12 / max(1e-6, g12 - abs_s1_max)
+        sp_k = math.sin(math.radians(phi_kink_hi))
+        cp_k = math.cos(math.radians(phi_kink_hi))
+        s2p_k = math.sin(math.radians(2.0 * phi_kink_hi))
+        c2p_k = math.cos(math.radians(2.0 * phi_kink_hi))
+        z_eta_t = z3.RealVal(_dec_str(eta_t_val))
+        z_eta_l = z3.RealVal(_dec_str(eta_l))
+        z_ca = z3.RealVal(_dec_str(ca))
+        z_sa = z3.RealVal(_dec_str(sa))
+        z_st_fac = z3.RealVal(_dec_str(st_factor))
+        z_sp_k = z3.RealVal(_dec_str(sp_k))
+        z_cp_k = z3.RealVal(_dec_str(cp_k))
+        z_s2p_k = z3.RealVal(_dec_str(s2p_k))
+        z_c2p_k = z3.RealVal(_dec_str(c2p_k))
+
+        def _v_larc(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            s1, s2, t12 = p["sigma_1_mpa"], p["sigma_2_mpa"], p["tau_12_mpa"]
+            xt, xc, yt, yc, sl = (
+                p["x_t_mpa"],
+                p["x_c_mpa"],
+                p["y_t_mpa"],
+                p["y_c_mpa"],
+                p["s_l_mpa"],
+            )
+            abs_t12 = z3.If(t12 >= 0, t12, -t12)
+            # Fiber tension
+            viol_ft = z3.And(s1 > 0, s1 > xt)
+            # Fiber compression & kinking
+            abs_s1 = -s1
+            t12m = abs_t12 * z_c2p_k + (abs_s1 + s2) * z_sp_k * z_cp_k
+            abs_t12m = z3.If(t12m >= 0, t12m, -t12m)
+            s2m = s1 * z_sp_k * z_sp_k + s2 * z_cp_k * z_cp_k - abs_t12 * z_s2p_k
+            s2m_neg = z3.If(s2m < 0, s2m, 0)
+            t_k_eff = abs_t12m + z_eta_l * s2m_neg
+            viol_fc = z3.And(s1 < 0, z3.Or(abs_s1 > xc, t_k_eff > sl))
+            # Matrix tension: (s2*sl)^2 + (t12*yt)^2 > (yt*sl)^2
+            viol_mt = z3.And(s2 > 0, (s2 * sl) ** 2 + (t12 * yt) ** 2 > (yt * sl) ** 2)
+            # Matrix compression
+            st = yc * z_st_fac
+            sig_n = s2 * z_ca * z_ca
+            tau_t = -s2 * z_sa * z_ca
+            abs_tau_t = z3.If(tau_t >= 0, tau_t, -tau_t)
+            t_eff_t = z3.If(abs_tau_t + z_eta_t * sig_n > 0, abs_tau_t + z_eta_t * sig_n, 0)
+            tau_l = abs_t12 * z_ca
+            t_eff_l = z3.If(tau_l + z_eta_l * sig_n > 0, tau_l + z_eta_l * sig_n, 0)
+            viol_mc = z3.And(s2 < 0, (t_eff_t * sl) ** 2 + (t_eff_l * st) ** 2 > (st * sl) ** 2)
+            s.add(z3.Or(viol_ft, viol_fc, viol_mt, viol_mc))
+
+        return engine.prove_z3_property(
+            property_name="larc04_composite_envelope_safety",
+            bounds=b,
+            constants=c,
+            assertion="max(FI_ft, FI_fc, FI_mt, FI_mc) <= 1",
+            build_violation=_v_larc,
+            proved_reason="LaRC04 fiber and matrix failure indices stay <= 1 across bounds",
+            cex_reason="LaRC04 composite failure envelope violated (FI > 1)",
+        ).to_dict()
+
+    if method_id == "cs29_bird_strike_penetration_screen":
+        keys = [
+            "bird_density_kg_m3",
+            "impact_velocity_m_s",
+            "bird_diameter_mm",
+            "panel_thickness_mm",
+            "panel_shear_allowable_mpa",
+            "safety_factor",
+        ]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+
+        def _v_bird(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            s.add(
+                p["bird_density_kg_m3"]
+                * (p["impact_velocity_m_s"] ** 2)
+                * p["bird_diameter_mm"]
+                * p["safety_factor"]
+                > 8000000 * p["panel_thickness_mm"] * p["panel_shear_allowable_mpa"]
+            )
+
+        return engine.prove_z3_property(
+            property_name="cs29_631_bird_strike_penetration",
+            bounds=b,
+            constants=c,
+            assertion="panel_thickness_mm >= SF * P_stag * d / (4 * tau_allow)",
+            build_violation=_v_bird,
+            proved_reason="Panel thickness exceeds CS 29.631 bird-strike plug-shear requirement",
+            cex_reason="CS 29.631 bird-strike penetration thickness insufficient",
+        ).to_dict()
+
+    if method_id == "campbell_rotor_harmonic_clearance":
+        keys = [
+            "omega_min_rpm",
+            "omega_max_rpm",
+            "structural_freq_hz",
+            "min_clearance_pct",
+        ]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+        b_cnt = int(Decimal(str(merged["blade_count"])))
+        orders = (1, b_cnt, 2 * b_cnt, 3 * b_cnt)
+
+        def _v_camp(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            wmin = p["omega_min_rpm"]
+            wmax = p["omega_max_rpm"]
+            fs = p["structural_freq_hz"]
+            m_clr = p["min_clearance_pct"]
+            s.add(wmax >= wmin)
+            viols = []
+            for k in orders:
+                f_lo = k * wmin / 60
+                f_hi = k * wmax / 60
+                # Clear outside [f_lo*(1 - m_clr/100), f_hi*(1 + m_clr/100)]
+                safe_k = z3.Or(
+                    (f_lo - fs) * 100 >= m_clr * f_lo,
+                    (fs - f_hi) * 100 >= m_clr * f_hi,
+                )
+                viols.append(z3.Not(safe_k))
+            s.add(z3.Or(*viols))
+
+        return engine.prove_z3_property(
+            property_name="campbell_harmonic_separation",
+            bounds=b,
+            constants=c,
+            assertion=(
+                "dist(f_struct, k*[f_min, f_max]) >= min_clearance_pct for k in {1, b, 2b, 3b}"
+            ),
+            build_violation=_v_camp,
+            proved_reason=(
+                "Structural mode maintains required Campbell separation across 1P/bP/2bP/3bP"
+            ),
+            cex_reason="Structural frequency infringes rotor harmonic resonance keep-out band",
+        ).to_dict()
+
+    if method_id == "tailboom_boxbeam_combined_stress":
+        keys = [
+            "bending_moment_n_m",
+            "torque_n_m",
+            "transverse_shear_n",
+            "yield_allowable_mpa",
+            "shear_buckling_allowable_mpa",
+            "safety_factor",
+        ]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+        bw = float(Decimal(str(merged["box_width_mm"])))
+        bh = float(Decimal(str(merged["box_height_mm"])))
+        bt = float(Decimal(str(merged["skin_thickness_mm"])))
+        ca = float(Decimal(str(merged["cap_area_mm2"])))
+        hh = bh / 2.0
+        ixx = 4.0 * ca * hh * hh + (bt * (bh**3)) / 6.0 + 2.0 * bw * bt * hh * hh
+        k_bm = z3.RealVal(_dec_str(1000.0 * hh / ixx))
+        k_tq = z3.RealVal(_dec_str(1000.0 / (2.0 * bw * bh * bt)))
+        k_vs = z3.RealVal(_dec_str(1.0 / (2.0 * bh * bt)))
+
+        def _v_tb(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            abm = z3.If(
+                p["bending_moment_n_m"] >= 0, p["bending_moment_n_m"], -p["bending_moment_n_m"]
+            )
+            atq = z3.If(p["torque_n_m"] >= 0, p["torque_n_m"], -p["torque_n_m"])
+            avs = z3.If(
+                p["transverse_shear_n"] >= 0, p["transverse_shear_n"], -p["transverse_shear_n"]
+            )
+            sig_b = abm * k_bm
+            tau_tot = atq * k_tq + avs * k_vs
+            sf = p["safety_factor"]
+            vm_sq = sig_b * sig_b + 3 * tau_tot * tau_tot
+            s.add(
+                z3.Or(
+                    (sf * sf) * vm_sq > p["yield_allowable_mpa"] ** 2,
+                    sf * tau_tot > p["shear_buckling_allowable_mpa"],
+                )
+            )
+
+        return engine.prove_z3_property(
+            property_name="tailboom_boxbeam_yield_and_buckling",
+            bounds=b,
+            constants=c,
+            assertion="SF*sigma_vm <= F_ty and SF*tau_tot <= tau_cr",
+            build_violation=_v_tb,
+            proved_reason="Tailboom box-beam satisfies Von Mises yield & skin shear buckling",
+            cex_reason="Tailboom box-beam exceeds yield or shear buckling allowable",
+        ).to_dict()
+
+    if method_id == "statistical_ab_basis_tolerance_bound":
+        keys = ["sample_mean_mpa", "sample_std_mpa", "design_stress_mpa"]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+        n_bounds = _pair_bounds(
+            formal_bounds.get("sample_count", merged["sample_count"]),
+            (str(merged["sample_count"]), str(merged["sample_count"])),
+        )
+        n_lo = max(10.0, float(Decimal(str(n_bounds[0]))))
+        # k_A decreases monotonically with n, so n_lo gives worst-case upper k_A.
+        ka_hi = 2.326 + math.exp(1.340 - 0.522 * math.log(n_lo) + 3.87 / n_lo)
+        z_ka = z3.RealVal(_dec_str(ka_hi))
+
+        def _v_ab(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            a_basis = p["sample_mean_mpa"] - z_ka * p["sample_std_mpa"]
+            s.add(z3.Or(a_basis <= 0, a_basis < p["design_stress_mpa"]))
+
+        return engine.prove_z3_property(
+            property_name="statistical_a_basis_design_safety",
+            bounds=b,
+            constants=c,
+            assertion="mean - k_A(n) * std >= design_stress_mpa",
+            build_violation=_v_ab,
+            proved_reason="CMH-17 A-basis lower tolerance bound exceeds design stress",
+            cex_reason="Statistical A-basis allowable falls below design stress or <= 0",
         ).to_dict()
 
     return {

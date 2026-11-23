@@ -3338,6 +3338,112 @@ def quote_portfolio_level_cmd(
     )
 
 
+@quote_app.command("fx-hedge")
+def quote_fx_hedge_cmd(
+    quoted_price_eur: str = typer.Option("500000", "--price-eur", help="Quoted price (EUR)."),
+    cost_eur: str = typer.Option("380000", "--cost-eur", help="Escalated base cost (EUR)."),
+    billing_currency: str = typer.Option("USD", "--billing-currency", help="EUR|USD|GBP|PLN|INR."),
+    cost_currency: str = typer.Option("EUR", "--cost-currency", help="EUR|USD|GBP|PLN|INR."),
+    hedge_ratio_pct: str = typer.Option("85.000", "--hedge-pct", help="Forward hedge ratio (%)."),
+    years: int = typer.Option(3, "--years", help="Program horizon (years)."),
+    fx_band_pct: str = typer.Option("10.000", "--fx-band", help="FX shock band (+/- %)."),
+    min_margin_pct: str = typer.Option("10.000", "--min-margin", help="Min net margin (%)."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Evaluate multi-currency FX forward hedging & continuous Z3 SMT margin floor proof."""
+    from evidence_coverage.quotation_fx_hedging import evaluate_quotation_fx_hedging
+
+    res = evaluate_quotation_fx_hedging(
+        quoted_price_eur=quoted_price_eur,
+        cost_eur=cost_eur,
+        billing_currency=billing_currency,
+        cost_currency=cost_currency,
+        hedge_ratio_pct=hedge_ratio_pct,
+        program_years=years,
+        fx_shock_band_pct=fx_band_pct,
+        min_acceptable_margin_pct=min_margin_pct,
+    )
+    if _wants_json(json_out):
+        _emit_json(res)
+        return
+    z3p = res["formal_fx_margin_proof"]
+    console.print(
+        f"[green]FX Hedge ({res['billing_currency']}/{res['cost_currency']})[/green] | "
+        f"Invoice={res['invoice_amount_billing_ccy']} {res['billing_currency']} | "
+        f"Carry={res['hedge_carry_cost_eur']} EUR | "
+        f"Z3={z3p['status']} | RecMinHedge={res['recommended_min_hedge_ratio_pct']}%"
+    )
+
+
+@quote_app.command("evm-postmortem")
+def quote_evm_postmortem_cmd(
+    rfq_text: str = typer.Option(
+        "CS-29 frame static analysis Net 60.",
+        "--rfq-text",
+        help="Baseline RFQ text.",
+    ),
+    archetypes: str = typer.Option(
+        "Q-DES-02,Q-STR-03,Q-DOA-02",
+        "--archetypes",
+        help="Comma-separated baseline archetypes.",
+    ),
+    country: str = typer.Option("EU_DEFAULT", "--country", help="Country rate profile."),
+    actuals_file: Path | None = typer.Option(
+        None,
+        "--actuals-file",
+        exists=True,
+        help="Optional CSV/XLSX actual hours file.",
+    ),
+    actual_ecn_iterations: int = typer.Option(
+        3,
+        "--ecn-actual",
+        help="Realized ECN iterations.",
+    ),
+    project_id: str = typer.Option("POST-001", "--project-id", help="Closed project ID."),
+    tenant: str = typer.Option("demo", "--tenant", help="Tenant ID."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Run closed-loop Bid vs Actual ERP EVM post-mortem & seal into Ledger."""
+    from evidence_coverage.bid_actual_postmortem import run_bid_actual_evm_postmortem
+    from evidence_coverage.composite_dag_quotation import (
+        CompositeRotorcraftQuotationSpec,
+        run_composite_rotorcraft_quotation,
+    )
+
+    from evidence_api.app import _now, open_ledger
+
+    checked = _tenant_or_exit(tenant)
+    ledger = open_ledger(checked)
+    base_dossier = run_composite_rotorcraft_quotation(
+        ledger,
+        CompositeRotorcraftQuotationSpec(
+            rfq_id=f"BASE-{project_id}",
+            rfq_text=rfq_text,
+            archetype_ids=tuple(a.strip() for a in archetypes.split(",") if a.strip()),
+            country_code=country,
+            tenant_id=checked,
+            created_at=_now(),
+        ),
+    )
+    res = run_bid_actual_evm_postmortem(
+        ledger,
+        base_dossier,
+        actuals=actuals_file,
+        project_id=project_id,
+        actual_ecn_iterations=actual_ecn_iterations,
+        created_at=_now(),
+    )
+    if _wants_json(json_out):
+        _emit_json(res)
+        return
+    evm = res["evm_summary"]
+    console.print(
+        f"[green]EVM Post-Mortem {res['project_id']}[/green] | "
+        f"Health={res['health_status']} | CPI={evm['cpi']} | SPI={evm['spi']} | "
+        f"VAC={evm['vac_eur']} EUR | Margin={evm['realized_margin_pct']}%"
+    )
+
+
 def main() -> None:
     app()
 

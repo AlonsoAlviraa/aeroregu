@@ -53,8 +53,32 @@ _RESERVED_BUILTIN_IDS = frozenset(
         "inter_rivet_buckling",
         "thin_walled_bredt_batho_torsion",
         "sandwich_core_shear_wrinkling",
+        "aerospace_quotation_costing",
+        "aerospace_multiyear_cashflow_learning",
+        "engineering_workpackage_quote",
+        "rotorcraft_archetype_quote",
+        "rotorcraft_historical_calibration",
+        "clt_laminate_abd_stiffness",
+        "rotor_blade_centrifugal_bending",
+        "ground_resonance_coleman_screen",
+        "cs29_crashworthiness_561_562_load",
+        "multirow_bolt_load_distribution",
+        "larc04_composite_failure",
+        "cs29_bird_strike_penetration_screen",
+        "campbell_rotor_harmonic_clearance",
+        "tailboom_boxbeam_combined_stress",
+        "statistical_ab_basis_tolerance_bound",
     }
 )
+
+
+def _reserved_builtin_ids() -> frozenset[str]:
+    """Return union of pinned built-in IDs and built-in JSON card filenames."""
+    cards_root = Path(__file__).resolve().parents[2] / "cards"
+    disk_ids = {p.stem for p in cards_root.glob("*.json")} if cards_root.is_dir() else set()
+    return _RESERVED_BUILTIN_IDS | frozenset(disk_ids)
+
+
 _PI_DEC = Decimal("3.141592653589793238462643383279502884197")
 _MAX_AST_DEPTH = 24
 _MAX_EXPONENT = Decimal("20")
@@ -321,7 +345,7 @@ def validate_plugin_card(
     method_id = str(card.get("method_id") or "").strip()
     if not _CARD_ID_RE.fullmatch(method_id):
         raise AbstainError("invalid_plugin_card")
-    if not allow_overwrite_builtin and method_id in _RESERVED_BUILTIN_IDS:
+    if not allow_overwrite_builtin and method_id in _reserved_builtin_ids():
         raise AbstainError("builtin_method_protected")
 
     title = str(card.get("title") or "").strip()
@@ -470,7 +494,7 @@ def register_plugin_card(
 
 def delete_plugin_card(method_id: str, *, plugins_dir: Path | None = None) -> bool:
     """Remove a declarative plugin card by method_id."""
-    if not _CARD_ID_RE.fullmatch(method_id) or method_id in _RESERVED_BUILTIN_IDS:
+    if not _CARD_ID_RE.fullmatch(method_id) or method_id in _reserved_builtin_ids():
         return False
     target = plugin_cards_dir(plugins_dir) / f"{method_id}.json"
     if target.is_file():

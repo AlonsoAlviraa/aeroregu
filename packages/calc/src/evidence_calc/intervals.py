@@ -962,6 +962,16 @@ def evaluate_method_intervals(
         return evaluate_cs29_crashworthiness_intervals(inputs, staged_outputs)
     if method_id == "multirow_bolt_load_distribution":
         return evaluate_multirow_bolt_intervals(inputs, staged_outputs)
+    if method_id == "larc04_composite_failure":
+        return evaluate_larc04_intervals(inputs, staged_outputs)
+    if method_id == "cs29_bird_strike_penetration_screen":
+        return evaluate_cs29_bird_strike_intervals(inputs, staged_outputs)
+    if method_id == "campbell_rotor_harmonic_clearance":
+        return evaluate_campbell_clearance_intervals(inputs, staged_outputs)
+    if method_id == "tailboom_boxbeam_combined_stress":
+        return evaluate_tailboom_boxbeam_intervals(inputs, staged_outputs)
+    if method_id == "statistical_ab_basis_tolerance_bound":
+        return evaluate_statistical_ab_basis_intervals(inputs, staged_outputs)
     if method_id in STRESS_MANUAL_RUNNERS:
         return evaluate_stress_manual_intervals(method_id, inputs, staged_outputs)
     if card is not None and card.get("plugin") and card.get("formulas"):
@@ -1312,6 +1322,275 @@ def evaluate_multirow_bolt_intervals(
         ),
         "bypass_load_row2_n": _drift_entry(byp2, str(staged_outputs["bypass_load_row2_n"])),
         "margin_of_safety": _drift_entry(ms, str(staged_outputs["margin_of_safety"])),
+    }
+
+
+def evaluate_larc04_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    sig1 = _arb_from_decimal_text(str(inputs["sigma_1_mpa"]))
+    sig2 = _arb_from_decimal_text(str(inputs["sigma_2_mpa"]))
+    tau12 = _arb_from_decimal_text(str(inputs["tau_12_mpa"]))
+    xt = _arb_from_decimal_text(str(inputs["x_t_mpa"]))
+    xc = _arb_from_decimal_text(str(inputs["x_c_mpa"]))
+    yt = _arb_from_decimal_text(str(inputs["y_t_mpa"]))
+    yc = _arb_from_decimal_text(str(inputs["y_c_mpa"]))
+    sl = _arb_from_decimal_text(str(inputs["s_l_mpa"]))
+    alpha0 = _arb_from_decimal_text(str(inputs["alpha_0_deg"]))
+    eta_l = _arb_from_decimal_text(str(inputs["eta_l"]))
+    g12 = _arb_from_decimal_text(str(inputs["g_12_mpa"]))
+    phi0 = _arb_from_decimal_text(str(inputs["phi_0_deg"]))
+
+    rad_scale = arb.pi() / arb(180)
+    s1_d = Decimal(str(inputs["sigma_1_mpa"]))
+    s2_d = Decimal(str(inputs["sigma_2_mpa"]))
+
+    fi_ft = (sig1 / xt) if s1_d > Decimal("0") else arb(0)
+
+    if s1_d < Decimal("0"):
+        abs_s1 = -sig1
+        phi_kink = phi0 * g12 / (g12 - abs_s1)
+        phi_r = phi_kink * rad_scale
+        c_p = phi_r.cos()
+        s_p = phi_r.sin()
+        c2p = (arb(2) * phi_r).cos()
+        s2p = (arb(2) * phi_r).sin()
+        abs_t12 = abs(tau12)
+        tau12m = abs_t12 * c2p + (abs_s1 + sig2) * s_p * c_p
+        sig2m = sig1 * s_p * s_p + sig2 * c_p * c_p - abs_t12 * s2p
+        s2m_neg = sig2m if _arb_mid_dec(sig2m) < Decimal("0") else arb(0)
+        tau_keff = abs(tau12m) + eta_l * s2m_neg
+        if _arb_mid_dec(tau_keff) < Decimal("0"):
+            tau_keff = arb(0)
+        fi_fc = max([abs_s1 / xc, tau_keff / sl], key=_arb_mid_dec)
+    else:
+        phi_kink = phi0
+        fi_fc = arb(0)
+
+    fi_mt = ((sig2 / yt) ** 2 + (tau12 / sl) ** 2).sqrt() if s2_d > Decimal("0") else arb(0)
+
+    a0_r = alpha0 * rad_scale
+    a2_r = arb(2) * a0_r
+    eta_t = -arb(1) / (a2_r.sin() / a2_r.cos())
+    c_a = a0_r.cos()
+    s_a = a0_r.sin()
+    st = yc * c_a * (s_a - eta_t * c_a)
+    if s2_d < Decimal("0"):
+        sig_n = sig2 * c_a * c_a
+        tau_t = -sig2 * s_a * c_a
+        tau_l = abs(tau12) * c_a
+        t_eff_t = abs(tau_t) + eta_t * sig_n
+        if _arb_mid_dec(t_eff_t) < Decimal("0"):
+            t_eff_t = arb(0)
+        t_eff_l = tau_l + eta_l * sig_n
+        if _arb_mid_dec(t_eff_l) < Decimal("0"):
+            t_eff_l = arb(0)
+        fi_mc = ((t_eff_t / st) ** 2 + (t_eff_l / sl) ** 2).sqrt()
+    else:
+        fi_mc = arb(0)
+
+    gov_fi = max([fi_ft, fi_fc, fi_mt, fi_mc], key=_arb_mid_dec)
+    ms = arb(99) if _arb_mid_dec(gov_fi) <= Decimal("1e-12") else ((arb(1) / gov_fi) - arb(1))
+
+    return {
+        "eta_t_transverse": _drift_entry(eta_t, str(staged_outputs["eta_t_transverse"])),
+        "transverse_shear_strength_st_mpa": _drift_entry(
+            st, str(staged_outputs["transverse_shear_strength_st_mpa"])
+        ),
+        "kink_angle_deg": _drift_entry(phi_kink, str(staged_outputs["kink_angle_deg"])),
+        "fi_fiber_tension": _drift_entry(fi_ft, str(staged_outputs["fi_fiber_tension"])),
+        "fi_fiber_compression": _drift_entry(fi_fc, str(staged_outputs["fi_fiber_compression"])),
+        "fi_matrix_tension": _drift_entry(fi_mt, str(staged_outputs["fi_matrix_tension"])),
+        "fi_matrix_compression": _drift_entry(fi_mc, str(staged_outputs["fi_matrix_compression"])),
+        "governing_failure_index": _drift_entry(
+            gov_fi, str(staged_outputs["governing_failure_index"])
+        ),
+        "margin_of_safety": _drift_entry(ms, str(staged_outputs["margin_of_safety"])),
+    }
+
+
+def evaluate_cs29_bird_strike_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    m_b = _arb_from_decimal_text(str(inputs["bird_mass_kg"]))
+    vel = _arb_from_decimal_text(str(inputs["impact_velocity_m_s"]))
+    rho = _arb_from_decimal_text(str(inputs["bird_density_kg_m3"]))
+    diam = _arb_from_decimal_text(str(inputs["bird_diameter_mm"]))
+    t_p = _arb_from_decimal_text(str(inputs["panel_thickness_mm"]))
+    tau_a = _arb_from_decimal_text(str(inputs["panel_shear_allowable_mpa"]))
+    sf = _arb_from_decimal_text(str(inputs["safety_factor"]))
+
+    pi_val = arb.pi()
+    ke = (m_b * vel * vel) / arb(2)
+    p_stag = (rho * vel * vel) / (arb(2) * arb(1000000))
+    radius = diam / arb(2)
+    area = pi_val * radius * radius
+    f_eq = p_stag * area
+    req_t = (f_eq * sf) / (pi_val * diam * tau_a)
+    app_tau = f_eq / (pi_val * diam * t_p)
+    ms = (t_p / req_t) - arb(1)
+
+    return {
+        "kinetic_energy_j": _drift_entry(ke, str(staged_outputs["kinetic_energy_j"])),
+        "stagnation_pressure_mpa": _drift_entry(
+            p_stag, str(staged_outputs["stagnation_pressure_mpa"])
+        ),
+        "impact_area_mm2": _drift_entry(area, str(staged_outputs["impact_area_mm2"])),
+        "equivalent_impact_force_n": _drift_entry(
+            f_eq, str(staged_outputs["equivalent_impact_force_n"])
+        ),
+        "applied_plug_shear_mpa": _drift_entry(
+            app_tau, str(staged_outputs["applied_plug_shear_mpa"])
+        ),
+        "required_thickness_mm": _drift_entry(req_t, str(staged_outputs["required_thickness_mm"])),
+        "margin_of_safety": _drift_entry(ms, str(staged_outputs["margin_of_safety"])),
+    }
+
+
+def evaluate_campbell_clearance_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    w_min = _arb_from_decimal_text(str(inputs["omega_min_rpm"]))
+    w_max = _arb_from_decimal_text(str(inputs["omega_max_rpm"]))
+    b_int = int(Decimal(str(inputs["blade_count"])))
+    f_str = _arb_from_decimal_text(str(inputs["structural_freq_hz"]))
+    min_clr = _arb_from_decimal_text(str(inputs["min_clearance_pct"]))
+
+    one_p_max = w_max / arb(60)
+    bp_min = (arb(b_int) * w_min) / arb(60)
+    bp_max = (arb(b_int) * w_max) / arb(60)
+
+    orders = (1, b_int, 2 * b_int, 3 * b_int)
+    min_sep: arb | None = None
+    gov_ord = 1
+    f_str_d = Decimal(str(inputs["structural_freq_hz"]))
+    w_min_d = Decimal(str(inputs["omega_min_rpm"]))
+    w_max_d = Decimal(str(inputs["omega_max_rpm"]))
+    for k in orders:
+        k_a = arb(k)
+        f_lo = (k_a * w_min) / arb(60)
+        f_hi = (k_a * w_max) / arb(60)
+        f_lo_d = (Decimal(k) * w_min_d) / Decimal("60")
+        f_hi_d = (Decimal(k) * w_max_d) / Decimal("60")
+        if f_str_d < f_lo_d:
+            sep = ((f_lo - f_str) / f_lo) * arb(100)
+        elif f_str_d > f_hi_d:
+            sep = ((f_str - f_hi) / f_hi) * arb(100)
+        else:
+            sep = arb(0)
+        if min_sep is None or _arb_mid_dec(sep) < _arb_mid_dec(min_sep):
+            min_sep = sep
+            gov_ord = k
+    assert min_sep is not None
+    clr_m = min_sep - min_clr
+
+    return {
+        "one_p_max_hz": _drift_entry(one_p_max, str(staged_outputs["one_p_max_hz"])),
+        "bp_min_hz": _drift_entry(bp_min, str(staged_outputs["bp_min_hz"])),
+        "bp_max_hz": _drift_entry(bp_max, str(staged_outputs["bp_max_hz"])),
+        "governing_harmonic_order": _drift_entry(
+            arb(gov_ord), str(staged_outputs["governing_harmonic_order"])
+        ),
+        "min_separation_pct": _drift_entry(min_sep, str(staged_outputs["min_separation_pct"])),
+        "clearance_margin_pct": _drift_entry(clr_m, str(staged_outputs["clearance_margin_pct"])),
+    }
+
+
+def evaluate_tailboom_boxbeam_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    bm = abs(_arb_from_decimal_text(str(inputs["bending_moment_n_m"])))
+    tq = abs(_arb_from_decimal_text(str(inputs["torque_n_m"])))
+    vs = abs(_arb_from_decimal_text(str(inputs["transverse_shear_n"])))
+    width = _arb_from_decimal_text(str(inputs["box_width_mm"]))
+    height = _arb_from_decimal_text(str(inputs["box_height_mm"]))
+    thk = _arb_from_decimal_text(str(inputs["skin_thickness_mm"]))
+    cap_a = _arb_from_decimal_text(str(inputs["cap_area_mm2"]))
+    fy = _arb_from_decimal_text(str(inputs["yield_allowable_mpa"]))
+    tau_cr = _arb_from_decimal_text(str(inputs["shear_buckling_allowable_mpa"]))
+    sf = _arb_from_decimal_text(str(inputs["safety_factor"]))
+
+    h_half = height / arb(2)
+    i_xx = (
+        (arb(4) * cap_a * h_half * h_half)
+        + ((thk * (height**3)) / arb(6))
+        + (arb(2) * width * thk * h_half * h_half)
+    )
+    sig_b = (bm * arb(1000) * h_half) / i_xx
+    tau_t = (tq * arb(1000)) / (arb(2) * width * height * thk)
+    tau_w = vs / (arb(2) * height * thk)
+    tau_tot = tau_t + tau_w
+    vm = (sig_b * sig_b + arb(3) * tau_tot * tau_tot).sqrt()
+    vm_ms = (fy / (sf * vm)) - arb(1)
+    sb_ms = (tau_cr / (sf * tau_tot)) - arb(1)
+    gov_ms = min([vm_ms, sb_ms], key=_arb_mid_dec)
+
+    return {
+        "section_inertia_ixx_mm4": _drift_entry(
+            i_xx, str(staged_outputs["section_inertia_ixx_mm4"])
+        ),
+        "bending_stress_mpa": _drift_entry(sig_b, str(staged_outputs["bending_stress_mpa"])),
+        "torsion_shear_stress_mpa": _drift_entry(
+            tau_t, str(staged_outputs["torsion_shear_stress_mpa"])
+        ),
+        "web_shear_stress_mpa": _drift_entry(tau_w, str(staged_outputs["web_shear_stress_mpa"])),
+        "total_shear_stress_mpa": _drift_entry(
+            tau_tot, str(staged_outputs["total_shear_stress_mpa"])
+        ),
+        "von_mises_stress_mpa": _drift_entry(vm, str(staged_outputs["von_mises_stress_mpa"])),
+        "von_mises_ms": _drift_entry(vm_ms, str(staged_outputs["von_mises_ms"])),
+        "shear_buckling_ms": _drift_entry(sb_ms, str(staged_outputs["shear_buckling_ms"])),
+        "governing_ms": _drift_entry(gov_ms, str(staged_outputs["governing_ms"])),
+    }
+
+
+def evaluate_statistical_ab_basis_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    n_a = _arb_from_decimal_text(str(inputs["sample_count"]))
+    mean_v = _arb_from_decimal_text(str(inputs["sample_mean_mpa"]))
+    std_v = _arb_from_decimal_text(str(inputs["sample_std_mpa"]))
+    sig_des = _arb_from_decimal_text(str(inputs["design_stress_mpa"]))
+
+    ln_n = n_a.log()
+    k_b = (
+        _arb_from_decimal_text("1.282")
+        + (
+            _arb_from_decimal_text("0.958")
+            - _arb_from_decimal_text("0.520") * ln_n
+            + _arb_from_decimal_text("3.19") / n_a
+        ).exp()
+    )
+    k_a = (
+        _arb_from_decimal_text("2.326")
+        + (
+            _arb_from_decimal_text("1.340")
+            - _arb_from_decimal_text("0.522") * ln_n
+            + _arb_from_decimal_text("3.87") / n_a
+        ).exp()
+    )
+    b_basis = mean_v - k_b * std_v
+    a_basis = mean_v - k_a * std_v
+    cv_pct = (std_v / mean_v) * arb(100)
+    ms_a = (a_basis / sig_des) - arb(1)
+
+    return {
+        "k_b_factor": _drift_entry(k_b, str(staged_outputs["k_b_factor"])),
+        "k_a_factor": _drift_entry(k_a, str(staged_outputs["k_a_factor"])),
+        "b_basis_mpa": _drift_entry(b_basis, str(staged_outputs["b_basis_mpa"])),
+        "a_basis_mpa": _drift_entry(a_basis, str(staged_outputs["a_basis_mpa"])),
+        "coeff_variation_pct": _drift_entry(cv_pct, str(staged_outputs["coeff_variation_pct"])),
+        "margin_vs_a_basis": _drift_entry(ms_a, str(staged_outputs["margin_vs_a_basis"])),
     }
 
 

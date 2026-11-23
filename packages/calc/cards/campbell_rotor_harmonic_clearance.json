@@ -1,0 +1,39 @@
+{
+  "method_id": "campbell_rotor_harmonic_clearance",
+  "method_version": "campbell_rotor_harmonic_clearance@1.0.0",
+  "title": "Rotorcraft Campbell Diagram Harmonic Resonance Separation Screen (1P / bP / 2bP / 3bP)",
+  "label": "ASSUMPTION",
+  "equation": "f_k = k * Omega_rpm / 60 for k in {1, b, 2b, 3b}; sep_k = dist(f_struct, [f_k_min, f_k_max]) / f_k_bound * 100; margin = min(sep_k) - min_clearance_pct",
+  "note": "Evaluates structural natural frequency placement against 1P, blade-pass bP, 2bP, and 3bP rotor excitation bands across operational RPM window.",
+  "quantum": "0.0001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "omega_min_rpm": "revolutions_per_minute",
+    "omega_max_rpm": "revolutions_per_minute",
+    "blade_count": "dimensionless",
+    "structural_freq_hz": "hertz",
+    "min_clearance_pct": "dimensionless"
+  },
+  "required": [
+    "omega_min_rpm",
+    "omega_max_rpm",
+    "blade_count",
+    "structural_freq_hz",
+    "min_clearance_pct"
+  ],
+  "limits": {
+    "omega_min_rpm": { "min_exclusive": "0", "max": "5000" },
+    "omega_max_rpm": { "min_exclusive": "0", "max": "5000" },
+    "blade_count": { "min": "2", "max": "8" },
+    "structural_freq_hz": { "min_exclusive": "0", "max": "2000" },
+    "min_clearance_pct": { "min": "0", "max": "80" }
+  },
+  "sources": [
+    {
+      "source_id": "rotor-campbell-screen",
+      "uri": "https://aeroregu.local/cards/campbell_rotor_harmonic_clearance",
+      "content_hash": "42c64d36e2f5b43c19109ec0aa01bc524d36e100238922f2bb4dbba1e029cf41",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

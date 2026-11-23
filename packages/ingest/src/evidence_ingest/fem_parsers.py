@@ -915,6 +915,70 @@ def parse_nastran_bdf(
     }
 
 
+def _iter_abaqus_lines(
+    raw: bytes,
+    *,
+    base_dir: Path | None = None,
+    current_dir: Path | None = None,
+    _visited: set[Path] | None = None,
+    _depth: int = 0,
+    include_records: list[dict[str, Any]] | None = None,
+) -> Iterator[str]:
+    """Stream Abaqus .inp lines and safely expand sandboxed *INCLUDE directives."""
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1")
+
+    visited = _visited if _visited is not None else set()
+    resolved_base = base_dir.resolve() if base_dir is not None else None
+    active_dir = (current_dir or base_dir).resolve() if (current_dir or base_dir) else None
+
+    for line in io.StringIO(text):
+        stripped = line.strip()
+        if stripped.upper().startswith("*INCLUDE"):
+            if resolved_base is None or active_dir is None or _depth >= 12:
+                continue
+            _, params = _parse_abaqus_header(stripped)
+            rel = str(params.get("INPUT", "")).strip().strip("'\"")
+            if not rel:
+                continue
+            candidate_local = (active_dir / rel).resolve()
+            candidate_root = (resolved_base / rel).resolve()
+            candidate: Path | None = None
+            for cand in (candidate_local, candidate_root):
+                if cand.is_relative_to(resolved_base) and cand.is_file():
+                    candidate = cand
+                    break
+            if candidate is None or candidate in visited:
+                continue
+            visited.add(candidate)
+            inc_bytes = candidate.read_bytes()
+            if include_records is not None:
+                try:
+                    rel_display = str(candidate.relative_to(resolved_base)).replace("\\", "/")
+                except ValueError:
+                    rel_display = candidate.name
+                include_records.append(
+                    {
+                        "relative_path": rel_display,
+                        "depth": _depth + 1,
+                        "sha256": hashlib.sha256(inc_bytes).hexdigest(),
+                        "line_count": len(inc_bytes.splitlines()),
+                    }
+                )
+            yield from _iter_abaqus_lines(
+                inc_bytes,
+                base_dir=resolved_base,
+                current_dir=candidate.parent,
+                _visited=visited,
+                _depth=_depth + 1,
+                include_records=include_records,
+            )
+            continue
+        yield line
+
+
 def _split_abaqus_logical_lines(text: str) -> list[str]:
     """Join Abaqus comma-continued lines and strip ** comments."""
     logical: list[str] = []
@@ -954,14 +1018,19 @@ def _parse_abaqus_header(line: str) -> tuple[str, dict[str, str]]:
     return kw, params
 
 
-def parse_abaqus_inp(raw: bytes, source_hash: str) -> dict[str, Any]:
-    """Parse ABAQUS .inp mesh, sets, boundary conditions, *MASS, and *CLOAD/*DLOAD/*DSLOAD."""
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        text = raw.decode("latin-1")
+def parse_abaqus_inp(
+    raw: bytes,
+    source_hash: str,
+    *,
+    base_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Parse ABAQUS .inp mesh, *INCLUDE tree, composite shells, BCs, *MASS, and loads."""
+    include_tree: list[dict[str, Any]] = []
+    expanded_text = "".join(
+        _iter_abaqus_lines(raw, base_dir=base_dir, include_records=include_tree)
+    )
 
-    lines = _split_abaqus_logical_lines(text)
+    lines = _split_abaqus_logical_lines(expanded_text)
     if not lines:
         raise IngestAbstain("empty_abaqus_inp")
 
@@ -974,6 +1043,8 @@ def parse_abaqus_inp(raw: bytes, source_hash: str) -> dict[str, Any]:
     dloads: list[dict[str, Any]] = []
     masses: list[dict[str, Any]] = []
     boundaries: list[dict[str, Any]] = []
+    composite_sections: list[dict[str, Any]] = []
+    current_composite: dict[str, Any] | None = None
     heading_lines: list[str] = []
 
     current_kw = ""
@@ -981,14 +1052,30 @@ def parse_abaqus_inp(raw: bytes, source_hash: str) -> dict[str, Any]:
     current_step = "STEP_0"
     step_idx = 0
 
+    def _flush_composite() -> None:
+        nonlocal current_composite
+        if current_composite is not None:
+            current_composite["ply_count"] = len(current_composite["plies"])
+            composite_sections.append(current_composite)
+            current_composite = None
+
     for line in lines:
         if line.startswith("*"):
+            _flush_composite()
             current_kw, current_params = _parse_abaqus_header(line)
             if current_kw == "*STEP":
                 step_idx += 1
                 current_step = current_params.get("NAME") or f"STEP_{step_idx}"
             elif current_kw == "*END STEP":
                 current_step = "MODEL"
+            elif current_kw == "*SHELL SECTION" and "COMPOSITE" in current_params:
+                current_composite = {
+                    "elset": current_params.get("ELSET", ""),
+                    "layup": current_params.get("LAYUP", ""),
+                    "plies": [],
+                    "ply_count": 0,
+                    "total_thickness": "0",
+                }
             continue
 
         fields = [f.strip() for f in line.split(",") if f.strip() != ""]
@@ -1098,6 +1185,37 @@ def parse_abaqus_inp(raw: bytes, source_hash: str) -> dict[str, Any]:
         elif current_kw == "*BOUNDARY" and len(fields) >= 2:
             boundaries.append({"target": fields[0], "dofs": fields[1:]})
 
+        elif current_kw == "*SHELL SECTION" and current_composite is not None:
+            thk_str = parse_decimal_str(fields[0])
+            if thk_str is not None:
+                int_pts = "3"
+                mat_name = ""
+                angle_deg = "0"
+                if len(fields) >= 4 and fields[1].isdigit():
+                    int_pts = fields[1]
+                    mat_name = fields[2]
+                    angle_deg = parse_decimal_str(fields[3]) or "0"
+                elif len(fields) == 3:
+                    if fields[1].isdigit() and parse_decimal_str(fields[2]) is None:
+                        int_pts = fields[1]
+                        mat_name = fields[2]
+                    else:
+                        mat_name = fields[1]
+                        angle_deg = parse_decimal_str(fields[2]) or "0"
+                elif len(fields) == 2:
+                    mat_name = fields[1]
+                current_composite["plies"].append(
+                    {
+                        "thickness": thk_str,
+                        "integration_points": int_pts,
+                        "material": mat_name,
+                        "angle_deg": angle_deg,
+                    }
+                )
+                prev_t = Decimal(str(current_composite["total_thickness"]))
+                current_composite["total_thickness"] = decimal_str(prev_t + Decimal(thk_str))
+
+    _flush_composite()
     if not nodes and not cloads and not dloads and not masses:
         raise IngestAbstain("empty_abaqus_inp")
 
@@ -1247,6 +1365,8 @@ def parse_abaqus_inp(raw: bytes, source_hash: str) -> dict[str, Any]:
     return {
         "format": "abaqus_inp",
         "heading": " ".join(heading_lines),
+        "include_tree": include_tree,
+        "composite_sections": composite_sections,
         "mesh": {
             "node_count": len(nodes),
             "element_count": len(elements),
@@ -1316,53 +1436,93 @@ def _extract_resultant_vectors(lines: list[str], section_marker: str) -> list[di
     return rows
 
 
-def _extract_modal_eigenvalues(lines: list[str]) -> list[dict[str, str]]:
-    """Extract SOL 103 REAL EIGENVALUES and optional MODAL EFFECTIVE MASS FRACTION from .f06."""
+def _extract_eigenvalue_tables(
+    lines: list[str],
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Extract SOL 103 modal eigenvalues & SOL 105 linear buckling load factors from .f06."""
     modes: list[dict[str, str]] = []
+    buckling_modes: list[dict[str, str]] = []
     eff_mass_by_mode: dict[str, str] = {}
-    in_section = False
+    section_kind: str | None = None
     in_eff_mass = False
+    is_sol_105_hint = any("SOL 105" in ln.upper() or "SOL105" in ln.upper() for ln in lines[:120])
+    has_cycles_col = True
 
-    for line in lines:
+    for idx, line in enumerate(lines):
         compact = re.sub(r"\s+", "", line.upper())
-        if "REALEIGENVALUES" in compact:
-            in_section = True
+        if "BUCKLINGEIGENVALUES" in compact or "REALEIGENVALUES" in compact:
+            ctx_window = " ".join(lines[max(0, idx - 6) : idx + 3]).upper()
+            is_buckling = (
+                "BUCKLING" in ctx_window
+                or "LOAD FACTOR" in ctx_window
+                or (is_sol_105_hint and "CYCLES" not in ctx_window)
+            )
+            section_kind = "buckling" if is_buckling else "modal"
+            has_cycles_col = not is_buckling
             in_eff_mass = False
             continue
         if "MODALEFFECTIVEMASSFRACTION" in compact:
             in_eff_mass = True
-            in_section = False
+            section_kind = None
             continue
 
         stripped = line.strip()
         if not stripped:
             continue
         if stripped.startswith("1") and "NASTRAN" in stripped.upper():
-            in_section = False
+            section_kind = None
             in_eff_mass = False
             continue
 
-        if in_section:
-            if "MODE" in stripped.upper() or "NO." in stripped.upper():
+        if section_kind is not None:
+            up = stripped.upper()
+            if "MODE" in up or "NO." in up or "LOAD FACTOR" in up:
+                if "CYCLES" in up:
+                    has_cycles_col = True
                 continue
-            m = re.match(
+            m5 = re.match(
                 r"^\s*(\d+)\s+(\d+)\s+([-+]?\d+(?:\.\d+)?(?:[EeDd][-+]?\d+)?)\s+"
                 r"([-+]?\d+(?:\.\d+)?(?:[EeDd][-+]?\d+)?)\s+"
                 r"([-+]?\d+(?:\.\d+)?(?:[EeDd][-+]?\d+)?)",
                 line,
             )
-            if m:
-                eig = Decimal(m.group(3).replace("D", "E"))
-                hz = Decimal(m.group(5).replace("D", "E"))
+            m3 = re.match(
+                r"^\s*(\d+)\s+(\d+)\s+([-+]?\d+(?:\.\d+)?(?:[EeDd][-+]?\d+)?)\b",
+                line,
+            )
+            if section_kind == "buckling" and (m3 or m5):
+                m_use = m5 or m3
+                assert m_use is not None
+                eig = Decimal(m_use.group(3).replace("D", "E"))
+                buckling_modes.append(
+                    {
+                        "mode_no": m_use.group(1),
+                        "eigenvalue": decimal_str(eig),
+                        "buckling_ms": decimal_str(eig - Decimal("1")),
+                    }
+                )
+            elif section_kind == "modal" and m5 and has_cycles_col:
+                eig = Decimal(m5.group(3).replace("D", "E"))
+                hz = Decimal(m5.group(5).replace("D", "E"))
                 modes.append(
                     {
-                        "mode_no": m.group(1),
+                        "mode_no": m5.group(1),
                         "eigenvalue": decimal_str(eig),
                         "cycles_hz": decimal_str(hz),
                     }
                 )
-            elif modes:
-                in_section = False
+            elif section_kind == "modal" and m3 and not m5:
+                # 3-column eigenvalue table without frequency column indicates buckling factor
+                eig = Decimal(m3.group(3).replace("D", "E"))
+                buckling_modes.append(
+                    {
+                        "mode_no": m3.group(1),
+                        "eigenvalue": decimal_str(eig),
+                        "buckling_ms": decimal_str(eig - Decimal("1")),
+                    }
+                )
+            elif modes or buckling_modes:
+                section_kind = None
 
         elif in_eff_mass:
             if "MODE" in stripped.upper() or "TOTAL" in stripped.upper():
@@ -1383,7 +1543,79 @@ def _extract_modal_eigenvalues(lines: list[str]) -> list[dict[str, str]]:
     for mode in modes:
         if mode["mode_no"] in eff_mass_by_mode:
             mode["effective_mass_frac"] = eff_mass_by_mode[mode["mode_no"]]
+    return modes, buckling_modes
+
+
+def _extract_modal_eigenvalues(lines: list[str]) -> list[dict[str, str]]:
+    """Extract SOL 103 REAL EIGENVALUES and optional MODAL EFFECTIVE MASS FRACTION from .f06."""
+    modes, _ = _extract_eigenvalue_tables(lines)
     return modes
+
+
+def _extract_gpforce_freebody(lines: list[str]) -> dict[str, Any] | None:
+    """Parse GRID POINT FORCE BALANCE sections and compute freebody equilibrium summary."""
+    in_gpf = False
+    grid_ids: set[str] = set()
+    sum_fx = Decimal("0")
+    sum_fy = Decimal("0")
+    sum_fz = Decimal("0")
+    sum_mx = Decimal("0")
+    sum_my = Decimal("0")
+    sum_mz = Decimal("0")
+    max_nodal_res = Decimal("0")
+    totals_rows = 0
+
+    for line in lines:
+        compact = re.sub(r"\s+", "", line.upper())
+        if "GRIDPOINTFORCEBALANCE" in compact:
+            in_gpf = True
+            continue
+        if not in_gpf:
+            continue
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if (
+            stripped.startswith("1")
+            and "NASTRAN" in stripped.upper()
+            or "SUBCASE" in stripped.upper()
+            and "POINT-ID" not in stripped.upper()
+        ):
+            in_gpf = False
+            continue
+        upper = stripped.upper()
+        if "POINT-ID" in upper or "ELEMENT-ID" in upper:
+            continue
+        if "TOTALS" in upper:
+            m_gid = re.match(r"^\s*(?:0\s+)?(\d+)\s+", line)
+            if m_gid:
+                grid_ids.add(m_gid.group(1))
+            nums = _F06_FLOAT_RE.findall(line.split("TOTALS", 1)[-1])
+            if len(nums) >= 6:
+                vals = [Decimal(n.replace("D", "E")) for n in nums[:6]]
+                sum_fx += vals[0]
+                sum_fy += vals[1]
+                sum_fz += vals[2]
+                sum_mx += vals[3]
+                sum_my += vals[4]
+                sum_mz += vals[5]
+                res_node = _decimal_hypot3(vals[0], vals[1], vals[2])
+                if res_node > max_nodal_res:
+                    max_nodal_res = res_node
+                totals_rows += 1
+
+    if totals_rows == 0:
+        return None
+    net_res = _decimal_hypot3(sum_fx, sum_fy, sum_fz)
+    return {
+        "grid_count": len(grid_ids) or totals_rows,
+        "totals_rows": totals_rows,
+        "net_force_n": [decimal_str(sum_fx), decimal_str(sum_fy), decimal_str(sum_fz)],
+        "net_moment_n_m": [decimal_str(sum_mx), decimal_str(sum_my), decimal_str(sum_mz)],
+        "net_resultant_n": decimal_str(net_res),
+        "max_nodal_residual_n": decimal_str(max_nodal_res),
+        "freebody_balanced": max_nodal_res <= Decimal("0.01"),
+    }
 
 
 def parse_nastran_f06(raw: bytes, source_hash: str) -> dict[str, Any]:
@@ -1399,7 +1631,8 @@ def parse_nastran_f06(raw: bytes, source_hash: str) -> dict[str, Any]:
 
     oloads = _extract_resultant_vectors(lines, "OLOAD")
     spcforces = _extract_resultant_vectors(lines, "SPCFORCE")
-    modal_eigenvalues = _extract_modal_eigenvalues(lines)
+    modal_eigenvalues, buckling_eigenvalues = _extract_eigenvalue_tables(lines)
+    gpforce_freebody = _extract_gpforce_freebody(lines)
 
     gpwg_mass: Decimal | None = None
     gpwg_cg: list[str] | None = None
@@ -1445,6 +1678,8 @@ def parse_nastran_f06(raw: bytes, source_hash: str) -> dict[str, Any]:
         and gpwg_mass is None
         and not fatal_messages
         and not modal_eigenvalues
+        and not buckling_eigenvalues
+        and gpforce_freebody is None
     ):
         raise IngestAbstain("no_f06_engineering_results_found")
 
@@ -1543,12 +1778,31 @@ def parse_nastran_f06(raw: bytes, source_hash: str) -> dict[str, Any]:
         )
         offset += len(ln) + 1
 
+    crit_buckling: str | None = None
+    buckling_ms_min: str | None = None
+    if buckling_eigenvalues:
+        pos_eigs = [
+            Decimal(b["eigenvalue"])
+            for b in buckling_eigenvalues
+            if Decimal(b["eigenvalue"]) > Decimal("0")
+        ]
+        if pos_eigs:
+            crit_val = min(pos_eigs)
+        else:
+            crit_val = min(Decimal(b["eigenvalue"]) for b in buckling_eigenvalues)
+        crit_buckling = decimal_str(crit_val)
+        buckling_ms_min = decimal_str(crit_val - Decimal("1"))
+
     return {
         "format": "nastran_f06",
         "oload_resultants": oloads,
         "spcforce_resultants": spcforces,
         "equilibrium_checks": equilibrium_checks,
         "modal_eigenvalues": modal_eigenvalues,
+        "buckling_eigenvalues": buckling_eigenvalues,
+        "critical_buckling_factor": crit_buckling,
+        "buckling_ms_min": buckling_ms_min,
+        "gpforce_freebody": gpforce_freebody,
         "gpwg_mass_kg": decimal_str(gpwg_mass) if gpwg_mass is not None else None,
         "cg_points": cg_points,
         "epsilon_values": epsilon_values,

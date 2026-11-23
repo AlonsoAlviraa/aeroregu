@@ -1,0 +1,45 @@
+{
+  "method_id": "cs29_bird_strike_penetration_screen",
+  "method_version": "cs29_bird_strike_penetration_screen@1.0.0",
+  "title": "CS 29.631 Bird-Strike Hydrodynamic Stagnation & Penetration Margin Screen",
+  "label": "ASSUMPTION",
+  "equation": "E_k = 0.5*m*v^2; P_stag = 0.5*rho*v^2/1e6; F_eq = P_stag*pi*(d/2)^2; t_req = F_eq*SF/(pi*d*tau_allow); MS = t_panel/t_req - 1",
+  "note": "Rotorcraft windshield and forward fuselage skin preliminary CS 29.631 1 kg bird-strike stagnation pressure and shear plug penetration screen.",
+  "quantum": "0.0001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "bird_mass_kg": "kilogram",
+    "impact_velocity_m_s": "meter / second",
+    "bird_density_kg_m3": "kilogram / meter ** 3",
+    "bird_diameter_mm": "millimeter",
+    "panel_thickness_mm": "millimeter",
+    "panel_shear_allowable_mpa": "megapascal",
+    "safety_factor": "dimensionless"
+  },
+  "required": [
+    "bird_mass_kg",
+    "impact_velocity_m_s",
+    "bird_density_kg_m3",
+    "bird_diameter_mm",
+    "panel_thickness_mm",
+    "panel_shear_allowable_mpa",
+    "safety_factor"
+  ],
+  "limits": {
+    "bird_mass_kg": { "min_exclusive": "0", "max": "50" },
+    "impact_velocity_m_s": { "min_exclusive": "0", "max": "500" },
+    "bird_density_kg_m3": { "min_exclusive": "0", "max": "5000" },
+    "bird_diameter_mm": { "min_exclusive": "0", "max": "1000" },
+    "panel_thickness_mm": { "min_exclusive": "0", "max": "200" },
+    "panel_shear_allowable_mpa": { "min_exclusive": "0", "max": "5000" },
+    "safety_factor": { "min": "1", "max": "10" }
+  },
+  "sources": [
+    {
+      "source_id": "cs29-631-birdstrike",
+      "uri": "https://aeroregu.local/cards/cs29_bird_strike_penetration_screen",
+      "content_hash": "a871b24f6823ab0cd9f34a623f41a0d6338452df0a81c4cc10e79d32fa53a871",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

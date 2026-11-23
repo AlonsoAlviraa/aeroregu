@@ -1912,6 +1912,38 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Envelope"
+  /quotations/rotorcraft/fx-hedging:
+    post:
+      operationId: evaluateRotorcraftFxHedging
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Simulate multi-currency FX billing conversion, forward carry, shock table, and Z3 margin proof.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /quotations/rotorcraft/evm-postmortem:
+    post:
+      operationId: runRotorcraftBidActualEvmPostmortem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Run closed-loop Bid vs Actual ERP EVM post-mortem, attribute variance to broken assumptions, and seal into Ledger.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
 components:
   schemas:
     Envelope:

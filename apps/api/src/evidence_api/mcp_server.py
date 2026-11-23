@@ -918,6 +918,51 @@ MCP_TOOLS: tuple[dict[str, Any], ...] = (
             },
         },
     },
+    {
+        "name": "evaluate_quotation_fx_hedging",
+        "description": (
+            "Evaluate multi-currency FX billing (EUR/USD/GBP/PLN/INR), forward hedge carry, "
+            "5-point spot shock sensitivity, recommended minimum hedge ratio, and a continuous "
+            "Z3 SMT proof guaranteeing hedged EUR net margin >= contractual floor."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "quoted_price_eur": {"type": "string", "default": "500000"},
+                "cost_eur": {"type": "string", "default": "380000"},
+                "billing_currency": {"type": "string", "default": "USD"},
+                "cost_currency": {"type": "string", "default": "EUR"},
+                "hedge_ratio_pct": {"type": "string", "default": "80.000"},
+                "forward_carry_bps_per_year": {"type": "string", "default": "85.000"},
+                "program_years": {"type": "integer", "default": 3},
+                "fx_shock_band_pct": {"type": "string", "default": "10.000"},
+                "cost_drift_band_pct": {"type": "string", "default": "5.000"},
+                "min_acceptable_margin_pct": {"type": "string", "default": "10.000"},
+            },
+        },
+    },
+    {
+        "name": "run_bid_actual_evm_postmortem",
+        "description": (
+            "Run closed-loop Bid-to-Actual ERP Earned Value Management (CPI/SPI/EAC/VAC/TCPI) "
+            "against a baseline composite rotorcraft quotation, attribute overrun root causes "
+            "to broken ROTORCRAFT_MASTER_ASSUMPTIONS, export calibration records, and seal "
+            "an immutable Ledger event."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "baseline_rfq_text": {"type": "string"},
+                "baseline_archetypes": {"type": "array", "items": {"type": "string"}},
+                "actuals": {"type": "array", "items": {"type": "object"}},
+                "actuals_csv": {"type": "string"},
+                "project_id": {"type": "string", "default": "POST-001"},
+                "country_code": {"type": "string", "default": "EU_DEFAULT"},
+                "actual_ecn_iterations": {"type": "integer", "default": 0},
+                "tenant_id": {"type": "string", "default": "demo"},
+            },
+        },
+    },
 )
 
 MCP_RESOURCES: tuple[dict[str, Any], ...] = (
@@ -1143,6 +1188,7 @@ def _call_tool(
                 "generate_rotorcraft_archetype_quotation",
                 "generate_composite_rotorcraft_quotation",
                 "compute_quotation_change_order",
+                "run_bid_actual_evm_postmortem",
             }
             or (
                 name in {"evidence_calc_run", "evidence_ingest_document"}
@@ -2407,6 +2453,65 @@ def _call_tool(
             dossiers,
             team_headcount=headcount,
             max_utilization_pct=str(arguments.get("max_utilization_pct") or "85.000"),
+        )
+
+    if name == "evaluate_quotation_fx_hedging":
+        from evidence_coverage.quotation_fx_hedging import evaluate_quotation_fx_hedging
+
+        return False, evaluate_quotation_fx_hedging(
+            quoted_price_eur=arguments.get("quoted_price_eur") or "500000",
+            cost_eur=arguments.get("cost_eur") or "380000",
+            billing_currency=str(arguments.get("billing_currency") or "USD"),
+            cost_currency=str(arguments.get("cost_currency") or "EUR"),
+            hedge_ratio_pct=str(arguments.get("hedge_ratio_pct") or "80.000"),
+            forward_carry_bps_per_year=str(arguments.get("forward_carry_bps_per_year") or "85.000"),
+            program_years=int(arguments.get("program_years") or 3),
+            fx_shock_band_pct=str(arguments.get("fx_shock_band_pct") or "10.000"),
+            cost_drift_band_pct=str(arguments.get("cost_drift_band_pct") or "5.000"),
+            min_acceptable_margin_pct=str(arguments.get("min_acceptable_margin_pct") or "10.000"),
+        )
+
+    if name == "run_bid_actual_evm_postmortem":
+        from evidence_coverage.bid_actual_postmortem import run_bid_actual_evm_postmortem
+        from evidence_coverage.composite_dag_quotation import (
+            CompositeRotorcraftQuotationSpec,
+            run_composite_rotorcraft_quotation,
+        )
+
+        tenant = _validate_tenant(str(arguments.get("tenant_id") or "demo"))
+        if tenant is None:
+            return True, {"error": "invalid_tenant"}
+        ledger = open_ledger(tenant)
+        baseline = arguments.get("baseline_dossier")
+        if not isinstance(baseline, dict) or not baseline.get("composite_wbs_dag"):
+            b_archs = tuple(
+                str(a)
+                for a in (
+                    arguments.get("baseline_archetypes") or ("Q-DES-02", "Q-STR-03", "Q-DOA-02")
+                )
+            )
+            baseline = run_composite_rotorcraft_quotation(
+                ledger,
+                CompositeRotorcraftQuotationSpec(
+                    rfq_id=str(arguments.get("project_id") or "POST-001"),
+                    rfq_text=str(
+                        arguments.get("baseline_rfq_text") or "CS-29 frame static analysis Net 60."
+                    ),
+                    archetype_ids=b_archs,
+                    country_code=str(arguments.get("country_code") or "EU_DEFAULT"),
+                    tenant_id=tenant,
+                ),
+            )
+        return False, run_bid_actual_evm_postmortem(
+            ledger,
+            baseline,
+            arguments.get("actuals"),
+            actuals_csv=arguments.get("actuals_csv"),
+            project_id=str(arguments.get("project_id") or "POST-001"),
+            actual_ecn_iterations=int(arguments.get("actual_ecn_iterations") or 0),
+            idp_rework_hours=str(arguments.get("idp_rework_hours") or "0"),
+            unbilled_scope_hours=str(arguments.get("unbilled_scope_hours") or "0"),
+            cve_rework_hours=str(arguments.get("cve_rework_hours") or "0"),
         )
 
     return True, {"error": f"unknown_tool: {name}"}

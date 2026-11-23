@@ -1,0 +1,36 @@
+{
+  "method_id": "statistical_ab_basis_tolerance_bound",
+  "method_version": "statistical_ab_basis_tolerance_bound@1.0.0",
+  "title": "CMH-17 / MMPDS Normal One-Sided A-Basis (99/95) & B-Basis (90/95) Tolerance Bounds",
+  "label": "ASSUMPTION",
+  "equation": "k_B = 1.282 + exp(0.958 - 0.520*ln(n) + 3.19/n); k_A = 2.326 + exp(1.340 - 0.522*ln(n) + 3.87/n); F_A = mean - k_A*std; MS = F_A/sigma_design - 1",
+  "note": "CMH-17 Rev H Section 8.5.1.1 normal one-sided tolerance limit factors for coupon test dataset screening.",
+  "quantum": "0.0001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "sample_count": "dimensionless",
+    "sample_mean_mpa": "megapascal",
+    "sample_std_mpa": "megapascal",
+    "design_stress_mpa": "megapascal"
+  },
+  "required": [
+    "sample_count",
+    "sample_mean_mpa",
+    "sample_std_mpa",
+    "design_stress_mpa"
+  ],
+  "limits": {
+    "sample_count": { "min": "10", "max": "10000" },
+    "sample_mean_mpa": { "min_exclusive": "0", "max": "10000" },
+    "sample_std_mpa": { "min_exclusive": "0", "max": "5000" },
+    "design_stress_mpa": { "min_exclusive": "0", "max": "10000" }
+  },
+  "sources": [
+    {
+      "source_id": "cmh17-ab-basis-stats",
+      "uri": "https://aeroregu.local/cards/statistical_ab_basis_tolerance_bound",
+      "content_hash": "e7f3a18d21b60ef34918fc903568aa7d95c341e82510db912fa76424a90b8e31",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

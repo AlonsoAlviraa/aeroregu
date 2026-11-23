@@ -1,0 +1,60 @@
+{
+  "method_id": "larc04_composite_failure",
+  "method_version": "larc04_composite_failure@1.0.0",
+  "title": "NASA LaRC04 Composite Fiber Kinking & Matrix Fracture Failure Screening",
+  "label": "ASSUMPTION",
+  "equation": "eta_T = -1/tan(2*alpha_0); S_T = Y_c*cos(alpha_0)*(sin(alpha_0)-eta_T*cos(alpha_0)); FI_mc = sqrt((tau_effT/S_T)^2 + (tau_effL/S_L)^2); phi = phi_0*G_12/(G_12-|sigma_1|)",
+  "note": "Pinho et al. (NASA/TM-2005-213530) LaRC04 phenomenological failure indices for fiber tension, fiber kinking compression, matrix tension, and Mohr-Coulomb matrix compression.",
+  "quantum": "0.0001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "sigma_1_mpa": "megapascal",
+    "sigma_2_mpa": "megapascal",
+    "tau_12_mpa": "megapascal",
+    "x_t_mpa": "megapascal",
+    "x_c_mpa": "megapascal",
+    "y_t_mpa": "megapascal",
+    "y_c_mpa": "megapascal",
+    "s_l_mpa": "megapascal",
+    "alpha_0_deg": "degree",
+    "eta_l": "dimensionless",
+    "g_12_mpa": "megapascal",
+    "phi_0_deg": "degree"
+  },
+  "required": [
+    "sigma_1_mpa",
+    "sigma_2_mpa",
+    "tau_12_mpa",
+    "x_t_mpa",
+    "x_c_mpa",
+    "y_t_mpa",
+    "y_c_mpa",
+    "s_l_mpa",
+    "alpha_0_deg",
+    "eta_l",
+    "g_12_mpa",
+    "phi_0_deg"
+  ],
+  "limits": {
+    "sigma_1_mpa": { "min": "-5000", "max": "5000" },
+    "sigma_2_mpa": { "min": "-2000", "max": "2000" },
+    "tau_12_mpa": { "min": "-1000", "max": "1000" },
+    "x_t_mpa": { "min_exclusive": "0", "max": "10000" },
+    "x_c_mpa": { "min_exclusive": "0", "max": "10000" },
+    "y_t_mpa": { "min_exclusive": "0", "max": "5000" },
+    "y_c_mpa": { "min_exclusive": "0", "max": "5000" },
+    "s_l_mpa": { "min_exclusive": "0", "max": "2000" },
+    "alpha_0_deg": { "min_exclusive": "45", "max_exclusive": "89" },
+    "eta_l": { "min": "0", "max": "1" },
+    "g_12_mpa": { "min_exclusive": "0", "max": "200000" },
+    "phi_0_deg": { "min_exclusive": "0", "max_exclusive": "15" }
+  },
+  "sources": [
+    {
+      "source_id": "nasa-larc04",
+      "uri": "https://aeroregu.local/cards/larc04_composite_failure",
+      "content_hash": "d92f7b1a64e2a988cf194402821c0f82c1d63218b5dfec01809e5445f61d0f11",
+      "label": "ASSUMPTION"
+    }
+  ]
+}
