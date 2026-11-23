@@ -2743,7 +2743,7 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
               </fieldset>
 
               <fieldset style="border:1px solid var(--border);border-radius:10px;padding:0.75rem;margin-block-end:0.9rem;">
-                <legend>3. Adjuntos Físicos IDP (.bdf / .f06 / .stp)</legend>
+                <legend>3. Adjuntos Físicos IDP (.bdf / .f06 / .op2 / .h5 / .stp / BOM)</legend>
                 <div class="sub-grid">
                   <div class="field">
                     <label for="quote-bdf-file">Modelo Nastran (.bdf / .dat)</label>
@@ -2754,8 +2754,20 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
                     <input type="file" id="quote-f06-file" name="f06_file" accept=".f06,.txt">
                   </div>
                   <div class="field">
+                    <label for="quote-op2-file">Binario Nastran (.op2)</label>
+                    <input type="file" id="quote-op2-file" name="op2_file" accept=".op2">
+                  </div>
+                  <div class="field">
+                    <label for="quote-h5-file">Binario CAE HDF5 (.h5)</label>
+                    <input type="file" id="quote-h5-file" name="h5_file" accept=".h5,.hdf5">
+                  </div>
+                  <div class="field">
                     <label for="quote-step-file">Geometría B-Rep STEP (.stp / .step)</label>
                     <input type="file" id="quote-step-file" name="step_file" accept=".stp,.step">
+                  </div>
+                  <div class="field">
+                    <label for="quote-bom-file">Tabla BOM / Planos (.pdf / .xlsx / .docx)</label>
+                    <input type="file" id="quote-bom-file" name="bom_file" accept=".pdf,.xlsx,.docx">
                   </div>
                 </div>
               </fieldset>
@@ -2788,6 +2800,25 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
               <h3 id="quote-dag-heading">Grafo Acíclico WBS y Ruta Crítica (CPM)</h3>
               <div id="quote-dag-svg-wrap" style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;padding:0.5rem;background:var(--surface-alt);min-height:140px;"></div>
             </div>
+
+            <figure style="margin:0.9rem 0 0 0;">
+              <figcaption id="quote-cf-caption" style="font-weight:700;margin-block-end:0.4rem;">Curva Mensual de Flujo de Caja Acumulado (Cash-Flow &amp; Working Capital)</figcaption>
+              <div id="quote-cf-svg-wrap" style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;padding:0.5rem;background:var(--surface-alt);min-height:130px;"></div>
+              <div tabindex="0" role="region" aria-labelledby="quote-cf-caption" class="table-wrapper" style="margin-top:0.5rem;">
+                <table id="quote-cashflow-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Mes</th>
+                      <th scope="col">Gasto (EUR)</th>
+                      <th scope="col">Hito Cobro (EUR)</th>
+                      <th scope="col">Neto Mes (EUR)</th>
+                      <th scope="col">Caja Acumulada (EUR)</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </figure>
 
             <div style="margin-top:0.9rem;">
               <h3 id="quote-wbs-caption">Desglose WBS Multi-Arquetipo, Sinergia y Holgura</h3>
@@ -2877,6 +2908,72 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
                 </div>
               </div>
             </div>
+
+            <details id="quote-ccn-portfolio-details" style="margin-top:0.95rem;border:1px solid var(--border);border-radius:10px;padding:0.75rem;background:var(--surface-alt);">
+              <summary style="cursor:pointer;font-weight:700;">Change Orders (CCN Rev A -&gt; Rev B) y Nivelación de Capacidad Stress Office (RCPSP)</summary>
+              <div class="sub-grid" style="margin-top:0.75rem;">
+                <div class="field">
+                  <label for="quote-ccn-id">ID Change Request (CCN)</label>
+                  <input type="text" id="quote-ccn-id" value="CCN-001">
+                </div>
+                <div class="field">
+                  <label for="quote-ccn-reason">Motivo de Cambio</label>
+                  <input type="text" id="quote-ccn-reason" value="Scope and lot update">
+                </div>
+                <div class="field">
+                  <label for="quote-lead-cve-fte">FTE Lead CVE Disponibles</label>
+                  <input type="number" id="quote-lead-cve-fte" min="1" max="20" value="2">
+                </div>
+                <div class="field">
+                  <label for="quote-fdt-fte">FTE Especialistas F&amp;DT Disponibles</label>
+                  <input type="number" id="quote-fdt-fte" min="1" max="20" value="2">
+                </div>
+              </div>
+              <div class="row" style="flex-wrap:wrap;gap:0.5rem;margin-top:0.65rem;">
+                <button type="button" id="quote-set-baseline-btn" class="subtle">📌 Fijar Cotización Actual como Baseline Rev A</button>
+                <button type="button" id="quote-ccn-run-btn" class="primary">🔀 Calcular Delta Change Order (Rev A -&gt; B)</button>
+                <button type="button" id="quote-ccn-xlsx-btn" class="subtle">📊 Descargar CCN .xlsx</button>
+                <button type="button" id="quote-ccn-pdf-btn" class="subtle">📜 Descargar CCN PDF DSSE+QR</button>
+                <button type="button" id="quote-portfolio-btn" class="subtle">🏭 Simular Capacidad Portfolio RCPSP</button>
+              </div>
+              <div id="quote-ccn-status" role="status" aria-live="polite" style="margin-top:0.65rem;padding:0.55rem 0.75rem;border-radius:8px;border:1px solid var(--border);background:var(--surface);">
+                Genera una cotización base, pulsa Fijar Baseline Rev A, modifica arquetipos o unidades y calcula el Change Order o la capacidad del departamento.
+              </div>
+              <div class="sub-grid" style="margin-top:0.75rem;">
+                <div>
+                  <h3 id="quote-ccn-caption">Delta Financiero y Supuestos Change Order</h3>
+                  <div tabindex="0" role="region" aria-labelledby="quote-ccn-caption" class="table-wrapper">
+                    <table id="quote-ccn-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Arquetipo / Gate</th>
+                          <th scope="col">Estado CCN</th>
+                          <th scope="col">Delta Horas</th>
+                          <th scope="col">Delta EUR</th>
+                        </tr>
+                      </thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
+                </div>
+                <div>
+                  <h3 id="quote-portfolio-caption">Cuellos de Botella RCPSP por Rol Stress Office</h3>
+                  <div tabindex="0" role="region" aria-labelledby="quote-portfolio-caption" class="table-wrapper">
+                    <table id="quote-portfolio-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Rol Ingeniería</th>
+                          <th scope="col">FTE</th>
+                          <th scope="col">Pico Sin Nivelar</th>
+                          <th scope="col">Pico Nivelado</th>
+                        </tr>
+                      </thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </details>
           </section>
         </div>
       </div>

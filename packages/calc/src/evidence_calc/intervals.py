@@ -952,6 +952,16 @@ def evaluate_method_intervals(
         return evaluate_rotorcraft_historical_calibration_intervals(inputs, staged_outputs)
     if method_id == "aerospace_multiyear_cashflow_learning":
         return evaluate_aerospace_multiyear_cashflow_learning_intervals(inputs, staged_outputs)
+    if method_id == "clt_laminate_abd_stiffness":
+        return evaluate_clt_laminate_abd_intervals(inputs, staged_outputs)
+    if method_id == "rotor_blade_centrifugal_bending":
+        return evaluate_rotor_blade_cf_intervals(inputs, staged_outputs)
+    if method_id == "ground_resonance_coleman_screen":
+        return evaluate_ground_resonance_intervals(inputs, staged_outputs)
+    if method_id == "cs29_crashworthiness_561_562_load":
+        return evaluate_cs29_crashworthiness_intervals(inputs, staged_outputs)
+    if method_id == "multirow_bolt_load_distribution":
+        return evaluate_multirow_bolt_intervals(inputs, staged_outputs)
     if method_id in STRESS_MANUAL_RUNNERS:
         return evaluate_stress_manual_intervals(method_id, inputs, staged_outputs)
     if card is not None and card.get("plugin") and card.get("formulas"):
@@ -959,6 +969,350 @@ def evaluate_method_intervals(
 
         return evaluate_declarative_intervals(card, inputs, staged_outputs, _drift_entry)
     return {}
+
+
+def _arb_mid_dec(ball: arb) -> Decimal:
+    return Decimal(ball.mid().str(30, radius=False))
+
+
+def _solve_arb_linear_system(matrix: list[list[arb]], rhs: list[arb]) -> list[arb]:
+    """Solve dense NxN linear system over 50-digit FLINT Arb balls."""
+    ctx.dps = _BALL_DPS
+    n = len(rhs)
+    aug = [list(matrix[r]) + [rhs[r]] for r in range(n)]
+    for col in range(n):
+        piv_row = col
+        piv_abs = abs(_arb_mid_dec(aug[col][col]))
+        for r in range(col + 1, n):
+            cand = abs(_arb_mid_dec(aug[r][col]))
+            if cand > piv_abs:
+                piv_abs = cand
+                piv_row = r
+        if piv_row != col:
+            aug[col], aug[piv_row] = aug[piv_row], aug[col]
+        piv = aug[col][col]
+        for c in range(col, n + 1):
+            aug[col][c] = aug[col][c] / piv
+        for r in range(n):
+            if r == col:
+                continue
+            factor = aug[r][col]
+            for c in range(col, n + 1):
+                aug[r][c] = aug[r][c] - factor * aug[col][c]
+    return [aug[r][n] for r in range(n)]
+
+
+def evaluate_clt_laminate_abd_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    thetas = [_arb_from_decimal_text(str(inputs[f"theta_{k}_deg"])) for k in range(1, 5)]
+    t_ply = _arb_from_decimal_text(str(inputs["ply_thickness_mm"]))
+    e1 = _arb_from_decimal_text(str(inputs["e1_mpa"]))
+    e2 = _arb_from_decimal_text(str(inputs["e2_mpa"]))
+    g12 = _arb_from_decimal_text(str(inputs["g12_mpa"]))
+    nu12 = _arb_from_decimal_text(str(inputs["nu12"]))
+    nx = _arb_from_decimal_text(str(inputs["nx_n_per_mm"]))
+    ny = _arb_from_decimal_text(str(inputs["ny_n_per_mm"]))
+    nxy = _arb_from_decimal_text(str(inputs["nxy_n_per_mm"]))
+    mx = _arb_from_decimal_text(str(inputs["mx_n_mm_per_mm"]))
+    xt = _arb_from_decimal_text(str(inputs["xt_mpa"]))
+    yt = _arb_from_decimal_text(str(inputs["yt_mpa"]))
+    s12_allow = _arb_from_decimal_text(str(inputs["s12_mpa"]))
+
+    nu21 = nu12 * e2 / e1
+    denom = arb(1) - nu12 * nu21
+    q11 = e1 / denom
+    q22 = e2 / denom
+    q12 = nu12 * e2 / denom
+    q66 = g12
+
+    total_h = arb(4) * t_ply
+    half_h = total_h / arb(2)
+    a_mat = [[arb(0), arb(0), arb(0)] for _ in range(3)]
+    b_mat = [[arb(0), arb(0), arb(0)] for _ in range(3)]
+    d_mat = [[arb(0), arb(0), arb(0)] for _ in range(3)]
+    pi_val = arb.pi()
+    rad_scale = pi_val / arb(180)
+    ply_data: list[tuple[arb, arb, arb, arb]] = []
+
+    for idx, th in enumerate(thetas):
+        z0 = -half_h + arb(idx) * t_ply
+        z1 = z0 + t_ply
+        rad = th * rad_scale
+        c = rad.cos()
+        s = rad.sin()
+        c2, s2, sc = c * c, s * s, s * c
+        c4, s4 = c2 * c2, s2 * s2
+        qbar_11 = q11 * c4 + arb(2) * (q12 + arb(2) * q66) * s2 * c2 + q22 * s4
+        qbar_12 = (q11 + q22 - arb(4) * q66) * s2 * c2 + q12 * (s4 + c4)
+        qbar_22 = q11 * s4 + arb(2) * (q12 + arb(2) * q66) * s2 * c2 + q22 * c4
+        qbar_16 = (q11 - q12 - arb(2) * q66) * sc * c2 + (q12 - q22 + arb(2) * q66) * s2 * sc
+        qbar_26 = (q11 - q12 - arb(2) * q66) * s2 * sc + (q12 - q22 + arb(2) * q66) * sc * c2
+        qbar_66 = (q11 + q22 - arb(2) * q12 - arb(2) * q66) * s2 * c2 + q66 * (s4 + c4)
+        qb = [
+            [qbar_11, qbar_12, qbar_16],
+            [qbar_12, qbar_22, qbar_26],
+            [qbar_16, qbar_26, qbar_66],
+        ]
+        dz1 = z1 - z0
+        dz2 = (z1 * z1 - z0 * z0) / arb(2)
+        dz3 = (z1 * z1 * z1 - z0 * z0 * z0) / arb(3)
+        for i in range(3):
+            for j in range(3):
+                a_mat[i][j] = a_mat[i][j] + qb[i][j] * dz1
+                b_mat[i][j] = b_mat[i][j] + qb[i][j] * dz2
+                d_mat[i][j] = d_mat[i][j] + qb[i][j] * dz3
+        ply_data.append((c, s, z0, z1))
+
+    max_b = max((abs(b_mat[i][j]) for i in range(3) for j in range(3)), key=_arb_mid_dec)
+    abd = [[arb(0) for _ in range(6)] for _ in range(6)]
+    for i in range(3):
+        for j in range(3):
+            abd[i][j] = a_mat[i][j]
+            abd[i][j + 3] = b_mat[i][j]
+            abd[i + 3][j] = b_mat[i][j]
+            abd[i + 3][j + 3] = d_mat[i][j]
+    sol = _solve_arb_linear_system(abd, [nx, ny, nxy, mx, arb(0), arb(0)])
+    eps0, kappa = sol[:3], sol[3:]
+
+    a_inv_c0 = _solve_arb_linear_system(a_mat, [arb(1), arb(0), arb(0)])
+    a_inv_c1 = _solve_arb_linear_system(a_mat, [arb(0), arb(1), arb(0)])
+    a_inv_c2 = _solve_arb_linear_system(a_mat, [arb(0), arb(0), arb(1)])
+    ex_eff = arb(1) / (total_h * a_inv_c0[0])
+    ey_eff = arb(1) / (total_h * a_inv_c1[1])
+    gxy_eff = arb(1) / (total_h * a_inv_c2[2])
+    nuxy_eff = -(a_inv_c0[1] / a_inv_c0[0])
+
+    fi_cands: list[arb] = []
+    for c, s, z0, z1 in ply_data:
+        c2, s2, sc = c * c, s * s, s * c
+        for z_pt in (z0, z1):
+            ex = eps0[0] + z_pt * kappa[0]
+            ey = eps0[1] + z_pt * kappa[1]
+            gxy = eps0[2] + z_pt * kappa[2]
+            e1_l = c2 * ex + s2 * ey + sc * gxy
+            e2_l = s2 * ex + c2 * ey - sc * gxy
+            g12_l = -arb(2) * sc * ex + arb(2) * sc * ey + (c2 - s2) * gxy
+            sig1 = q11 * e1_l + q12 * e2_l
+            sig2 = q12 * e1_l + q22 * e2_l
+            tau12 = q66 * g12_l
+            fi_cands.append(((sig1 / xt) ** 2 + (sig2 / yt) ** 2 + (tau12 / s12_allow) ** 2).sqrt())
+    max_fi = max(fi_cands, key=_arb_mid_dec)
+    ms = (arb(1) / max_fi) - arb(1)
+
+    return {
+        "a11_n_per_mm": _drift_entry(a_mat[0][0], str(staged_outputs["a11_n_per_mm"])),
+        "a22_n_per_mm": _drift_entry(a_mat[1][1], str(staged_outputs["a22_n_per_mm"])),
+        "a66_n_per_mm": _drift_entry(a_mat[2][2], str(staged_outputs["a66_n_per_mm"])),
+        "d11_n_mm": _drift_entry(d_mat[0][0], str(staged_outputs["d11_n_mm"])),
+        "d22_n_mm": _drift_entry(d_mat[1][1], str(staged_outputs["d22_n_mm"])),
+        "d66_n_mm": _drift_entry(d_mat[2][2], str(staged_outputs["d66_n_mm"])),
+        "max_abs_b_coupling": _drift_entry(max_b, str(staged_outputs["max_abs_b_coupling"])),
+        "ex_eff_mpa": _drift_entry(ex_eff, str(staged_outputs["ex_eff_mpa"])),
+        "ey_eff_mpa": _drift_entry(ey_eff, str(staged_outputs["ey_eff_mpa"])),
+        "gxy_eff_mpa": _drift_entry(gxy_eff, str(staged_outputs["gxy_eff_mpa"])),
+        "nuxy_eff": _drift_entry(nuxy_eff, str(staged_outputs["nuxy_eff"])),
+        "midplane_strain_x": _drift_entry(eps0[0], str(staged_outputs["midplane_strain_x"])),
+        "midplane_strain_y": _drift_entry(eps0[1], str(staged_outputs["midplane_strain_y"])),
+        "midplane_shear_xy": _drift_entry(eps0[2], str(staged_outputs["midplane_shear_xy"])),
+        "curvature_x_per_mm": _drift_entry(kappa[0], str(staged_outputs["curvature_x_per_mm"])),
+        "max_ply_failure_index": _drift_entry(max_fi, str(staged_outputs["max_ply_failure_index"])),
+        "margin_of_safety": _drift_entry(ms, str(staged_outputs["margin_of_safety"])),
+    }
+
+
+def evaluate_rotor_blade_cf_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    m_b = _arb_from_decimal_text(str(inputs["blade_mass_kg"]))
+    om = _arb_from_decimal_text(str(inputs["rotor_omega_rad_s"]))
+    rcg = _arb_from_decimal_text(str(inputs["cg_radius_m"]))
+    area = _arb_from_decimal_text(str(inputs["root_area_mm2"]))
+    z_m = _arb_from_decimal_text(str(inputs["root_section_modulus_mm3"]))
+    mf = abs(_arb_from_decimal_text(str(inputs["flap_bending_moment_n_m"])))
+    ml = abs(_arb_from_decimal_text(str(inputs["lag_bending_moment_n_m"])))
+    ftu = _arb_from_decimal_text(str(inputs["ultimate_tensile_mpa"]))
+    send = _arb_from_decimal_text(str(inputs["endurance_limit_mpa"]))
+    sf = _arb_from_decimal_text(str(inputs["safety_factor"]))
+
+    cf = m_b * om * om * rcg
+    s_cf = cf / area
+    s_f = (mf * arb(1000)) / z_m
+    s_l = (ml * arb(1000)) / z_m
+    s_m = s_cf
+    s_a = (s_f * s_f + s_l * s_l).sqrt()
+    s_pk = s_m + s_a
+    s_ms = (ftu / (s_pk * sf)) - arb(1)
+    g_rf = arb(1) / ((s_m / ftu) + (s_a / send))
+    f_ms = (g_rf / sf) - arb(1)
+
+    return {
+        "centrifugal_force_n": _drift_entry(cf, str(staged_outputs["centrifugal_force_n"])),
+        "centrifugal_stress_mpa": _drift_entry(s_cf, str(staged_outputs["centrifugal_stress_mpa"])),
+        "flap_bending_stress_mpa": _drift_entry(
+            s_f, str(staged_outputs["flap_bending_stress_mpa"])
+        ),
+        "lag_bending_stress_mpa": _drift_entry(s_l, str(staged_outputs["lag_bending_stress_mpa"])),
+        "steady_mean_stress_mpa": _drift_entry(s_m, str(staged_outputs["steady_mean_stress_mpa"])),
+        "alternating_stress_mpa": _drift_entry(s_a, str(staged_outputs["alternating_stress_mpa"])),
+        "peak_combined_stress_mpa": _drift_entry(
+            s_pk, str(staged_outputs["peak_combined_stress_mpa"])
+        ),
+        "static_margin_of_safety": _drift_entry(
+            s_ms, str(staged_outputs["static_margin_of_safety"])
+        ),
+        "goodman_reserve_factor": _drift_entry(g_rf, str(staged_outputs["goodman_reserve_factor"])),
+        "fatigue_margin_of_safety": _drift_entry(
+            f_ms, str(staged_outputs["fatigue_margin_of_safety"])
+        ),
+    }
+
+
+def evaluate_ground_resonance_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    om = _arb_from_decimal_text(str(inputs["rotor_omega_rad_s"]))
+    wl = _arb_from_decimal_text(str(inputs["blade_lead_lag_freq_rad_s"]))
+    wf = _arb_from_decimal_text(str(inputs["fuselage_mode_freq_rad_s"]))
+    zl = _arb_from_decimal_text(str(inputs["blade_lag_damping_ratio"]))
+    zf = _arb_from_decimal_text(str(inputs["fuselage_damping_ratio"]))
+    mu = _arb_from_decimal_text(str(inputs["mass_coupling_ratio"]))
+    fac = _arb_from_decimal_text(str(inputs["min_damping_margin_factor"]))
+
+    nu = wl / om
+    reg = abs(om - wl)
+    coal = wf + wl
+    sep = (abs(om - coal) / coal) * arb(100)
+    d_act = zl * zf
+    d_thr = (mu / arb(4)) * (om / (wl + wf))
+    s_rat = d_act / d_thr
+    s_ms = (s_rat / fac) - arb(1)
+
+    return {
+        "lag_freq_ratio_nu": _drift_entry(nu, str(staged_outputs["lag_freq_ratio_nu"])),
+        "regressive_lag_freq_rad_s": _drift_entry(
+            reg, str(staged_outputs["regressive_lag_freq_rad_s"])
+        ),
+        "coalescence_rotor_speed_rad_s": _drift_entry(
+            coal, str(staged_outputs["coalescence_rotor_speed_rad_s"])
+        ),
+        "speed_separation_pct": _drift_entry(sep, str(staged_outputs["speed_separation_pct"])),
+        "damping_product_actual": _drift_entry(
+            d_act, str(staged_outputs["damping_product_actual"])
+        ),
+        "coleman_damping_threshold": _drift_entry(
+            d_thr, str(staged_outputs["coleman_damping_threshold"])
+        ),
+        "damping_stability_ratio": _drift_entry(
+            s_rat, str(staged_outputs["damping_stability_ratio"])
+        ),
+        "stability_margin_of_safety": _drift_entry(
+            s_ms, str(staged_outputs["stability_margin_of_safety"])
+        ),
+    }
+
+
+def evaluate_cs29_crashworthiness_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    mass = _arb_from_decimal_text(str(inputs["occupant_seat_mass_kg"]))
+    dv = _arb_from_decimal_text(str(inputs["delta_v_m_s"]))
+    tr = _arb_from_decimal_text(str(inputs["rise_time_s"]))
+    nb = _arb_from_decimal_text(str(inputs["attachment_bolt_count"]))
+    allow = _arb_from_decimal_text(str(inputs["bolt_allowable_load_n"]))
+    ff = _arb_from_decimal_text(str(inputs["floor_fitting_factor"]))
+    g0 = _arb_from_decimal_text("9.80665")
+
+    uf = mass * g0 * arb(20) * ff
+    ud = mass * g0 * arb(20) * ff
+    us = mass * g0 * arb(10) * ff
+    pk_g = dv / (g0 * tr)
+    dyn = mass * (dv / tr) * ff
+    gov = max([uf, ud, dyn], key=_arb_mid_dec)
+    per_b = gov / nb
+    ms = (allow / per_b) - arb(1)
+
+    return {
+        "ultimate_forward_load_n": _drift_entry(uf, str(staged_outputs["ultimate_forward_load_n"])),
+        "ultimate_downward_load_n": _drift_entry(
+            ud, str(staged_outputs["ultimate_downward_load_n"])
+        ),
+        "ultimate_sideward_load_n": _drift_entry(
+            us, str(staged_outputs["ultimate_sideward_load_n"])
+        ),
+        "cs29_562_peak_g": _drift_entry(pk_g, str(staged_outputs["cs29_562_peak_g"])),
+        "dynamic_pulse_load_n": _drift_entry(dyn, str(staged_outputs["dynamic_pulse_load_n"])),
+        "governing_design_load_n": _drift_entry(
+            gov, str(staged_outputs["governing_design_load_n"])
+        ),
+        "per_attachment_load_n": _drift_entry(per_b, str(staged_outputs["per_attachment_load_n"])),
+        "margin_of_safety": _drift_entry(ms, str(staged_outputs["margin_of_safety"])),
+    }
+
+
+def evaluate_multirow_bolt_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    p_tot = _arb_from_decimal_text(str(inputs["total_applied_load_n"]))
+    pitch = _arb_from_decimal_text(str(inputs["pitch_mm"]))
+    width = _arb_from_decimal_text(str(inputs["width_mm"]))
+    t1 = _arb_from_decimal_text(str(inputs["plate1_thickness_mm"]))
+    t2 = _arb_from_decimal_text(str(inputs["plate2_thickness_mm"]))
+    e1 = _arb_from_decimal_text(str(inputs["plate1_modulus_mpa"]))
+    e2 = _arb_from_decimal_text(str(inputs["plate2_modulus_mpa"]))
+    d = _arb_from_decimal_text(str(inputs["bolt_diameter_mm"]))
+    eb = _arb_from_decimal_text(str(inputs["bolt_modulus_mpa"]))
+    fbru = _arb_from_decimal_text(str(inputs["bearing_allowable_mpa"]))
+
+    geom = ((t1 + t2) / (arb(2) * d)) ** (arb(2) / arb(3))
+    compl = (
+        (arb(1) / (t1 * e1))
+        + (arb(1) / (t2 * e2))
+        + (arb(1) / (arb(2) * t1 * eb))
+        + (arb(1) / (arb(2) * t2 * eb))
+    )
+    cf = geom * arb(3) * compl
+    cp1 = pitch / (e1 * width * t1)
+    cp2 = pitch / (e2 * width * t2)
+    mat = [
+        [cf + cp1 + cp2, -cf, arb(0)],
+        [cp2, cf + cp2, -(cf + cp1)],
+        [arb(1), arb(1), arb(1)],
+    ]
+    p1, p2, p3 = _solve_arb_linear_system(mat, [cp1 * p_tot, arb(0), p_tot])
+    pk_load = max([p1, p2, p3], key=_arb_mid_dec)
+    pk_frac = pk_load / p_tot
+    t_min = min([t1, t2], key=_arb_mid_dec)
+    pk_brg = pk_load / (d * t_min)
+    byp2 = p_tot - p1 - p2
+    ms = (fbru / pk_brg) - arb(1)
+
+    return {
+        "huth_flexibility_mm_per_n": _drift_entry(
+            cf, str(staged_outputs["huth_flexibility_mm_per_n"])
+        ),
+        "row1_load_n": _drift_entry(p1, str(staged_outputs["row1_load_n"])),
+        "row2_load_n": _drift_entry(p2, str(staged_outputs["row2_load_n"])),
+        "row3_load_n": _drift_entry(p3, str(staged_outputs["row3_load_n"])),
+        "peak_row_load_fraction": _drift_entry(
+            pk_frac, str(staged_outputs["peak_row_load_fraction"])
+        ),
+        "peak_bearing_stress_mpa": _drift_entry(
+            pk_brg, str(staged_outputs["peak_bearing_stress_mpa"])
+        ),
+        "bypass_load_row2_n": _drift_entry(byp2, str(staged_outputs["bypass_load_row2_n"])),
+        "margin_of_safety": _drift_entry(ms, str(staged_outputs["margin_of_safety"])),
+    }
 
 
 def evaluate_stress_manual_intervals(

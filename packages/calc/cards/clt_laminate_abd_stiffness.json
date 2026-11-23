@@ -1,0 +1,72 @@
+{
+  "method_id": "clt_laminate_abd_stiffness",
+  "method_version": "clt_laminate_abd_stiffness@1.0.0",
+  "title": "Classical Lamination Theory 4-Ply [A, B, D] Stiffness & Ply Failure Margin",
+  "label": "ASSUMPTION",
+  "equation": "[N; M] = [A, B; B, D] * [eps0; kappa]; E_eff = 1/(h * A_inv); FI_k = sqrt((sigma_1/X_t)^2 + (sigma_2/Y_t)^2 + (tau_12/S_12)^2); MS = 1/max(FI_k) - 1",
+  "note": "Exact 4-ply Classical Lamination Theory membrane, coupling, and bending stiffness matrices with pure-Decimal 6x6 compliance solve. Screening aid only.",
+  "quantum": "0.0001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "theta_1_deg": "degree",
+    "theta_2_deg": "degree",
+    "theta_3_deg": "degree",
+    "theta_4_deg": "degree",
+    "ply_thickness_mm": "millimeter",
+    "e1_mpa": "megapascal",
+    "e2_mpa": "megapascal",
+    "g12_mpa": "megapascal",
+    "nu12": "dimensionless",
+    "nx_n_per_mm": "newton / millimeter",
+    "ny_n_per_mm": "newton / millimeter",
+    "nxy_n_per_mm": "newton / millimeter",
+    "mx_n_mm_per_mm": "newton * millimeter / millimeter",
+    "xt_mpa": "megapascal",
+    "yt_mpa": "megapascal",
+    "s12_mpa": "megapascal"
+  },
+  "required": [
+    "theta_1_deg",
+    "theta_2_deg",
+    "theta_3_deg",
+    "theta_4_deg",
+    "ply_thickness_mm",
+    "e1_mpa",
+    "e2_mpa",
+    "g12_mpa",
+    "nu12",
+    "nx_n_per_mm",
+    "ny_n_per_mm",
+    "nxy_n_per_mm",
+    "mx_n_mm_per_mm",
+    "xt_mpa",
+    "yt_mpa",
+    "s12_mpa"
+  ],
+  "limits": {
+    "theta_1_deg": { "min": "-360", "max": "360" },
+    "theta_2_deg": { "min": "-360", "max": "360" },
+    "theta_3_deg": { "min": "-360", "max": "360" },
+    "theta_4_deg": { "min": "-360", "max": "360" },
+    "ply_thickness_mm": { "min_exclusive": "0", "max": "50" },
+    "e1_mpa": { "min_exclusive": "0", "max": "1000000" },
+    "e2_mpa": { "min_exclusive": "0", "max": "1000000" },
+    "g12_mpa": { "min_exclusive": "0", "max": "500000" },
+    "nu12": { "min": "-0.9", "max": "0.9" },
+    "nx_n_per_mm": { "min": "-1000000", "max": "1000000" },
+    "ny_n_per_mm": { "min": "-1000000", "max": "1000000" },
+    "nxy_n_per_mm": { "min": "-1000000", "max": "1000000" },
+    "mx_n_mm_per_mm": { "min": "-1000000", "max": "1000000" },
+    "xt_mpa": { "min_exclusive": "0", "max": "10000" },
+    "yt_mpa": { "min_exclusive": "0", "max": "10000" },
+    "s12_mpa": { "min_exclusive": "0", "max": "10000" }
+  },
+  "sources": [
+    {
+      "source_id": "cmh17-clt-abd",
+      "uri": "https://aeroregu.local/cards/clt_laminate_abd_stiffness",
+      "content_hash": "8a4f1b71c6f10e6f56b497d06b98d8b7d4ecfb903f1c754d9e8cb28c4b117710",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

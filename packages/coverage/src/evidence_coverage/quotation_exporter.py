@@ -37,6 +37,21 @@ _TITLE_FONT = Font(color="0F172A", bold=True, size=13)
 _BOLD_FONT = Font(bold=True, size=10)
 
 
+_FORMULA_INJECTION_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _sanitize_excel_text(raw: Any) -> str:
+    """Defend Excel cells against CWE-1236 CSV/spreadsheet formula injection."""
+    text = str("" if raw is None else raw).replace("\x00", "")
+    # Strip non-printable control chars (except tab/newline/CR) before neutralization check
+    text = "".join(ch for ch in text if ord(ch) >= 32 or ch in "\t\n\r")
+    if text and (
+        text[0] in _FORMULA_INJECTION_PREFIXES or text.lstrip(" ")[0:1] in ("=", "+", "-", "@")
+    ):
+        return "'" + text
+    return text
+
+
 def _num_val(raw: Any, default: float = 0.0) -> float:
     try:
         return float(Decimal(str(raw)))
@@ -222,8 +237,8 @@ def export_quotation_xlsx(
         syn_frac = _num_val(node.get("synergy_reduction_pct") or 0) / 100.0
         ws_wbs.append(
             [
-                node["archetype_id"],
-                node.get("family", ""),
+                _sanitize_excel_text(node["archetype_id"]),
+                _sanitize_excel_text(node.get("family", "")),
                 _num_val(node["standalone_hours"]),
                 syn_frac,
                 f"=C{idx}*(1-D{idx})",
@@ -302,15 +317,15 @@ def export_quotation_xlsx(
     for idx, row in enumerate(ctry_rows, start=2):
         ws_ctry.append(
             [
-                row["country_code"],
-                row["country_name"],
-                row.get("cluster_hubs", ""),
+                _sanitize_excel_text(row["country_code"]),
+                _sanitize_excel_text(row["country_name"]),
+                _sanitize_excel_text(row.get("cluster_hubs", "")),
                 _num_val(row["blended_hourly_rate_eur"]),
                 _num_val(row["total_cost_eur"]),
                 _num_val(row["quote_price_eur"]),
                 f"=(F{idx}-$F${eu_row_idx})/$F${eu_row_idx}",
                 _num_val(row.get("cve_share_pct") or 12) / 100.0,
-                row.get("export_control_regime", ""),
+                _sanitize_excel_text(row.get("export_control_regime", "")),
             ]
         )
         formula_count += 1
@@ -329,14 +344,14 @@ def export_quotation_xlsx(
         ws_ctry.append(
             [
                 "HYBRID_ON_NEAR",
-                hyb_label,
+                _sanitize_excel_text(hyb_label),
                 "Hybrid Sovereign EU/Nearshore",
                 _num_val(hyb.get("blended_hourly_rate_eur")),
                 _num_val(hyb.get("total_cost_eur")),
                 _num_val(hyb.get("quote_price_eur")),
                 f"=(F{hyb_row}-$F${eu_row_idx})/$F${eu_row_idx}",
                 _num_val(12) / 100.0,
-                hyb.get("note", ""),
+                _sanitize_excel_text(hyb.get("note", "")),
             ]
         )
         formula_count += 1
@@ -485,13 +500,13 @@ def export_quotation_xlsx(
             asm_count += 1
             ws_asm.append(
                 [
-                    it.get("assumption_id", ""),
-                    dim,
-                    it.get("label", "ASSUMPTION"),
-                    it.get("title", ""),
-                    it.get("statement", ""),
-                    it.get("change_order_trigger", ""),
-                    it.get("risk_if_violated", ""),
+                    _sanitize_excel_text(it.get("assumption_id", "")),
+                    _sanitize_excel_text(dim),
+                    _sanitize_excel_text(it.get("label", "ASSUMPTION")),
+                    _sanitize_excel_text(it.get("title", "")),
+                    _sanitize_excel_text(it.get("statement", "")),
+                    _sanitize_excel_text(it.get("change_order_trigger", "")),
+                    _sanitize_excel_text(it.get("risk_if_violated", "")),
                 ]
             )
     asm_last = max(2, 1 + asm_count)
@@ -520,14 +535,14 @@ def export_quotation_xlsx(
     for cl in cl_rows:
         ws_ctr.append(
             [
-                cl["clause_id"],
-                cl["category"],
-                cl["status"],
-                ", ".join(cl.get("poison_flags") or []) or "NONE",
-                cl["text"],
-                cl["rationale"],
-                cl.get("suggested_redline") or "",
-                cl.get("linked_assumption") or "",
+                _sanitize_excel_text(cl["clause_id"]),
+                _sanitize_excel_text(cl["category"]),
+                _sanitize_excel_text(cl["status"]),
+                _sanitize_excel_text(", ".join(cl.get("poison_flags") or []) or "NONE"),
+                _sanitize_excel_text(cl["text"]),
+                _sanitize_excel_text(cl["rationale"]),
+                _sanitize_excel_text(cl.get("suggested_redline") or ""),
+                _sanitize_excel_text(cl.get("linked_assumption") or ""),
             ]
         )
     ctr_last = max(2, 1 + len(cl_rows))
@@ -569,16 +584,18 @@ def export_quotation_xlsx(
     for idx, k_item in enumerate(knn_rows, start=2):
         ws_knn.append(
             [
-                k_item["quote_id"],
-                k_item["archetype_id"],
+                _sanitize_excel_text(k_item["quote_id"]),
+                _sanitize_excel_text(k_item["archetype_id"]),
                 _num_val(k_item["quoted_hours"]),
                 _num_val(k_item["actual_burned_hours"]),
                 f"=IF(C{idx}>0,(D{idx}-C{idx})/C{idx},0)",
-                k_item.get("country_code", ""),
-                k_item.get("material_family", ""),
+                _sanitize_excel_text(k_item.get("country_code", "")),
+                _sanitize_excel_text(k_item.get("material_family", "")),
                 _num_val(k_item.get("similarity_score")),
-                k_item.get("outcome", ""),
-                ", ".join(k_item.get("broken_assumption_ids") or ()) or "none",
+                _sanitize_excel_text(k_item.get("outcome", "")),
+                _sanitize_excel_text(
+                    ", ".join(k_item.get("broken_assumption_ids") or ()) or "none"
+                ),
             ]
         )
         formula_count += 1
@@ -616,16 +633,18 @@ def export_quotation_xlsx(
     _style_header_row(ws_exec, 3, 3)
 
     exec_rows = [
-        ("RFQ Identifier", dossier.get("rfq_id", ""), "Metadata"),
-        ("Customer / OEM", dossier.get("customer_name", ""), "Metadata"),
+        ("RFQ Identifier", _sanitize_excel_text(dossier.get("rfq_id", "")), "Metadata"),
+        ("Customer / OEM", _sanitize_excel_text(dossier.get("customer_name", "")), "Metadata"),
         (
             "Country Profile",
-            (dossier.get("country_profile") or {}).get("country_code", "EU_DEFAULT"),
+            _sanitize_excel_text(
+                (dossier.get("country_profile") or {}).get("country_code", "EU_DEFAULT")
+            ),
             "Rate Card",
         ),
         (
             "Critical Path Archetypes",
-            " -> ".join(dag.get("critical_path_archetypes") or []),
+            _sanitize_excel_text(" -> ".join(dag.get("critical_path_archetypes") or [])),
             "WBS CPM",
         ),
         (
@@ -687,15 +706,19 @@ def export_quotation_xlsx(
         ("Contractual Audit Gate", f"='Matriz Contractual'!B{ctr_sum_row}", "Live Contract Matrix"),
         (
             "Z3 SMT Unit Margin Proof",
-            z3_margin.get("status", "SKIPPED"),
-            z3_margin.get("proof_hash", "")[:16],
+            _sanitize_excel_text(z3_margin.get("status", "SKIPPED")),
+            _sanitize_excel_text(z3_margin.get("proof_hash", "")[:16]),
         ),
         (
             "Z3 SMT Multi-Year NPV Proof",
-            z3_npv.get("status", "SKIPPED"),
-            z3_npv.get("proof_hash", "")[:16],
+            _sanitize_excel_text(z3_npv.get("status", "SKIPPED")),
+            _sanitize_excel_text(z3_npv.get("proof_hash", "")[:16]),
         ),
-        ("Merkle Ledger Root", dossier.get("merkle_root", ""), dossier.get("decision_status", "")),
+        (
+            "Merkle Ledger Root",
+            _sanitize_excel_text(dossier.get("merkle_root", "")),
+            _sanitize_excel_text(dossier.get("decision_status", "")),
+        ),
     ]
     for idx, (m_lbl, val, note) in enumerate(exec_rows, start=4):
         ws_exec.append([m_lbl, val, note])
@@ -732,6 +755,25 @@ def export_quotation_xlsx(
     }
 
 
+def _resolve_signing_keypair(
+    private_key_pem: bytes | None,
+    public_key_pem: bytes | None,
+) -> tuple[bytes, bytes]:
+    """Load or generate Ed25519 signing keys for DSSE quotation/CCN PDF export."""
+    if private_key_pem is None:
+        return generate_ed25519_keypair()
+    if public_key_pem is not None:
+        return private_key_pem, public_key_pem
+    from cryptography.hazmat.primitives import serialization
+
+    priv_obj = serialization.load_pem_private_key(private_key_pem, password=None)
+    pub_pem = priv_obj.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    return private_key_pem, pub_pem
+
+
 def export_quotation_signed_pdf(
     dossier: dict[str, Any],
     *,
@@ -741,20 +783,7 @@ def export_quotation_signed_pdf(
     output_path: Path | str | None = None,
 ) -> dict[str, Any]:
     """Generate an Ed25519 DSSE + ISO QR signed commercial-technical PDF quotation dossier."""
-    if private_key_pem is None:
-        priv_pem, pub_pem = generate_ed25519_keypair()
-    else:
-        priv_pem = private_key_pem
-        if public_key_pem is None:
-            from cryptography.hazmat.primitives import serialization
-
-            priv_obj = serialization.load_pem_private_key(priv_pem, password=None)
-            pub_pem = priv_obj.public_key().public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo,
-            )
-        else:
-            pub_pem = public_key_pem
+    priv_pem, pub_pem = _resolve_signing_keypair(private_key_pem, public_key_pem)
 
     dag = _normalize_wbs_dag(dossier)
     my = _normalize_multiyear(dossier)
@@ -998,3 +1027,403 @@ def verify_quotation_signed_pdf(
 ) -> dict[str, Any]:
     """Verify embedded Ed25519 DSSE signature and ISO QR image in exported quotation PDF."""
     return verify_signed_pdf_report(pdf_bytes, expected_public_key_pem=expected_public_key_pem)
+
+
+def export_change_order_xlsx(
+    ccn_dossier: dict[str, Any],
+    *,
+    output_path: Path | str | None = None,
+) -> dict[str, Any]:
+    """Export closed-loop Rev A -> Rev B Change-Order Addendum to a live-formula .xlsx book."""
+    wb = Workbook()
+    ws_sum = wb.active
+    ws_sum.title = "Resumen CCN"
+    ws_wbs = wb.create_sheet("Delta WBS & CPM")
+    ws_asm = wb.create_sheet("Supuestos Disparados")
+    ws_ctr = wb.create_sheet("Delta Contractual")
+
+    formula_count = 0
+    fin = ccn_dossier.get("financial_delta") or {}
+    cpm = ccn_dossier.get("cpm_delta") or {}
+    wbs = ccn_dossier.get("wbs_delta") or {}
+    cdelta = ccn_dossier.get("contract_delta") or {}
+    triggered = list(ccn_dossier.get("triggered_assumptions") or [])
+
+    # TAB 2: Delta WBS & CPM
+    wbs_hdr = [
+        "Archetype ID",
+        "Status",
+        "Base Hours",
+        "Revised Hours",
+        "Delta Hours",
+        "Base Price (EUR)",
+        "Revised Price (EUR)",
+        "Delta Price (EUR)",
+        "Base Float (w)",
+        "Revised Float (w)",
+        "Became Critical",
+    ]
+    ws_wbs.append(wbs_hdr)
+    _style_header_row(ws_wbs, 1, len(wbs_hdr))
+    ws_wbs.freeze_panes = "A2"
+
+    nodes = list(wbs.get("node_deltas") or [])
+    for idx, node in enumerate(nodes, start=2):
+        ws_wbs.append(
+            [
+                _sanitize_excel_text(node.get("archetype_id", "")),
+                _sanitize_excel_text(node.get("change_status", "")),
+                _num_val(node.get("base_hours")),
+                _num_val(node.get("revised_hours")),
+                f"=D{idx}-C{idx}",
+                _num_val(node.get("base_price_eur")),
+                _num_val(node.get("revised_price_eur")),
+                f"=G{idx}-F{idx}",
+                _num_val(node.get("base_float_weeks")),
+                _num_val(node.get("revised_float_weeks")),
+                "YES" if node.get("became_critical") else "NO",
+            ]
+        )
+        formula_count += 2
+        for c_i in range(3, 11):
+            ws_wbs.cell(row=idx, column=c_i).number_format = "#,##0.00"
+
+    wbs_last = max(2, 1 + len(nodes))
+    wbs_tot = wbs_last + 1
+    ws_wbs.append(
+        [
+            "TOTAL CCN DELTA",
+            f"=COUNTA(A2:A{wbs_last})",
+            f"=SUM(C2:C{wbs_last})",
+            f"=SUM(D2:D{wbs_last})",
+            f"=D{wbs_tot}-C{wbs_tot}",
+            f"=SUM(F2:F{wbs_last})",
+            f"=SUM(G2:G{wbs_last})",
+            f"=G{wbs_tot}-F{wbs_tot}",
+            "",
+            "",
+            f'=COUNTIF(K2:K{wbs_last},"YES")',
+        ]
+    )
+    formula_count += 8
+    for c_i in range(1, len(wbs_hdr) + 1):
+        ws_wbs.cell(row=wbs_tot, column=c_i).font = _BOLD_FONT
+        ws_wbs.cell(row=wbs_tot, column=c_i).fill = _ACCENT_FILL
+    _autofit_columns(ws_wbs)
+
+    # TAB 3: Supuestos Disparados
+    asm_hdr = ["Assumption ID", "Dimension", "Title", "Change-Order Trigger", "Trigger Reason"]
+    ws_asm.append(asm_hdr)
+    _style_header_row(ws_asm, 1, len(asm_hdr))
+    for it in triggered:
+        ws_asm.append(
+            [
+                _sanitize_excel_text(it.get("assumption_id", "")),
+                _sanitize_excel_text(it.get("dimension", "")),
+                _sanitize_excel_text(it.get("title", "")),
+                _sanitize_excel_text(it.get("change_order_trigger", "")),
+                _sanitize_excel_text(it.get("trigger_reason", "")),
+            ]
+        )
+    asm_last = max(2, 1 + len(triggered))
+    ws_asm.append(["TRIGGERED COUNT", f"=COUNTA(A2:A{asm_last})", "", "", ""])
+    formula_count += 1
+    _autofit_columns(ws_asm, max_width=56)
+
+    # TAB 4: Delta Contractual
+    ctr_hdr = ["Gate / Poison Item", "Baseline Rev A", "Revised Rev B", "Detail / Redline"]
+    ws_ctr.append(ctr_hdr)
+    _style_header_row(ws_ctr, 1, len(ctr_hdr))
+    ws_ctr.append(
+        [
+            "Contractual Gate",
+            _sanitize_excel_text(cdelta.get("base_gate", "")),
+            _sanitize_excel_text(cdelta.get("revised_gate", "")),
+            _sanitize_excel_text(cdelta.get("gate_transition", "")),
+        ]
+    )
+    ws_ctr.append(
+        [
+            "Poison Clause Count",
+            int(cdelta.get("base_poison_count") or 0),
+            int(cdelta.get("revised_poison_count") or 0),
+            "=C3-B3",
+        ]
+    )
+    formula_count += 1
+    for p_item in cdelta.get("new_poison_clauses") or []:
+        ws_ctr.append(
+            [
+                _sanitize_excel_text(p_item.get("poison_id", "")),
+                "ABSENT",
+                _sanitize_excel_text(p_item.get("severity", "")),
+                _sanitize_excel_text(p_item.get("redline", "")),
+            ]
+        )
+    _autofit_columns(ws_ctr, max_width=64)
+
+    # TAB 1: Resumen CCN
+    ws_sum.append(["AeroRegu — Closed-Loop Change-Order (CCN) Addendum", "", "", ""])
+    ws_sum["A1"].font = _TITLE_FONT
+    ws_sum.append(["Metric", "Baseline (Rev A)", "Revised (Rev B)", "CCN Delta (Live Formula)"])
+    _style_header_row(ws_sum, 2, 4)
+
+    sum_rows = [
+        (
+            "Net Engineering Hours",
+            _num_val(fin.get("base_net_hours")),
+            _num_val(fin.get("revised_net_hours")),
+            "=C3-B3",
+        ),
+        (
+            "Unit/Lot PERT P80 Price (EUR)",
+            _num_val(fin.get("base_p80_price_eur")),
+            _num_val(fin.get("revised_p80_price_eur")),
+            "=C4-B4",
+        ),
+        (
+            "Multi-Year Quoted Price (EUR)",
+            _num_val(fin.get("base_multiyear_quoted_price_eur")),
+            _num_val(fin.get("revised_multiyear_quoted_price_eur")),
+            "=C5-B5",
+        ),
+        (
+            "Multi-Year Delta (%)",
+            "",
+            "",
+            "=IF(B5>0,D5/B5,0)",
+        ),
+        (
+            "Multi-Year NPV (EUR)",
+            _num_val(fin.get("base_multiyear_npv_eur")),
+            _num_val(fin.get("revised_multiyear_npv_eur")),
+            "=C7-B7",
+        ),
+        (
+            "Peak Negative Cash Flow (EUR)",
+            _num_val(fin.get("base_peak_negative_cashflow_eur")),
+            _num_val(fin.get("revised_peak_negative_cashflow_eur")),
+            "=C8-B8",
+        ),
+        (
+            "Critical Path Duration (Weeks)",
+            _num_val(cpm.get("base_duration_weeks")),
+            _num_val(cpm.get("revised_duration_weeks")),
+            "=C9-B9",
+        ),
+        (
+            "WBS Delta Check (Cross-Sheet)",
+            f"='Delta WBS & CPM'!F{wbs_tot}",
+            f"='Delta WBS & CPM'!G{wbs_tot}",
+            f"='Delta WBS & CPM'!H{wbs_tot}",
+        ),
+        (
+            "Triggered Assumptions Count",
+            0,
+            f"='Supuestos Disparados'!B{asm_last + 1}",
+            "=C11",
+        ),
+        (
+            "Amended Z3 SMT Margin / NPV",
+            _sanitize_excel_text(
+                (ccn_dossier.get("formal_amended_margin_proof") or {}).get("status", "SKIPPED")
+            ),
+            _sanitize_excel_text(
+                (ccn_dossier.get("formal_amended_npv_proof") or {}).get("status", "SKIPPED")
+            ),
+            _sanitize_excel_text(ccn_dossier.get("decision_status", "")),
+        ),
+        (
+            "CCN Change Reason",
+            _sanitize_excel_text(ccn_dossier.get("cr_id", "CCN-001")),
+            _sanitize_excel_text(ccn_dossier.get("baseline_rfq_id", "")),
+            _sanitize_excel_text(ccn_dossier.get("change_reason", "")),
+        ),
+    ]
+    for r_i, (m_lbl, b_val, rev_val, d_val) in enumerate(sum_rows, start=3):
+        ws_sum.append([m_lbl, b_val, rev_val, d_val])
+        for col_i, cell_v in ((2, b_val), (3, rev_val), (4, d_val)):
+            if isinstance(cell_v, str) and cell_v.startswith("="):
+                formula_count += 1
+            if r_i == 6 and col_i == 4:
+                ws_sum.cell(row=r_i, column=col_i).number_format = "+0.0%;-0.0%;0.0%"
+            elif isinstance(cell_v, (int, float)) or (
+                isinstance(cell_v, str) and cell_v.startswith("=") and r_i in (3, 4, 5, 7, 8, 9, 10)
+            ):
+                ws_sum.cell(row=r_i, column=col_i).number_format = "#,##0.00"
+    _autofit_columns(ws_sum, max_width=56)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    xlsx_bytes = buf.getvalue()
+    out_str: str | None = None
+    if output_path is not None:
+        out_p = Path(output_path)
+        out_p.parent.mkdir(parents=True, exist_ok=True)
+        out_p.write_bytes(xlsx_bytes)
+        out_str = str(out_p)
+    return {
+        "xlsx_bytes": xlsx_bytes,
+        "xlsx_sha256": hashlib.sha256(xlsx_bytes).hexdigest(),
+        "sheet_names": wb.sheetnames,
+        "formula_count": formula_count,
+        "output_path": out_str,
+    }
+
+
+def export_change_order_signed_pdf(
+    ccn_dossier: dict[str, Any],
+    *,
+    private_key_pem: bytes | None = None,
+    public_key_pem: bytes | None = None,
+    output_path: Path | str | None = None,
+) -> dict[str, Any]:
+    """Generate an Ed25519 DSSE + ISO QR signed Change-Order Addendum PDF dossier."""
+    priv_pem, pub_pem = _resolve_signing_keypair(private_key_pem, public_key_pem)
+    fin = ccn_dossier.get("financial_delta") or {}
+    cpm = ccn_dossier.get("cpm_delta") or {}
+    wbs = ccn_dossier.get("wbs_delta") or {}
+    cdelta = ccn_dossier.get("contract_delta") or {}
+    merkle = str(ccn_dossier.get("change_order_merkle_root") or ("0" * 64))
+
+    attestation_payload = {
+        "schema": "evidence-layer/quotation-ccn-pdf@1.0.0",
+        "cr_id": str(ccn_dossier.get("cr_id") or "CCN-001"),
+        "baseline_merkle_root": str(ccn_dossier.get("baseline_merkle_root") or ""),
+        "revised_merkle_root": str(ccn_dossier.get("revised_merkle_root") or ""),
+        "merkle_root": merkle,
+        "decision_status": str(ccn_dossier.get("decision_status") or ""),
+        "delta_multiyear_quoted_price_eur": str(
+            fin.get("delta_multiyear_quoted_price_eur") or "0.000"
+        ),
+        "delta_duration_weeks": str(cpm.get("delta_duration_weeks") or "0.00"),
+        "contract_transition": str(cdelta.get("gate_transition") or ""),
+    }
+    dsse_envelope = sign_attestation_dsse(attestation_payload, priv_pem)
+    dsse_bytes = json.dumps(dsse_envelope, sort_keys=True, indent=2).encode("utf-8")
+    sig_raw = base64.b64decode(dsse_envelope["signatures"][0]["sig"])
+    sig_sha256 = hashlib.sha256(sig_raw).hexdigest()
+
+    qr_payload = "aeroregu-ccn:" + json.dumps(
+        {
+            "v": 1,
+            "c": str(ccn_dossier.get("cr_id") or "")[:16],
+            "m": merkle[:16],
+            "s": sig_sha256[:16],
+            "d": str(fin.get("delta_multiyear_quoted_price_eur") or "")[:14],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    qr_png = render_qr_png(qr_payload, scale=8, border=6)
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    banner_rgb = (15 / 255, 23 / 255, 42 / 255)
+    page.draw_rect(pymupdf.Rect(32, 28, 563, 92), color=banner_rgb, fill=banner_rgb)
+    page.insert_text(
+        (44, 54),
+        f"AeroRegu - Signed Change-Order Addendum ({ccn_dossier.get('cr_id', 'CCN-001')})",
+        fontsize=13.5,
+        color=(1, 1, 1),
+    )
+    page.insert_text(
+        (44, 74),
+        "ASSUMPTION / ESTIMATE closed-loop CCN delta. Requires human commercial & CVE approval.",
+        fontsize=8.2,
+        color=(0.82, 0.88, 0.96),
+    )
+    page.insert_image(pymupdf.Rect(452, 108, 556, 212), stream=qr_png)
+    b_rfq = ccn_dossier.get("baseline_rfq_id")
+    ch_reason = str(ccn_dossier.get("change_reason") or "")[:48]
+    d_price = fin.get("delta_multiyear_quoted_price_eur")
+    d_pct = fin.get("delta_price_pct")
+    b_price = fin.get("base_multiyear_quoted_price_eur")
+    r_price = fin.get("revised_multiyear_quoted_price_eur")
+    d_npv = fin.get("delta_multiyear_npv_eur")
+    d_pk = fin.get("delta_peak_negative_cashflow_eur")
+    b_dur = cpm.get("base_duration_weeks")
+    r_dur = cpm.get("revised_duration_weeks")
+    d_dur = cpm.get("delta_duration_weeks")
+    lines = [
+        f"Baseline RFQ: {b_rfq}  |  Reason: {ch_reason}",
+        f"Decision Status: {ccn_dossier.get('decision_status')}",
+        f"Delta Multi-Year Price: {d_price} EUR ({d_pct}%)",
+        f"Base -> Revised Price: {b_price} -> {r_price} EUR",
+        f"Delta NPV: {d_npv} EUR  |  Delta Peak Neg CF: {d_pk} EUR",
+        f"CPM Duration: {b_dur}w -> {r_dur}w (Delta {d_dur}w)",
+        f"Contract Gate: {cdelta.get('gate_transition')}",
+        f"Added Archetypes: {', '.join(wbs.get('added_archetypes') or []) or 'None'}",
+        f"Removed Archetypes: {', '.join(wbs.get('removed_archetypes') or []) or 'None'}",
+        f"CCN Merkle Root: {merkle[:48]}...",
+    ]
+    y = 124
+    for ln in lines:
+        page.insert_text((38, y), ln[:90], fontsize=9.0, color=(0.1, 0.14, 0.22))
+        y += 16
+
+    y += 10
+    page.insert_text((38, y), "Triggered Assumptions & WBS Deltas", fontsize=11.0)
+    y += 16
+    for asm in (ccn_dossier.get("triggered_assumptions") or [])[:10]:
+        page.insert_text(
+            (42, y),
+            f"- {asm['assumption_id']}: {asm['trigger_reason'][:78]}",
+            fontsize=8.3,
+            color=(0.18, 0.22, 0.30),
+        )
+        y += 14
+    y += 8
+    for nd in (wbs.get("node_deltas") or [])[:14]:
+        if y > 790:
+            break
+        row_s = (
+            f"{nd['archetype_id']} [{nd['change_status']}] "
+            f"dHours={nd['delta_hours']} | dPrice={nd['delta_price_eur']} EUR"
+        )
+        page.insert_text(
+            (42, y),
+            row_s,
+            fontsize=8.2,
+            color=(0.12, 0.18, 0.28),
+        )
+        y += 13
+
+    doc.embfile_add(
+        _DSSE_ATTACHMENT_NAME,
+        dsse_bytes,
+        filename=_DSSE_ATTACHMENT_NAME,
+        desc="DSSE v1 Ed25519 Change-Order Attestation Envelope",
+    )
+    doc.embfile_add(
+        _PUBKEY_ATTACHMENT_NAME,
+        pub_pem,
+        filename=_PUBKEY_ATTACHMENT_NAME,
+        desc="Ed25519 Verification Public Key (PEM)",
+    )
+    doc.set_metadata(
+        {
+            "title": f"AeroRegu Signed Change-Order ({ccn_dossier.get('cr_id', 'CCN-001')})",
+            "subject": f"merkle={merkle}",
+            "keywords": qr_payload,
+            "creator": "aeroregu-ccn-exporter",
+        }
+    )
+    pdf_bytes = doc.tobytes(deflate=True)
+    doc.close()
+
+    out_str: str | None = None
+    if output_path is not None:
+        out_p = Path(output_path)
+        out_p.parent.mkdir(parents=True, exist_ok=True)
+        out_p.write_bytes(pdf_bytes)
+        out_str = str(out_p)
+    return {
+        "pdf_bytes": pdf_bytes,
+        "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
+        "merkle_root": merkle,
+        "qr_payload": qr_payload,
+        "dsse_envelope": dsse_envelope,
+        "public_key_pem": pub_pem.decode("ascii"),
+        "output_path": out_str,
+    }

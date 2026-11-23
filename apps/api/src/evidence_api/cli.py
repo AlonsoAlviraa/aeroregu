@@ -3194,6 +3194,150 @@ def quote_erp_template_cmd(
     )
 
 
+@quote_app.command("change-order")
+def quote_change_order_cmd(
+    baseline_text: str = typer.Option(..., "--baseline-text", help="Rev A baseline RFQ text."),
+    revised_text: str = typer.Option(..., "--revised-text", help="Rev B changed RFQ text."),
+    baseline_archetypes: str = typer.Option(
+        "Q-DES-02,Q-STR-03",
+        "--baseline-archetypes",
+        help="Comma-separated baseline archetypes.",
+    ),
+    revised_archetypes: str = typer.Option(
+        "Q-DES-02,Q-STR-03,Q-FDT-01,Q-DOA-02",
+        "--revised-archetypes",
+        help="Comma-separated revised archetypes.",
+    ),
+    country: str = typer.Option("EU_DEFAULT", "--country", help="Country rate profile."),
+    baseline_units: int = typer.Option(1, "--baseline-units", help="Baseline lot size."),
+    revised_units: int = typer.Option(2, "--revised-units", help="Revised lot size."),
+    cr_id: str = typer.Option("CCN-001", "--cr-id", help="Change Request identifier."),
+    reason: str = typer.Option("Scope expansion", "--reason", help="Change reason."),
+    xlsx_out: Path | None = typer.Option(None, "--xlsx-out", help="CCN .xlsx output path."),
+    pdf_out: Path | None = typer.Option(None, "--pdf-out", help="CCN signed .pdf output path."),
+    tenant: str = typer.Option("demo", "--tenant", help="Tenant ID."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Compute closed-loop Rev A -> Rev B Change-Order delta quotation & CCN exports."""
+    from evidence_coverage.composite_dag_quotation import (
+        CompositeRotorcraftQuotationSpec,
+        run_composite_rotorcraft_quotation,
+    )
+    from evidence_coverage.quotation_change_order import compute_quotation_change_order
+    from evidence_coverage.quotation_exporter import (
+        export_change_order_signed_pdf,
+        export_change_order_xlsx,
+    )
+
+    from evidence_api.app import _attestation_keypair, _now, open_ledger
+
+    checked = _tenant_or_exit(tenant)
+    ledger = open_ledger(checked)
+    now = _now()
+    base_spec = CompositeRotorcraftQuotationSpec(
+        rfq_id="RFQ-REV-A",
+        rfq_text=baseline_text,
+        archetype_ids=tuple(a.strip() for a in baseline_archetypes.split(",") if a.strip()),
+        country_code=country,
+        unit_count=baseline_units,
+        tenant_id=checked,
+        created_at=now,
+    )
+    base_dossier = run_composite_rotorcraft_quotation(ledger, base_spec)
+    rev_spec = CompositeRotorcraftQuotationSpec(
+        rfq_id="RFQ-REV-B",
+        rfq_text=revised_text,
+        archetype_ids=tuple(a.strip() for a in revised_archetypes.split(",") if a.strip()),
+        country_code=country,
+        unit_count=revised_units,
+        tenant_id=checked,
+        created_at=now,
+    )
+    ccn = compute_quotation_change_order(
+        ledger, base_dossier, rev_spec, cr_id=cr_id, change_reason=reason
+    )
+    if xlsx_out is not None and ccn.get("confidence") != "abstain":
+        export_change_order_xlsx(ccn, output_path=xlsx_out)
+    if pdf_out is not None and ccn.get("confidence") != "abstain":
+        priv_pem, pub_pem = _attestation_keypair()
+        export_change_order_signed_pdf(
+            ccn, private_key_pem=priv_pem, public_key_pem=pub_pem, output_path=pdf_out
+        )
+    if _wants_json(json_out):
+        _emit_json(ccn)
+        if ccn.get("confidence") == "abstain":
+            raise typer.Exit(code=2)
+        return
+    if ccn.get("confidence") == "abstain":
+        err_console.print(f"[red]CCN ABSTAIN:[/red] {ccn.get('abstain_reason')}")
+        raise typer.Exit(code=2)
+    fin = ccn["financial_delta"]
+    console.print(
+        f"[green]{ccn['cr_id']}[/green] dHours={fin['delta_net_hours']} | "
+        f"dMultiYear={fin['delta_multiyear_quoted_price_eur']} EUR ({fin['delta_price_pct']}%) | "
+        f"dDuration={ccn['cpm_delta']['delta_duration_weeks']}w | "
+        f"Status={ccn['decision_status']}"
+    )
+
+
+@quote_app.command("portfolio-level")
+def quote_portfolio_level_cmd(
+    rfq_count: int = typer.Option(2, "--rfq-count", help="Number of queued helicopter RFQs."),
+    country: str = typer.Option("ES", "--country", help="Country rate profile."),
+    lead_cve: int = typer.Option(2, "--lead-cve", help="Available Lead CVE headcount."),
+    fdt_spec: int = typer.Option(2, "--fdt-spec", help="Available F&DT specialist headcount."),
+    max_util: str = typer.Option("85.000", "--max-util", help="Target max weekly utilization (%)."),
+    tenant: str = typer.Option("demo", "--tenant", help="Tenant ID."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Level Stress Office engineering capacity across queued RFQs via RCPSP."""
+    from evidence_coverage.composite_dag_quotation import (
+        CompositeRotorcraftQuotationSpec,
+        run_composite_rotorcraft_quotation,
+    )
+    from evidence_coverage.portfolio_capacity_leveler import level_portfolio_capacity
+
+    from evidence_api.app import _now, open_ledger
+
+    checked = _tenant_or_exit(tenant)
+    ledger = open_ledger(checked)
+    now = _now()
+    presets = [
+        ("CS-29 metallic fitting static Net 60.", ("Q-DES-02", "Q-STR-02", "Q-STR-03", "Q-DOA-02")),
+        ("CS-29 hoist F&DT STC Net 60.", ("Q-STR-03", "Q-FDT-01", "Q-DOA-02", "Q-TST-01")),
+        ("CS-27 composite frame Net 60.", ("Q-DES-03", "Q-STR-01", "Q-STR-03", "Q-FDT-01")),
+    ]
+    dossiers = []
+    for idx in range(max(1, rfq_count)):
+        txt, archs = presets[idx % len(presets)]
+        spec = CompositeRotorcraftQuotationSpec(
+            rfq_id=f"RFQ-PORT-{idx + 1:02d}",
+            rfq_text=txt,
+            archetype_ids=archs,
+            country_code=country,
+            tenant_id=checked,
+            created_at=now,
+        )
+        dossiers.append(run_composite_rotorcraft_quotation(ledger, spec))
+
+    res = level_portfolio_capacity(
+        dossiers,
+        team_headcount={"LEAD_CVE": lead_cve, "FDT_SPEC": fdt_spec},
+        max_utilization_pct=max_util,
+    )
+    if _wants_json(json_out):
+        _emit_json(res)
+        return
+    top = res["bottleneck_roles"][0]
+    console.print(
+        f"[green]Portfolio RCPSP ({res['portfolio_rfq_count']} RFQs)[/green] | "
+        f"OverloadedWks={res['overloaded_weeks_before_leveling']} | "
+        f"TopBottleneck={top['role']} ({top['unconstrained_peak_utilization_pct']}%) | "
+        f"Overflow={res['recommended_nearshore_overflow_hours']}h | "
+        f"PeakCF=-{res['combined_peak_negative_cashflow_eur']} EUR"
+    )
+
+
 def main() -> None:
     app()
 

@@ -1,0 +1,54 @@
+{
+  "method_id": "rotor_blade_centrifugal_bending",
+  "method_version": "rotor_blade_centrifugal_bending@1.0.0",
+  "title": "Rotor Blade Root Centrifugal Tension, Flap/Lag Bending & Goodman Fatigue",
+  "label": "ASSUMPTION",
+  "equation": "F_cf = m * omega^2 * r_cg; sigma_m = F_cf / A; sigma_a = sqrt(sigma_flap^2 + sigma_lag^2); RF_G = 1 / (sigma_m/F_tu + sigma_a/sigma_end); MS_f = RF_G / SF - 1",
+  "note": "Rotor blade retention root screening combining steady centrifugal tension and 1P/NP flapwise+chordwise cyclic bending via Modified Goodman diagram.",
+  "quantum": "0.001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "blade_mass_kg": "kilogram",
+    "rotor_omega_rad_s": "radian / second",
+    "cg_radius_m": "meter",
+    "root_area_mm2": "millimeter ** 2",
+    "root_section_modulus_mm3": "millimeter ** 3",
+    "flap_bending_moment_n_m": "newton * meter",
+    "lag_bending_moment_n_m": "newton * meter",
+    "ultimate_tensile_mpa": "megapascal",
+    "endurance_limit_mpa": "megapascal",
+    "safety_factor": "dimensionless"
+  },
+  "required": [
+    "blade_mass_kg",
+    "rotor_omega_rad_s",
+    "cg_radius_m",
+    "root_area_mm2",
+    "root_section_modulus_mm3",
+    "flap_bending_moment_n_m",
+    "lag_bending_moment_n_m",
+    "ultimate_tensile_mpa",
+    "endurance_limit_mpa",
+    "safety_factor"
+  ],
+  "limits": {
+    "blade_mass_kg": { "min_exclusive": "0", "max": "2000" },
+    "rotor_omega_rad_s": { "min_exclusive": "0", "max": "1000" },
+    "cg_radius_m": { "min_exclusive": "0", "max": "50" },
+    "root_area_mm2": { "min_exclusive": "0", "max": "1000000" },
+    "root_section_modulus_mm3": { "min_exclusive": "0", "max": "100000000" },
+    "flap_bending_moment_n_m": { "min": "-1000000", "max": "1000000" },
+    "lag_bending_moment_n_m": { "min": "-1000000", "max": "1000000" },
+    "ultimate_tensile_mpa": { "min_exclusive": "0", "max": "5000" },
+    "endurance_limit_mpa": { "min_exclusive": "0", "max": "3000" },
+    "safety_factor": { "min": "1", "max": "10" }
+  },
+  "sources": [
+    {
+      "source_id": "rotor-blade-cf-goodman",
+      "uri": "https://aeroregu.local/cards/rotor_blade_centrifugal_bending",
+      "content_hash": "2e69c65c5cc9878b9cd3fa118d105b92a1df4cd2e7791b238e29688ef5302003",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "method_id": "cs29_crashworthiness_561_562_load",
+  "method_version": "cs29_crashworthiness_561_562_load@1.0.0",
+  "title": "CS 29.561 Emergency Landing Ultimate Loads & CS 29.562 Dynamic Pulse Attachment Check",
+  "label": "ASSUMPTION",
+  "equation": "F_fwd = 20*m*g0*FF; F_down = 20*m*g0*FF; F_side = 10*m*g0*FF; G_562 = dv/(g0*t_r); F_dyn = m*(dv/t_r)*FF; MS = F_bolt_allow / (max(F_fwd, F_down, F_dyn)/N) - 1",
+  "note": "Rotorcraft seat/stretcher/hoist floor attachment screening across CS 29.561 static ultimate factors and CS 29.562 triangular dynamic velocity-change pulse.",
+  "quantum": "0.001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "occupant_seat_mass_kg": "kilogram",
+    "delta_v_m_s": "meter / second",
+    "rise_time_s": "second",
+    "attachment_bolt_count": "dimensionless",
+    "bolt_allowable_load_n": "newton",
+    "floor_fitting_factor": "dimensionless"
+  },
+  "required": [
+    "occupant_seat_mass_kg",
+    "delta_v_m_s",
+    "rise_time_s",
+    "attachment_bolt_count",
+    "bolt_allowable_load_n",
+    "floor_fitting_factor"
+  ],
+  "limits": {
+    "occupant_seat_mass_kg": { "min_exclusive": "0", "max": "5000" },
+    "delta_v_m_s": { "min_exclusive": "0", "max": "100" },
+    "rise_time_s": { "min_exclusive": "0", "max": "5" },
+    "attachment_bolt_count": { "min_exclusive": "0", "max": "100" },
+    "bolt_allowable_load_n": { "min_exclusive": "0", "max": "10000000" },
+    "floor_fitting_factor": { "min": "1", "max": "5" }
+  },
+  "sources": [
+    {
+      "source_id": "cs29-561-562-screening",
+      "uri": "https://aeroregu.local/cards/cs29_crashworthiness_561_562_load",
+      "content_hash": "9b73d3dc5ea10c42a31e730df902cb4a5e44061cb77b70de44c83090be1c939d",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

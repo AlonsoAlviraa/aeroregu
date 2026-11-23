@@ -22,9 +22,87 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from typing import Any
 
 import pymupdf
+
+_ZERO_WIDTH_CHARS = frozenset({"\u200b", "\u200c", "\u200d", "\u2060", "\ufeff", "\u00ad"})
+_HOMOGLYPH_MAP = str.maketrans(
+    {
+        "\u0430": "a",  # Cyrillic a
+        "\u0435": "e",  # Cyrillic ie
+        "\u043e": "o",  # Cyrillic o
+        "\u0440": "p",  # Cyrillic er
+        "\u0441": "c",  # Cyrillic es
+        "\u0445": "x",  # Cyrillic ha
+        "\u0456": "i",  # Cyrillic/Ukrainian i
+        "\u0443": "y",  # Cyrillic u
+        "\u043a": "k",  # Cyrillic ka
+        "\u043c": "m",  # Cyrillic em
+        "\u0442": "t",  # Cyrillic te
+        "\u0432": "b",  # Cyrillic ve
+        "\u043d": "h",  # Cyrillic en
+        "\u0410": "A",
+        "\u0415": "E",
+        "\u041e": "O",
+        "\u0420": "P",
+        "\u0421": "C",
+        "\u0425": "X",
+        "\u0406": "I",
+        "\u0423": "Y",
+        "\u041a": "K",
+        "\u041c": "M",
+        "\u0422": "T",
+        "\u0412": "B",
+        "\u041d": "H",
+        "\u03b1": "a",  # Greek alpha
+        "\u03b2": "b",  # Greek beta
+        "\u03b5": "e",  # Greek epsilon
+        "\u03b9": "i",  # Greek iota
+        "\u03ba": "k",  # Greek kappa
+        "\u03bc": "m",  # Greek mu
+        "\u03bd": "v",  # Greek nu
+        "\u03bf": "o",  # Greek omicron
+        "\u03c1": "p",  # Greek rho
+        "\u03c4": "t",  # Greek tau
+        "\u03c5": "u",  # Greek upsilon
+        "\u03c7": "x",  # Greek chi
+        "\u0391": "A",
+        "\u0392": "B",
+        "\u0395": "E",
+        "\u0396": "Z",
+        "\u0397": "H",
+        "\u0399": "I",
+        "\u039a": "K",
+        "\u039c": "M",
+        "\u039d": "N",
+        "\u039f": "O",
+        "\u03a1": "P",
+        "\u03a4": "T",
+        "\u03a7": "X",
+        "\u03a5": "Y",
+    }
+)
+
+
+def _normalize_for_audit(text: str) -> tuple[str, bool]:
+    """Strip invisible/zero-width chars and fold Cyrillic/Greek homoglyphs before auditing."""
+    raw = str(text or "").replace("\x00", "")
+    kept: list[str] = []
+    stripped_invisible = False
+    for ch in raw:
+        if ch in _ZERO_WIDTH_CHARS or unicodedata.category(ch) == "Cf":
+            stripped_invisible = True
+            continue
+        kept.append(ch)
+    cleaned = "".join(kept)
+    nfkc = unicodedata.normalize("NFKC", cleaned)
+    folded = nfkc.translate(_HOMOGLYPH_MAP)
+    had_homoglyph_or_compat = folded != cleaned
+    norm_ws = " ".join(folded.split())
+    return norm_ws, bool(stripped_invisible or had_homoglyph_or_compat)
+
 
 CLAUSE_STATUSES: tuple[str, ...] = (
     "SUPPORTED",
@@ -82,7 +160,7 @@ _POISON_RULES: tuple[dict[str, Any], ...] = (
         "severity": "CRITICAL",
         "default_status": "REJECT_OR_ABSTAIN",
         "pattern": re.compile(
-            r"(?:(?:assign|transfer|surrender|irrevocable\s+ownership)\s+(?:all\s+)?background\s+ip|"
+            r"(?:(?:assigns?|transfers?|surrenders?|irrevocable\s+ownership)\s+(?:all\s+)?background\s+ip|"
             r"background\s+(?:intellectual\s+property|ip|tools|scripts)\s+(?:shall\s+)?(?:transfer|belong|vest)|"
             r"cesi[oó]n\s+(?:total\s+)?de\s+(?:background\s+ip|propiedad\s+intelectual\s+previa)|"
             r"transferencia\s+de\s+c[oó]digo\s+fuente\s+propio)",
@@ -142,7 +220,7 @@ _POISON_RULES: tuple[dict[str, Any], ...] = (
         "severity": "CRITICAL",
         "default_status": "REJECT_OR_ABSTAIN",
         "pattern": re.compile(
-            r"(?:waive\s+cve|skip\s+cve|omit\s+cve|no\s+cve\s+review|"
+            r"(?:waives?\s+cve|skips?\s+cve|omits?\s+cve|no\s+cve\s+review|"
             r"self-certify\s+without\s+cve|exenci[oó]n\s+de\s+cve|sin\s+(?:revisi[oó]n\s+)?cve|"
             r"waiver\s+of\s+part\s*21\s*cve)",
             re.IGNORECASE,
@@ -329,9 +407,13 @@ def audit_rfq_contract_clauses(
     poison_detected: list[dict[str, Any]] = []
     recommended_redlines: list[dict[str, str]] = []
     status_counts: dict[str, int] = {s: 0 for s in CLAUSE_STATUSES}
+    obfuscated_count = 0
 
     for cl in parsed_clauses:
-        txt = cl["text"]
+        raw_txt = cl["text"].replace("\x00", "")
+        txt, obfuscated = _normalize_for_audit(raw_txt)
+        if obfuscated:
+            obfuscated_count += 1
         matched_poisons: list[dict[str, Any]] = []
         for rule in _POISON_RULES:
             if rule["pattern"].search(txt):
@@ -356,6 +438,7 @@ def audit_rfq_contract_clauses(
                     "title": rule["title"],
                     "excerpt": txt[:200],
                     "redline": rule["redline"],
+                    "obfuscation_detected": obfuscated,
                     "page_no": cl.get("page_no"),
                     "bbox": cl.get("bbox"),
                 }
@@ -399,7 +482,9 @@ def audit_rfq_contract_clauses(
                 "clause_id": cl["clause_id"],
                 "category": cat,
                 "status": status,
-                "text": txt,
+                "text": raw_txt,
+                "normalized_text": txt,
+                "obfuscation_detected": obfuscated,
                 "poison_flags": [r["poison_id"] for r in matched_poisons],
                 "rationale": rationale,
                 "linked_assumption": linked_asm,
@@ -430,6 +515,7 @@ def audit_rfq_contract_clauses(
         "status_counts": status_counts,
         "overall_contract_gate": overall_gate,
         "has_blocking_reject_clauses": status_counts["REJECT_OR_ABSTAIN"] > 0,
+        "obfuscated_clause_count": obfuscated_count,
         "poison_clauses_count": len(poison_detected),
         "poison_clauses_detected": poison_detected,
         "recommended_redlines": recommended_redlines,

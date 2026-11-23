@@ -1846,6 +1846,72 @@ paths:
             text/csv:
               schema:
                 type: string
+  /quotations/rotorcraft/change-order:
+    post:
+      operationId: computeRotorcraftQuotationChangeOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Compute closed-loop Rev A -> Rev B Change-Order delta dossier & seal into Ledger.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /quotations/rotorcraft/change-order/export-xlsx:
+    post:
+      operationId: exportRotorcraftChangeOrderXlsx
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Download native live-formula Excel (.xlsx) Change-Order Addendum.
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+  /quotations/rotorcraft/change-order/export-pdf:
+    post:
+      operationId: exportRotorcraftChangeOrderPdf
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Download Ed25519 DSSE and ISO QR signed Change-Order Addendum PDF.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  /quotations/rotorcraft/portfolio-capacity:
+    post:
+      operationId: levelRotorcraftPortfolioCapacity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Run deterministic RCPSP Stress Office capacity leveling across queued RFQ dossiers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
 components:
   schemas:
     Envelope:

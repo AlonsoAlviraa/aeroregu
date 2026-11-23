@@ -51,6 +51,12 @@ METHOD_FAMILIES: dict[str, str] = {
     "inter_rivet_buckling": "thin_walled_stability",
     "thin_walled_bredt_batho_torsion": "thin_walled_stability",
     "sandwich_core_shear_wrinkling": "thin_walled_stability",
+    # Rotorcraft & Composite Stress Office Extensions (Sprint 2)
+    "clt_laminate_abd_stiffness": "composites_cmh17",
+    "rotor_blade_centrifugal_bending": "rotorcraft_dynamics",
+    "ground_resonance_coleman_screen": "rotorcraft_dynamics",
+    "cs29_crashworthiness_561_562_load": "rotorcraft_dynamics",
+    "multirow_bolt_load_distribution": "fasteners_joints",
 }
 
 METHOD_DEFAULT_INPUTS: dict[str, dict[str, Any]] = {
@@ -322,6 +328,65 @@ METHOD_DEFAULT_INPUTS: dict[str, dict[str, Any]] = {
         "yt_mpa": "62",
         "yc_mpa": "250",
         "s12_mpa": "92",
+    },
+    "clt_laminate_abd_stiffness": {
+        "theta_1_deg": "0",
+        "theta_2_deg": "45",
+        "theta_3_deg": "-45",
+        "theta_4_deg": "90",
+        "ply_thickness_mm": "0.250",
+        "e1_mpa": "140000",
+        "e2_mpa": "10000",
+        "g12_mpa": "5000",
+        "nu12": "0.300",
+        "nx_n_per_mm": "55",
+        "ny_n_per_mm": "12",
+        "nxy_n_per_mm": "8",
+        "mx_n_mm_per_mm": "2",
+        "xt_mpa": "2200",
+        "yt_mpa": "65",
+        "s12_mpa": "85",
+    },
+    "rotor_blade_centrifugal_bending": {
+        "blade_mass_kg": "48",
+        "rotor_omega_rad_s": "38",
+        "cg_radius_m": "2.600",
+        "root_area_mm2": "950",
+        "root_section_modulus_mm3": "18500",
+        "flap_bending_moment_n_m": "1400",
+        "lag_bending_moment_n_m": "650",
+        "ultimate_tensile_mpa": "950",
+        "endurance_limit_mpa": "310",
+        "safety_factor": "1.500",
+    },
+    "ground_resonance_coleman_screen": {
+        "rotor_omega_rad_s": "42",
+        "blade_lead_lag_freq_rad_s": "11",
+        "fuselage_mode_freq_rad_s": "18",
+        "blade_lag_damping_ratio": "0.080",
+        "fuselage_damping_ratio": "0.060",
+        "mass_coupling_ratio": "0.008",
+        "min_damping_margin_factor": "1.250",
+    },
+    "cs29_crashworthiness_561_562_load": {
+        "occupant_seat_mass_kg": "90",
+        "delta_v_m_s": "9.100",
+        "rise_time_s": "0.045",
+        "attachment_bolt_count": "4",
+        "bolt_allowable_load_n": "11500",
+        "floor_fitting_factor": "1.330",
+    },
+    "multirow_bolt_load_distribution": {
+        "total_applied_load_n": "12000",
+        "pitch_mm": "32",
+        "width_mm": "48",
+        "plate1_thickness_mm": "3.000",
+        "plate2_thickness_mm": "3.000",
+        "plate1_modulus_mpa": "72000",
+        "plate2_modulus_mpa": "72000",
+        "bolt_diameter_mm": "6.350",
+        "bolt_modulus_mpa": "205000",
+        "bearing_allowable_mpa": "720",
     },
 }
 
@@ -1595,6 +1660,295 @@ def _prove_builtin_method(
             build_violation=_v,
             proved_reason="Diagonal tension effective shear remains within F_su",
             cex_reason="Effective diagonal-tension web shear exceeds F_su",
+        ).to_dict()
+
+    if method_id == "clt_laminate_abd_stiffness":
+        from evidence_calc.rotorcraft_stress import _solve_linear_system
+
+        keys = [
+            "nx_n_per_mm",
+            "ny_n_per_mm",
+            "nxy_n_per_mm",
+            "mx_n_mm_per_mm",
+            "xt_mpa",
+            "yt_mpa",
+            "s12_mpa",
+        ]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+        t_ply = Decimal(str(merged["ply_thickness_mm"]))
+        e1_m = Decimal(str(merged["e1_mpa"]))
+        e2_m = Decimal(str(merged["e2_mpa"]))
+        g12_m = Decimal(str(merged["g12_mpa"]))
+        nu12 = Decimal(str(merged["nu12"]))
+        nu21 = nu12 * e2_m / e1_m
+        denom = Decimal("1") - nu12 * nu21
+        q11 = e1_m / denom
+        q22 = e2_m / denom
+        q12 = nu12 * e2_m / denom
+        q66 = g12_m
+        half_h = Decimal("2") * t_ply
+        a_m = [[Decimal("0")] * 3 for _ in range(3)]
+        b_m = [[Decimal("0")] * 3 for _ in range(3)]
+        d_m = [[Decimal("0")] * 3 for _ in range(3)]
+        ply_geom = []
+        for idx in range(4):
+            rad = float(Decimal(str(merged[f"theta_{idx + 1}_deg"]))) * math.pi / 180.0
+            cs, sn = Decimal(str(math.cos(rad))), Decimal(str(math.sin(rad)))
+            c2, s2, sc = cs * cs, sn * sn, sn * cs
+            c4, s4 = c2 * c2, s2 * s2
+            qb = [
+                [
+                    q11 * c4 + Decimal("2") * (q12 + Decimal("2") * q66) * s2 * c2 + q22 * s4,
+                    (q11 + q22 - Decimal("4") * q66) * s2 * c2 + q12 * (s4 + c4),
+                    (q11 - q12 - Decimal("2") * q66) * sc * c2
+                    + (q12 - q22 + Decimal("2") * q66) * s2 * sc,
+                ],
+                [
+                    (q11 + q22 - Decimal("4") * q66) * s2 * c2 + q12 * (s4 + c4),
+                    q11 * s4 + Decimal("2") * (q12 + Decimal("2") * q66) * s2 * c2 + q22 * c4,
+                    (q11 - q12 - Decimal("2") * q66) * s2 * sc
+                    + (q12 - q22 + Decimal("2") * q66) * sc * c2,
+                ],
+                [
+                    (q11 - q12 - Decimal("2") * q66) * sc * c2
+                    + (q12 - q22 + Decimal("2") * q66) * s2 * sc,
+                    (q11 - q12 - Decimal("2") * q66) * s2 * sc
+                    + (q12 - q22 + Decimal("2") * q66) * sc * c2,
+                    (q11 + q22 - Decimal("2") * q12 - Decimal("2") * q66) * s2 * c2
+                    + q66 * (s4 + c4),
+                ],
+            ]
+            z0 = -half_h + Decimal(idx) * t_ply
+            z1 = z0 + t_ply
+            dz1 = z1 - z0
+            dz2 = (z1 * z1 - z0 * z0) / Decimal("2")
+            dz3 = (z1 * z1 * z1 - z0 * z0 * z0) / Decimal("3")
+            for ii in range(3):
+                for jj in range(3):
+                    a_m[ii][jj] += qb[ii][jj] * dz1
+                    b_m[ii][jj] += qb[ii][jj] * dz2
+                    d_m[ii][jj] += qb[ii][jj] * dz3
+            ply_geom.append((c2, s2, sc, z0, z1))
+        abd_m = [[Decimal("0")] * 6 for _ in range(6)]
+        for ii in range(3):
+            for jj in range(3):
+                abd_m[ii][jj] = a_m[ii][jj]
+                abd_m[ii][jj + 3] = b_m[ii][jj]
+                abd_m[ii + 3][jj] = b_m[ii][jj]
+                abd_m[ii + 3][jj + 3] = d_m[ii][jj]
+        inv_cols = []
+        for col_i in range(4):
+            unit_rhs = [Decimal("1") if r == col_i else Decimal("0") for r in range(6)]
+            inv_cols.append(_solve_linear_system(abd_m, unit_rhs))
+
+        def _v_clt(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            loads = [p["nx_n_per_mm"], p["ny_n_per_mm"], p["nxy_n_per_mm"], p["mx_n_mm_per_mm"]]
+            xt_z, yt_z, s12_z = p["xt_mpa"], p["yt_mpa"], p["s12_mpa"]
+            state6 = [
+                sum(z3.RealVal(str(inv_cols[j][r])) * loads[j] for j in range(4)) for r in range(6)
+            ]
+            viol = []
+            for c2, s2, sc, z0, z1 in ply_geom:
+                for z_pt in (z0, z1):
+                    zp = z3.RealVal(str(z_pt))
+                    ex = state6[0] + zp * state6[3]
+                    ey = state6[1] + zp * state6[4]
+                    gxy = state6[2] + zp * state6[5]
+                    e1_l = (
+                        z3.RealVal(str(c2)) * ex
+                        + z3.RealVal(str(s2)) * ey
+                        + z3.RealVal(str(sc)) * gxy
+                    )
+                    e2_l = (
+                        z3.RealVal(str(s2)) * ex
+                        + z3.RealVal(str(c2)) * ey
+                        - z3.RealVal(str(sc)) * gxy
+                    )
+                    g12_l = (
+                        -2 * z3.RealVal(str(sc)) * ex
+                        + 2 * z3.RealVal(str(sc)) * ey
+                        + z3.RealVal(str(c2 - s2)) * gxy
+                    )
+                    sig1 = z3.RealVal(str(q11)) * e1_l + z3.RealVal(str(q12)) * e2_l
+                    sig2 = z3.RealVal(str(q12)) * e1_l + z3.RealVal(str(q22)) * e2_l
+                    tau12 = z3.RealVal(str(q66)) * g12_l
+                    lhs = (
+                        (sig1 * yt_z * s12_z) ** 2
+                        + (sig2 * xt_z * s12_z) ** 2
+                        + (tau12 * xt_z * yt_z) ** 2
+                    )
+                    rhs = (xt_z * yt_z * s12_z) ** 2
+                    viol.append(lhs > rhs)
+            s.add(z3.Or(*viol))
+
+        return engine.prove_z3_property(
+            property_name="clt_laminate_first_ply_safety",
+            bounds=b,
+            constants=c,
+            assertion="max_ply FI(nx, ny, nxy, mx) <= 1 across all 4 plies",
+            build_violation=_v_clt,
+            proved_reason="All 4 CLT ply interfaces remain inside FI <= 1 envelope",
+            cex_reason="CLT laminate exceeds ply failure envelope (FI > 1)",
+        ).to_dict()
+
+    if method_id == "rotor_blade_centrifugal_bending":
+        keys = [
+            "blade_mass_kg",
+            "rotor_omega_rad_s",
+            "cg_radius_m",
+            "root_area_mm2",
+            "root_section_modulus_mm3",
+            "flap_bending_moment_n_m",
+            "lag_bending_moment_n_m",
+            "ultimate_tensile_mpa",
+            "endurance_limit_mpa",
+            "safety_factor",
+        ]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+
+        def _v_blade(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            s_m = (p["blade_mass_kg"] * (p["rotor_omega_rad_s"] ** 2) * p["cg_radius_m"]) / p[
+                "root_area_mm2"
+            ]
+            s_f = (p["flap_bending_moment_n_m"] * 1000) / p["root_section_modulus_mm3"]
+            s_l = (p["lag_bending_moment_n_m"] * 1000) / p["root_section_modulus_mm3"]
+            sf = p["safety_factor"]
+            ftu = p["ultimate_tensile_mpa"]
+            send = p["endurance_limit_mpa"]
+            s.add(
+                z3.Or(
+                    s_m * sf > ftu,
+                    ((ftu - s_m * sf) * send) ** 2 < ((sf * ftu) ** 2) * (s_f * s_f + s_l * s_l),
+                )
+            )
+
+        return engine.prove_z3_property(
+            property_name="rotor_blade_goodman_fatigue_safety",
+            bounds=b,
+            constants=c,
+            assertion="(sigma_cf / F_tu + sigma_alt / S_end) * SF <= 1",
+            build_violation=_v_blade,
+            proved_reason="Rotor blade root static + Goodman fatigue reserve >= SF",
+            cex_reason="Rotor blade root violates static or Goodman fatigue envelope",
+        ).to_dict()
+
+    if method_id == "ground_resonance_coleman_screen":
+        keys = [
+            "rotor_omega_rad_s",
+            "blade_lead_lag_freq_rad_s",
+            "fuselage_mode_freq_rad_s",
+            "blade_lag_damping_ratio",
+            "fuselage_damping_ratio",
+            "mass_coupling_ratio",
+            "min_damping_margin_factor",
+        ]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+
+        def _v_gr(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            lhs = (
+                4
+                * p["blade_lag_damping_ratio"]
+                * p["fuselage_damping_ratio"]
+                * (p["blade_lead_lag_freq_rad_s"] + p["fuselage_mode_freq_rad_s"])
+            )
+            rhs = p["min_damping_margin_factor"] * p["mass_coupling_ratio"] * p["rotor_omega_rad_s"]
+            s.add(lhs < rhs)
+
+        return engine.prove_z3_property(
+            property_name="coleman_ground_resonance_damping_stability",
+            bounds=b,
+            constants=c,
+            assertion="zeta_lag * zeta_fus >= min_factor * (mu/4) * Omega / (w_lag + w_fus)",
+            build_violation=_v_gr,
+            proved_reason="Coleman damping product guarantees ground resonance stability margin",
+            cex_reason="Insufficient lag/fuselage damping vs Coleman threshold",
+        ).to_dict()
+
+    if method_id == "cs29_crashworthiness_561_562_load":
+        keys = [
+            "occupant_seat_mass_kg",
+            "delta_v_m_s",
+            "rise_time_s",
+            "attachment_bolt_count",
+            "bolt_allowable_load_n",
+            "floor_fitting_factor",
+        ]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+
+        def _v_561(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            cap = p["attachment_bolt_count"] * p["bolt_allowable_load_n"]
+            g0 = z3.RealVal("9.80665")
+            s.add(
+                z3.Or(
+                    20 * p["occupant_seat_mass_kg"] * g0 * p["floor_fitting_factor"] > cap,
+                    p["occupant_seat_mass_kg"] * p["delta_v_m_s"] * p["floor_fitting_factor"]
+                    > cap * p["rise_time_s"],
+                )
+            )
+
+        return engine.prove_z3_property(
+            property_name="cs29_561_562_crash_attachment_safety",
+            bounds=b,
+            constants=c,
+            assertion="max(F_20g_561, F_pulse_562) / N_bolts <= bolt_allowable_load_n",
+            build_violation=_v_561,
+            proved_reason="Floor attachment bolts satisfy both CS 29.561 20g and CS 29.562 pulse",
+            cex_reason="Crashworthiness load per attachment exceeds bolt allowable",
+        ).to_dict()
+
+    if method_id == "multirow_bolt_load_distribution":
+        keys = ["total_applied_load_n", "bearing_allowable_mpa"]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+        p_t = float(Decimal(str(merged["pitch_mm"])))
+        w = float(Decimal(str(merged["width_mm"])))
+        t1 = float(Decimal(str(merged["plate1_thickness_mm"])))
+        t2 = float(Decimal(str(merged["plate2_thickness_mm"])))
+        e1 = float(Decimal(str(merged["plate1_modulus_mpa"])))
+        e2 = float(Decimal(str(merged["plate2_modulus_mpa"])))
+        d = float(Decimal(str(merged["bolt_diameter_mm"])))
+        eb = float(Decimal(str(merged["bolt_modulus_mpa"])))
+        cf = (
+            ((t1 + t2) / (2.0 * d)) ** (2.0 / 3.0)
+            * 3.0
+            * (1.0 / (t1 * e1) + 1.0 / (t2 * e2) + 1.0 / (2.0 * t1 * eb) + 1.0 / (2.0 * t2 * eb))
+        )
+        cp1 = p_t / (e1 * w * t1)
+        cp2 = p_t / (e2 * w * t2)
+        t_min_s = _dec_str(min(t1, t2))
+
+        def _v_mr(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            pt = p["total_applied_load_n"]
+            f_br = p["bearing_allowable_mpa"]
+            r1, r2, r3 = z3.Reals("r1 r2 r3")
+            s.add(
+                (z3.RealVal(_dec_str(cf + cp1 + cp2)) * r1 - z3.RealVal(_dec_str(cf)) * r2)
+                == z3.RealVal(_dec_str(cp1)) * pt
+            )
+            s.add(
+                (
+                    z3.RealVal(_dec_str(cp2)) * r1
+                    + z3.RealVal(_dec_str(cf + cp2)) * r2
+                    - z3.RealVal(_dec_str(cf + cp1)) * r3
+                )
+                == 0
+            )
+            s.add(r1 + r2 + r3 == pt)
+            cap = f_br * z3.RealVal(_dec_str(d)) * z3.RealVal(t_min_s)
+            s.add(z3.Or(r1 > cap, r2 > cap, r3 > cap))
+
+        return engine.prove_z3_property(
+            property_name="multirow_bolt_peak_bearing_safety",
+            bounds=b,
+            constants=c,
+            assertion="max(P1, P2, P3) / (d * min(t1, t2)) <= bearing_allowable_mpa",
+            build_violation=_v_mr,
+            proved_reason="Peak elastic fastener row bearing load stays within F_bru across bounds",
+            cex_reason="Critical fastener row exceeds bearing allowable stress",
         ).to_dict()
 
     return {

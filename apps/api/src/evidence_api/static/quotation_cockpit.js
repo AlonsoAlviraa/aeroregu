@@ -35,6 +35,8 @@
   ];
 
   let latestDossier = null;
+  let baselineDossier = null;
+  let latestCcn = null;
 
   function tenantOf() {
     if (typeof window.currentTenant === "function") return window.currentTenant();
@@ -91,14 +93,44 @@
     );
   }
 
+  async function fileToBase64(file) {
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    const chunk = 8192;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return btoa(bin);
+  }
+
   async function readFileAttachments() {
     const att = {};
     const bdfFile = document.getElementById("quote-bdf-file")?.files?.[0];
     const f06File = document.getElementById("quote-f06-file")?.files?.[0];
+    const op2File = document.getElementById("quote-op2-file")?.files?.[0];
+    const h5File = document.getElementById("quote-h5-file")?.files?.[0];
     const stepFile = document.getElementById("quote-step-file")?.files?.[0];
+    const bomFile = document.getElementById("quote-bom-file")?.files?.[0];
     if (bdfFile) att.bdf_text = await bdfFile.text();
     if (f06File) att.f06_text = await f06File.text();
+    if (op2File) att.op2_base64 = await fileToBase64(op2File);
+    if (h5File) att.h5_base64 = await fileToBase64(h5File);
     if (stepFile) att.step_text = await stepFile.text();
+    if (bomFile) {
+      const b64 = await fileToBase64(bomFile);
+      const low = bomFile.name.toLowerCase();
+      if (low.endsWith(".xlsx")) {
+        att.bom_xlsx_base64 = b64;
+        att.bom_xlsx_filename = bomFile.name;
+      } else if (low.endsWith(".docx")) {
+        att.bom_docx_base64 = b64;
+        att.bom_docx_filename = bomFile.name;
+      } else {
+        att.bom_pdf_base64 = b64;
+        att.bom_pdf_filename = bomFile.name;
+      }
+    }
     return att;
   }
 
@@ -214,6 +246,60 @@
     `;
   }
 
+  function renderCashflowSvg(dossier) {
+    const wrap = document.getElementById("quote-cf-svg-wrap");
+    const tbody = document.querySelector("#quote-cashflow-table tbody");
+    const sched = dossier?.multiyear_cashflow_learning?.diagnostics?.monthly_cashflow_schedule || [];
+    if (!sched.length) {
+      if (wrap) wrap.textContent = "Sin programación de flujo de caja mensual.";
+      if (tbody) tbody.replaceChildren();
+      return;
+    }
+
+    const vals = sched.map((m) => Number(m.cumulative_cash_eur || 0));
+    const minV = Math.min(0, ...vals);
+    const maxV = Math.max(1, ...vals);
+    const span = Math.max(1, maxV - minV);
+    const w = 640;
+    const h = 160;
+    const padX = 28;
+    const padY = 18;
+    const plotW = w - padX * 2;
+    const plotH = h - padY * 2;
+    const toX = (i) => padX + (sched.length === 1 ? plotW / 2 : (i / (sched.length - 1)) * plotW);
+    const toY = (v) => padY + ((maxV - v) / span) * plotH;
+    const zeroY = toY(0).toFixed(1);
+
+    const pts = vals.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ");
+    const peakNeg = dossier?.multiyear_cashflow_learning?.outputs?.peak_negative_cashflow_eur || "0";
+
+    if (wrap) {
+      wrap.innerHTML = `
+        <svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img">
+          <title>Curva mensual de caja acumulada: exposición negativa máxima -${escapeHtml(peakNeg)} EUR en ${sched.length} meses</title>
+          <line x1="${padX}" y1="${zeroY}" x2="${w - padX}" y2="${zeroY}" stroke="#94a3b8" stroke-dasharray="4 3" stroke-width="1" />
+          <polyline fill="none" stroke="#0a58ca" stroke-width="2.2" points="${pts}" />
+        </svg>
+      `;
+    }
+
+    if (tbody) {
+      tbody.innerHTML = sched
+        .filter((_, idx) => sched.length <= 12 || idx % 3 === 0 || idx === sched.length - 1)
+        .map(
+          (m) => `
+          <tr>
+            <th scope="row">M${escapeHtml(m.month)}</th>
+            <td>${escapeHtml(m.outflow_eur)}</td>
+            <td>${escapeHtml(m.inflow_eur)}</td>
+            <td>${escapeHtml(m.net_eur)}</td>
+            <td>${escapeHtml(m.cumulative_cash_eur)}</td>
+          </tr>`
+        )
+        .join("");
+    }
+  }
+
   function renderTables(dossier) {
     const dag = dossier.composite_wbs_dag || {};
     const my = dossier.multiyear_cashflow_learning?.outputs || {};
@@ -259,6 +345,7 @@
     }
 
     renderDagSvg(dag);
+    renderCashflowSvg(dossier);
 
     const wbsBody = document.querySelector("#quote-wbs-table tbody");
     if (wbsBody) {
@@ -447,6 +534,138 @@
     }
   }
 
+  async function runChangeOrderDelta() {
+    const ccnStatus = document.getElementById("quote-ccn-status");
+    const ccnBody = document.querySelector("#quote-ccn-table tbody");
+    if (!baselineDossier) {
+      if (latestDossier) {
+        baselineDossier = latestDossier;
+      } else {
+        if (ccnStatus) ccnStatus.textContent = "Primero ejecuta una cotización base para fijar Baseline Rev A.";
+        return;
+      }
+    }
+    try {
+      const att = await readFileAttachments();
+      const revPayload = buildPayload(att);
+      const body = {
+        ...revPayload,
+        baseline_dossier: baselineDossier,
+        cr_id: document.getElementById("quote-ccn-id")?.value || "CCN-001",
+        change_reason: document.getElementById("quote-ccn-reason")?.value || "Scope & lot update",
+      };
+      const resp = await fetch("/quotations/rotorcraft/change-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(body),
+      });
+      const json = await resp.json();
+      if (json.status === "abstain" || json.abstain) {
+        if (ccnStatus) ccnStatus.textContent = `CCN ABSTAIN (${json?.abstain?.reason || "gate"}) — Bloqueo contractual o SMT.`;
+        return;
+      }
+      latestCcn = json.result;
+      const fin = latestCcn.financial_delta || {};
+      const cpm = latestCcn.cpm_delta || {};
+      if (ccnStatus) {
+        ccnStatus.innerHTML = `CCN <strong>${escapeHtml(latestCcn.cr_id)}</strong> (${escapeHtml(latestCcn.decision_status)}): Delta Precio <strong>${escapeHtml(fin.delta_multiyear_quoted_price_eur)} EUR (${escapeHtml(fin.delta_price_pct)}%)</strong> | Delta Plazo <strong>${escapeHtml(cpm.delta_duration_weeks)} sem</strong> | Contrato: ${escapeHtml(latestCcn.contract_delta?.gate_transition)}`;
+      }
+      if (ccnBody) {
+        ccnBody.innerHTML = (latestCcn.wbs_delta?.node_deltas || [])
+          .map(
+            (n) => `
+            <tr>
+              <th scope="row">${escapeHtml(n.archetype_id)}</th>
+              <td>${escapeHtml(n.change_status)}</td>
+              <td>${escapeHtml(n.delta_hours)}</td>
+              <td>${escapeHtml(n.delta_price_eur)}</td>
+            </tr>`
+          )
+          .join("");
+      }
+    } catch (err) {
+      if (ccnStatus) ccnStatus.textContent = `Error CCN: ${err?.message || err}`;
+    }
+  }
+
+  async function downloadCcnBinary(url, filename) {
+    const ccnStatus = document.getElementById("quote-ccn-status");
+    try {
+      const body = latestCcn ? { ccn_dossier: latestCcn } : { baseline_dossier: baselineDossier, ...buildPayload({}) };
+      const resp = await fetch(url, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        if (ccnStatus) ccnStatus.textContent = `Error descargando ${filename} (${resp.status})`;
+        return;
+      }
+      const blob = await resp.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objUrl);
+      if (ccnStatus) ccnStatus.textContent = `Descargado CCN: ${filename}`;
+    } catch (err) {
+      if (ccnStatus) ccnStatus.textContent = `Error descargando ${filename}: ${err?.message || err}`;
+    }
+  }
+
+  async function runPortfolioCapacity() {
+    const ccnStatus = document.getElementById("quote-ccn-status");
+    const pBody = document.querySelector("#quote-portfolio-table tbody");
+    const leadCve = Number(document.getElementById("quote-lead-cve-fte")?.value || 2);
+    const fdtSpec = Number(document.getElementById("quote-fdt-fte")?.value || 2);
+    const dossiers = [];
+    if (baselineDossier) dossiers.push(baselineDossier);
+    if (latestDossier && latestDossier !== baselineDossier) dossiers.push(latestDossier);
+    const body = dossiers.length
+      ? { dossiers, team_headcount: { LEAD_CVE: leadCve, FDT_SPEC: fdtSpec } }
+      : {
+          tenant_id: tenantOf(),
+          team_headcount: { LEAD_CVE: leadCve, FDT_SPEC: fdtSpec },
+          rfq_specs: [
+            { rfq_id: "PORT-01", rfq_text: "CS-29 frame static & FDT Net 60.", archetype_ids: ["Q-DES-02", "Q-STR-03", "Q-FDT-01", "Q-DOA-02"] },
+            { rfq_id: "PORT-02", rfq_text: "CS-29 hoist STC & rig Net 60.", archetype_ids: ["Q-STR-03", "Q-DOA-02", "Q-TST-01"] },
+          ],
+        };
+    try {
+      const resp = await fetch("/quotations/rotorcraft/portfolio-capacity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(body),
+      });
+      const json = await resp.json();
+      const res = json?.result || {};
+      if (ccnStatus) {
+        ccnStatus.innerHTML = `Portfolio RCPSP (${escapeHtml(res.portfolio_rfq_count)} RFQs): Semanas sobrecargadas <strong>${escapeHtml(res.overloaded_weeks_before_leveling)}</strong> | Overflow Nearshore: <strong>${escapeHtml(res.recommended_nearshore_overflow_hours)}h</strong> | Peak Neg CF Combinado: <strong>-${escapeHtml(res.combined_peak_negative_cashflow_eur)} EUR</strong>`;
+      }
+      if (pBody) {
+        pBody.innerHTML = (res.bottleneck_roles || [])
+          .map(
+            (r) => `
+            <tr>
+              <th scope="row">${escapeHtml(r.role)}</th>
+              <td>${escapeHtml(r.headcount)}</td>
+              <td>${escapeHtml(r.unconstrained_peak_utilization_pct)}%</td>
+              <td>${escapeHtml(r.leveled_peak_utilization_pct)}%</td>
+            </tr>`
+          )
+          .join("");
+      }
+    } catch (err) {
+      if (ccnStatus) ccnStatus.textContent = `Error RCPSP portfolio: ${err?.message || err}`;
+    }
+  }
+
   function bindCockpit() {
     hydrateCatalog();
 
@@ -473,6 +692,24 @@
       downloadBinaryArtifact("/quotations/rotorcraft/erp-template?format=xlsx", "aeroregu_erp_sap_bids_template.xlsx", "GET");
     });
     document.getElementById("quote-kfold-btn")?.addEventListener("click", runKfoldCalibration);
+
+    document.getElementById("quote-set-baseline-btn")?.addEventListener("click", () => {
+      const ccnStatus = document.getElementById("quote-ccn-status");
+      if (!latestDossier) {
+        if (ccnStatus) ccnStatus.textContent = "Primero genera una cotización DAG antes de fijar Baseline Rev A.";
+        return;
+      }
+      baselineDossier = latestDossier;
+      if (ccnStatus) ccnStatus.textContent = `Baseline Rev A fijado: ${baselineDossier.rfq_id} (${baselineDossier.merkle_root?.slice(0, 14)}...)`;
+    });
+    document.getElementById("quote-ccn-run-btn")?.addEventListener("click", runChangeOrderDelta);
+    document.getElementById("quote-ccn-xlsx-btn")?.addEventListener("click", () => {
+      downloadCcnBinary("/quotations/rotorcraft/change-order/export-xlsx", "aeroregu_change_order.xlsx");
+    });
+    document.getElementById("quote-ccn-pdf-btn")?.addEventListener("click", () => {
+      downloadCcnBinary("/quotations/rotorcraft/change-order/export-pdf", "aeroregu_signed_ccn.pdf");
+    });
+    document.getElementById("quote-portfolio-btn")?.addEventListener("click", runPortfolioCapacity);
 
     document.addEventListener("keydown", (e) => {
       if (e.altKey && e.key === "7") {

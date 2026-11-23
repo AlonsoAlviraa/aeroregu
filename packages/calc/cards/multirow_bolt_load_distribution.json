@@ -1,0 +1,54 @@
+{
+  "method_id": "multirow_bolt_load_distribution",
+  "method_version": "multirow_bolt_load_distribution@1.0.0",
+  "title": "Elastic 3-Row Single-Shear Splice Bolt Load Distribution & Peak Bearing Margin",
+  "label": "ASSUMPTION",
+  "equation": "C_f = Huth((t1+t2)/(2d))^(2/3)*3*(1/(t1*E1)+1/(t2*E2)+1/(2*t1*Eb)+1/(2*t2*Eb)); K*P = f; sigma_br_max = max(P_i)/(d*min(t1,t2)); MS = F_bru/sigma_br_max - 1",
+  "note": "Exact 3x3 spring-bar compatibility solve coupling Huth fastener flexibility and axial adherend plate compliance.",
+  "quantum": "0.0001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "total_applied_load_n": "newton",
+    "pitch_mm": "millimeter",
+    "width_mm": "millimeter",
+    "plate1_thickness_mm": "millimeter",
+    "plate2_thickness_mm": "millimeter",
+    "plate1_modulus_mpa": "megapascal",
+    "plate2_modulus_mpa": "megapascal",
+    "bolt_diameter_mm": "millimeter",
+    "bolt_modulus_mpa": "megapascal",
+    "bearing_allowable_mpa": "megapascal"
+  },
+  "required": [
+    "total_applied_load_n",
+    "pitch_mm",
+    "width_mm",
+    "plate1_thickness_mm",
+    "plate2_thickness_mm",
+    "plate1_modulus_mpa",
+    "plate2_modulus_mpa",
+    "bolt_diameter_mm",
+    "bolt_modulus_mpa",
+    "bearing_allowable_mpa"
+  ],
+  "limits": {
+    "total_applied_load_n": { "min_exclusive": "0", "max": "10000000" },
+    "pitch_mm": { "min_exclusive": "0", "max": "1000" },
+    "width_mm": { "min_exclusive": "0", "max": "5000" },
+    "plate1_thickness_mm": { "min_exclusive": "0", "max": "200" },
+    "plate2_thickness_mm": { "min_exclusive": "0", "max": "200" },
+    "plate1_modulus_mpa": { "min_exclusive": "0", "max": "1000000" },
+    "plate2_modulus_mpa": { "min_exclusive": "0", "max": "1000000" },
+    "bolt_diameter_mm": { "min_exclusive": "0", "max": "100" },
+    "bolt_modulus_mpa": { "min_exclusive": "0", "max": "1000000" },
+    "bearing_allowable_mpa": { "min_exclusive": "0", "max": "5000" }
+  },
+  "sources": [
+    {
+      "source_id": "huth-3row-splice",
+      "uri": "https://aeroregu.local/cards/multirow_bolt_load_distribution",
+      "content_hash": "4d3d56eb47b59a7de90821bc812d0a3518cf820bbcd672e0db99f1da36362101",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

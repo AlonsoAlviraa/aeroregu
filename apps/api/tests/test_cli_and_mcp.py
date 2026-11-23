@@ -208,7 +208,7 @@ def test_mcp_stdio_and_http_protocol_roundtrip(tmp_path: Path, monkeypatch) -> N
 
     http_tools = client.post("/mcp", json={"jsonrpc": "2.0", "id": 10, "method": "tools/list"})
     assert http_tools.status_code == 200
-    assert len(http_tools.json()["result"]["tools"]) == 41
+    assert len(http_tools.json()["result"]["tools"]) == 43
     http_names = {t["name"] for t in http_tools.json()["result"]["tools"]}
     assert {
         "evidence_cross_artifact_audit",
@@ -225,6 +225,8 @@ def test_mcp_stdio_and_http_protocol_roundtrip(tmp_path: Path, monkeypatch) -> N
         "inspect_deep_idp_package",
         "export_quotation_oem_artifacts",
         "run_advanced_quotation_calibration",
+        "compute_quotation_change_order",
+        "level_rotorcraft_portfolio_capacity",
     }.issubset(http_names)
 
     unauth_export = client.post(

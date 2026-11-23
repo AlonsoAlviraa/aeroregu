@@ -1,0 +1,45 @@
+{
+  "method_id": "ground_resonance_coleman_screen",
+  "method_version": "ground_resonance_coleman_screen@1.0.0",
+  "title": "Coleman/Deutsch Helicopter Ground Resonance Coalescence & Damping Screening",
+  "label": "ASSUMPTION",
+  "equation": "Omega_coal = w_fus + w_lag; omega_reg = |Omega - w_lag|; D_act = zeta_lag * zeta_fus >= (mu/4) * Omega / (w_lag + w_fus); MS = (D_act / D_thresh) / factor - 1",
+  "note": "Coleman-Feingold / Deutsch analytical ground resonance coalescence speed separation and required lag-by-fuselage damping product margin.",
+  "quantum": "0.0001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "rotor_omega_rad_s": "radian / second",
+    "blade_lead_lag_freq_rad_s": "radian / second",
+    "fuselage_mode_freq_rad_s": "radian / second",
+    "blade_lag_damping_ratio": "dimensionless",
+    "fuselage_damping_ratio": "dimensionless",
+    "mass_coupling_ratio": "dimensionless",
+    "min_damping_margin_factor": "dimensionless"
+  },
+  "required": [
+    "rotor_omega_rad_s",
+    "blade_lead_lag_freq_rad_s",
+    "fuselage_mode_freq_rad_s",
+    "blade_lag_damping_ratio",
+    "fuselage_damping_ratio",
+    "mass_coupling_ratio",
+    "min_damping_margin_factor"
+  ],
+  "limits": {
+    "rotor_omega_rad_s": { "min_exclusive": "0", "max": "500" },
+    "blade_lead_lag_freq_rad_s": { "min_exclusive": "0", "max": "500" },
+    "fuselage_mode_freq_rad_s": { "min_exclusive": "0", "max": "500" },
+    "blade_lag_damping_ratio": { "min_exclusive": "0", "max": "1" },
+    "fuselage_damping_ratio": { "min_exclusive": "0", "max": "1" },
+    "mass_coupling_ratio": { "min_exclusive": "0", "max": "1" },
+    "min_damping_margin_factor": { "min": "1", "max": "10" }
+  },
+  "sources": [
+    {
+      "source_id": "coleman-deutsch-gr",
+      "uri": "https://aeroregu.local/cards/ground_resonance_coleman_screen",
+      "content_hash": "4a188732a35cf0b6c6f1173b0df11932e8d29cfcf019b775f18b5d0fd4624c71",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

@@ -402,6 +402,69 @@ def _wizard_web_ui(console: Console, port: int = 8000) -> None:
     uvicorn.run("evidence_api.app:app", host="127.0.0.1", port=port)
 
 
+def _wizard_quotation(console: Console) -> None:
+    """Interactive rotorcraft multi-archetype quotation & CCN helper."""
+    from evidence_coverage.composite_dag_quotation import (
+        CompositeRotorcraftQuotationSpec,
+        run_composite_rotorcraft_quotation,
+    )
+    from evidence_coverage.quotation_change_order import compute_quotation_change_order
+
+    from evidence_api.app import open_ledger
+
+    rfq_text = Prompt.ask(
+        "Alcance RFQ del helicoptero",
+        default="CS-29 HEMS rescue hoist composite frame static, F&DT & STC. Net 60.",
+        console=console,
+    )
+    country = Prompt.ask(
+        "Perfil de pais (EU_DEFAULT, FR, DE, ES, IT, UK, US, PL, IN)",
+        default="ES",
+        console=console,
+    )
+    units = IntPrompt.ask(
+        "Unidades / variantes del lote (Wright-Crawford)", default=2, console=console
+    )
+    ledger = open_ledger("demo")
+    spec = CompositeRotorcraftQuotationSpec(
+        rfq_id="WIZ-RFQ-001",
+        rfq_text=rfq_text,
+        archetype_ids=("Q-DES-02", "Q-STR-01", "Q-STR-03", "Q-FDT-01", "Q-DOA-02"),
+        country_code=country,
+        unit_count=max(1, units),
+    )
+    dossier = run_composite_rotorcraft_quotation(ledger, spec)
+    console.print(Panel(dossier["markdown_report"], title="Cotizacion Compuesta DAG + Z3 SMT"))
+    if Confirm.ask(
+        "Simular Change Order (CCN +1 unidad y ensayo rig Q-TST-01)?",
+        default=False,
+        console=console,
+    ):
+        rev = CompositeRotorcraftQuotationSpec(
+            rfq_id="WIZ-RFQ-002",
+            rfq_text=rfq_text + " Include test rig Q-TST-01 correlation.",
+            archetype_ids=("Q-DES-02", "Q-STR-01", "Q-STR-03", "Q-FDT-01", "Q-DOA-02", "Q-TST-01"),
+            country_code=country,
+            unit_count=max(1, units) + 1,
+        )
+        ccn = compute_quotation_change_order(
+            ledger, dossier, rev, cr_id="WIZ-CCN-001", change_reason="Interactive CCN test"
+        )
+        console.print(
+            Panel(
+                json.dumps(
+                    {
+                        "cr_id": ccn["cr_id"],
+                        "decision_status": ccn["decision_status"],
+                        "financial_delta": ccn.get("financial_delta"),
+                    },
+                    indent=2,
+                ),
+                title="Delta Change Order (CCN)",
+            )
+        )
+
+
 def run_interactive_hub(console: Console, quickstart_cb: Any) -> None:
     """Zero-CLI interactive guided assistant menu."""
     counts = get_mcp_inventory_counts()
@@ -427,6 +490,11 @@ def run_interactive_hub(console: Console, quickstart_cb: Any) -> None:
         ),
         ("8", "Abrir Web UI (Navegador)", "Interfaz visual web en http://127.0.0.1:8000"),
         ("9", "Diagnostico (Doctor)", "Comprueba Python, Z3, cvc5, Flint y claves"),
+        (
+            "10",
+            "Cotizador Helicopteros & Change Orders",
+            "DAG multi-arquetipo, cash-flow, CCN delta y Z3 NPV",
+        ),
         ("0", "Salir", "Cerrar asistente"),
     ]
     for opt, act, desc in rows:
@@ -447,7 +515,7 @@ def run_interactive_hub(console: Console, quickstart_cb: Any) -> None:
         try:
             choice = Prompt.ask(
                 "Elige una opcion",
-                choices=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
+                choices=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
                 default="1",
                 console=console,
             )
@@ -478,6 +546,8 @@ def run_interactive_hub(console: Console, quickstart_cb: Any) -> None:
         elif choice == "9":
             rt = describe_agent_runtime()
             console.print(Panel(json.dumps(rt, indent=2), title="Estado Runtime & MCP"))
+        elif choice == "10":
+            _wizard_quotation(console)
 
         if not Confirm.ask("\n¿Quieres realizar otra accion?", default=True, console=console):
             return

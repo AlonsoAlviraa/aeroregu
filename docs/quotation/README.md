@@ -8,14 +8,16 @@
 
 ## Core Capabilities
 
-1. **Zero LLM Math (`Decimal` + 50-Digit `FLINT/Arb` Intervals + Multi-Year Financial Modeling):**
-   - Five deterministic calculation cards (`not_a_certification_method: true`, all commercial outputs labeled `ASSUMPTION` / `ESTIMATE`) compute every price, labor cost, overhead, contingency, PERT percentile (`P50 / P80 / P90`), learning curve, country inflation, monthly working-capital cash flow, and margin with zero floating-point arithmetic:
+1. **Zero LLM Math (`Decimal` + 50-Digit `FLINT/Arb` Intervals + Rotorcraft Stress & Financial Cards):**
+   - `42` total deterministic calculation cards (`5` quotation costing cards + `37` aerospace & rotorcraft stress sizing cards; commercial outputs labeled `ASSUMPTION` / `ESTIMATE`, `not_a_certification_method: true`) compute every price, labor cost, overhead, contingency, PERT percentile (`P50 / P80 / P90`), learning curve, country inflation, monthly working-capital cash flow, and margin with zero floating-point arithmetic:
      - [`aerospace_quotation_costing.json`](../../packages/calc/cards/aerospace_quotation_costing.json)
      - [`engineering_workpackage_quote.json`](../../packages/calc/cards/engineering_workpackage_quote.json)
      - [`rotorcraft_archetype_quote.json`](../../packages/calc/cards/rotorcraft_archetype_quote.json)
      - [`rotorcraft_historical_calibration.json`](../../packages/calc/cards/rotorcraft_historical_calibration.json)
      - [`aerospace_multiyear_cashflow_learning.json`](../../packages/calc/cards/aerospace_multiyear_cashflow_learning.json) (`14` inputs, `16` outputs: Wright & Crawford unit/batch learning curves, Y1–Y5 country inflation, monthly Cash-Flow / Peak Negative CF / working-capital financing cost, and net present value)
-   - Implemented in [`quotation_costing.py`](../../packages/calc/src/evidence_calc/quotation_costing.py) with 50-digit unrounded ball enclosures in [`intervals.py`](../../packages/calc/src/evidence_calc/intervals.py).
+   - Plus 5 deterministic rotorcraft & composite Stress Office cards in [`rotorcraft_stress.py`](../../packages/calc/src/evidence_calc/rotorcraft_stress.py) with 50-digit FLINT/Arb intervals & Z3 SMT proofs:
+     - [`clt_laminate_abd_stiffness.json`](../../packages/calc/cards/clt_laminate_abd_stiffness.json), [`rotor_blade_centrifugal_bending.json`](../../packages/calc/cards/rotor_blade_centrifugal_bending.json), [`ground_resonance_coleman_screen.json`](../../packages/calc/cards/ground_resonance_coleman_screen.json), [`cs29_crashworthiness_561_562_load.json`](../../packages/calc/cards/cs29_crashworthiness_561_562_load.json), [`multirow_bolt_load_distribution.json`](../../packages/calc/cards/multirow_bolt_load_distribution.json).
+   - Implemented in [`quotation_costing.py`](../../packages/calc/src/evidence_calc/quotation_costing.py) & [`rotorcraft_stress.py`](../../packages/calc/src/evidence_calc/rotorcraft_stress.py) with 50-digit unrounded ball enclosures in [`intervals.py`](../../packages/calc/src/evidence_calc/intervals.py).
 
 2. **Composite WBS DAG (Q1) + 18 Rotorcraft Engineering Archetypes (`Q-DES-01` .. `Q-TST-02`):**
    - [`composite_dag_quotation.py`](../../packages/coverage/src/evidence_coverage/composite_dag_quotation.py) (`build_composite_wbs_dag`, `run_composite_rotorcraft_quotation`) composes `N` simultaneous archetypes (e.g. `Q-DES-02 + Q-DES-04 + Q-STR-01 + Q-STR-02 + Q-STR-03 + Q-FDT-01 + Q-DOA-02 + Q-TST-01`) into an acyclic WBS DAG (cycle-safe fail-closed `ABSTAIN`), computes deterministic Critical Path Method schedules (`ES/EF/LS/LF/Float` in weeks), and applies formal GFEM/CAD/loads engineering reuse synergy while preserving the mandatory independent CVE review floor.
@@ -36,19 +38,21 @@
      - Computes exact B-Rep solid surface area, PCA-aligned Oriented Bounding Box (`obb_dims_mm`, `stock_bbox_volume_mm3`), geometric **Buy-to-Fly** ratio, and machining complexity index from STEP AP203/214/242 models without guesswork.
      - Extracts Bill of Materials (`BOM`) and Drawing Lists from PDF (with verified `page_no` + `bbox` coordinates), XLSX, and DOCX RFQ attachments.
 
-6. **Clause-by-Clause Contractual Auditor & Native OEM Exporters (Q3):**
-   - [`contract_clause_auditor.py`](../../packages/coverage/src/evidence_coverage/contract_clause_auditor.py) (`audit_rfq_contract_clauses`) extracts technical, commercial, quality, and legal RFQ clauses into `SUPPORTED`, `PARTIALLY_SUPPORTED_WITH_ASSUMPTION`, `CHANGE_ORDER_REQUIRED`, or `REJECT_OR_ABSTAIN` and flags 6 poison clauses: `UNCAPPED_LIQUIDATED_DAMAGES`, `UNLIMITED_FREE_REDESIGN`, `BACKGROUND_IP_ASSIGNMENT`, `OPEN_ENDED_AUTHORITY_PAYMENT_GATE`, `EXCESSIVE_WARRANTY_RETENTION`, and `CVE_INDEPENDENCE_WAIVER`.
-   - [`quotation_exporter.py`](../../packages/coverage/src/evidence_coverage/quotation_exporter.py) generates:
-     - Native 7-tab live-formula Excel workbooks (`export_quotation_xlsx`: `Resumen Ejecutivo`, `WBS Multi-Arquetipo & CPM`, `Comparativa 9 Paises`, `Flujo Caja & Aprendizaje`, `Registro 45 Supuestos`, `Matriz Contractual`, `Benchmark k-NN Historico` with `=SUM`/`=IF` and cross-sheet formulas).
-     - Cryptographically signed commercial-technical PDF dossiers (`export_quotation_signed_pdf` / `verify_quotation_signed_pdf`) embedding Ed25519 DSSE attestations, offline-verifiable ISO QR codes, and ledger Merkle roots.
+6. **Clause-by-Clause Contractual Auditor, Change Orders (CCN) & Hardened OEM Exporters (Q3 + Sprint 2):**
+   - [`contract_clause_auditor.py`](../../packages/coverage/src/evidence_coverage/contract_clause_auditor.py) (`audit_rfq_contract_clauses`) normalizes Unicode (`NFKC`, strips category `Cf` zero-width characters, folds Cyrillic/Greek homoglyphs), classifies technical, commercial, quality, and legal RFQ clauses into `SUPPORTED`, `PARTIALLY_SUPPORTED_WITH_ASSUMPTION`, `CHANGE_ORDER_REQUIRED`, or `REJECT_OR_ABSTAIN`, and flags 6 poison clauses: `UNCAPPED_LIQUIDATED_DAMAGES`, `UNLIMITED_FREE_REDESIGN`, `BACKGROUND_IP_ASSIGNMENT`, `OPEN_ENDED_AUTHORITY_PAYMENT_GATE`, `EXCESSIVE_WARRANTY_RETENTION`, and `CVE_INDEPENDENCE_WAIVER`.
+   - [`quotation_change_order.py`](../../packages/coverage/src/evidence_coverage/quotation_change_order.py) (`compute_quotation_change_order`) compares Rev A vs. Rev B across WBS DAG nodes, CPM schedule, multi-year cash flow/NPV, IDP deltas, triggered assumptions, and Z3 SMT proofs, sealing an immutable event into the Merkle ledger.
+   - [`quotation_exporter.py`](../../packages/coverage/src/evidence_coverage/quotation_exporter.py) neutralizes CWE-1236 Excel formula injection in all user-supplied text cells and generates:
+     - Native 7-tab quotation & 4-tab CCN live-formula Excel workbooks (`export_quotation_xlsx`, `export_change_order_xlsx`).
+     - Cryptographically signed commercial-technical & CCN PDF dossiers (`export_quotation_signed_pdf` / `export_change_order_signed_pdf` / `verify_quotation_signed_pdf`) embedding Ed25519 DSSE attestations, offline-verifiable ISO QR codes, and ledger Merkle roots.
 
-7. **2,000+ Historical Calibration, Stratified K-Fold CV, Drift & Win-Rate Analytics (Q4):**
+7. **2,000+ Historical Calibration, Stratified K-Fold CV & Portfolio RCPSP Leveling (Q4 + Sprint 2):**
    - [`historical_quotation_calibrator.py`](../../packages/coverage/src/evidence_coverage/historical_quotation_calibrator.py) provides bulk CSV/JSON/JSONL/XLSX ingestion with SHA-256 dataset hashing + reproducible `2,160`-bid benchmark corpus (`SYNTHETIC_BENCHMARK_ASSUMPTION`), Buhlmann-PERT `80/20` calibration (`18.04% -> 3.49%`), and deterministic k-NN twin retrieval.
    - [`advanced_quotation_calibration.py`](../../packages/coverage/src/evidence_coverage/advanced_quotation_calibration.py) (`run_advanced_calibration_suite`) adds IQR/MAD exogenous outlier isolation, stratified K-Fold cross-validation across archetypes/countries (`18.59% -> 3.66%` MAPE), temporal cost-drift diagnostics (`detect_calibration_drift`), `P50..P90` commercial Win-Rate calibration (`calibrate_win_rate_by_percentile`), and official ERP/SAP CSV & `.xlsx` import templates (`export_erp_sap_import_template`).
+   - [`portfolio_capacity_leveler.py`](../../packages/coverage/src/evidence_coverage/portfolio_capacity_leveler.py) (`level_portfolio_capacity`) schedules queued RFQs across 7 Stress Office roles (`LEAD_CVE`, `SENIOR_STRESS`, `STRESS_ENG`, `CAD_ENG`, `FDT_SPEC`, `TEST_ENG`, `PM_DOA`) using deterministic RCPSP priority-list leveling, quantifying bottlenecks, schedule slip weeks, nearshore overflow hours, and aggregated monthly Peak Negative Cash Flow.
 
-8. **Global Quoting Repository & Web Intelligence Scraper + Interactive Web Cockpit (Q4):**
+8. **Global Quoting Repository Scraper, Interactive Wizard & Web Cockpit v2 (Q4 + Sprint 2):**
    - [`repo_web_scraper.py`](../../packages/coverage/src/evidence_coverage/repo_web_scraper.py) (`QuotationIntelligenceScraper`) benchmarks 32 GitHub repositories and 18 commercial quoting web platforms plus public EASA/FAA/NASA rotorcraft sources across 8 capability axes.
-   - [`demo.html`](../../apps/api/src/evidence_api/static/demo.html) (`#tab-quote` / `Alt+7`) and [`quotation_cockpit.js`](../../apps/api/src/evidence_api/static/quotation_cockpit.js) provide an interactive web cockpit for multi-archetype DAG & CPM inspection, 9-country & hybrid rate selection, `.bdf`/`.f06`/`.stp` attachment analysis, live Z3 SMT status & Tornado views, and 1-click download of formulated `.xlsx` and DSSE-signed `.pdf` deliverables.
+   - [`demo.html`](../../apps/api/src/evidence_api/static/demo.html) (`#tab-quote` / `Alt+7`), [`quotation_cockpit.js`](../../apps/api/src/evidence_api/static/quotation_cockpit.js), and [`wizard.py`](../../apps/api/src/evidence_api/wizard.py) (option `10`) provide an interactive cockpit with multi-archetype DAG & CPM SVG, monthly Cash-Flow SVG + semantic table, binary `.op2`/`.h5` & BOM uploads, Change-Order Rev A -> Rev B delta & CCN exports, RCPSP portfolio capacity view, live Z3 SMT badges, and 1-click `.xlsx`/`.pdf` download.
 
 ---
 
@@ -61,7 +65,7 @@
 
 ## Quickstart (CLI, FastAPI, Web Cockpit & MCP)
 
-### CLI (11 `quote` Subcommands)
+### CLI (13 `quote` Subcommands)
 
 ```text
 # List all 18 helicopter archetypes, 9 country rate profiles, and 6 research studies
@@ -91,10 +95,14 @@ uv run python -m evidence_api.cli quote calibrate --archetype Q-STR-03 --country
 uv run python -m evidence_api.cli quote kfold-calibrate --country ES --synthetic-count 2160 --k-folds 5
 uv run python -m evidence_api.cli quote erp-template --output erp_historical_template.xlsx
 
-# Run general 8-agent RFQ quotation, 45-assumption catalog & GitHub/Web scraper
+# Run general 8-agent RFQ quotation, 45-assumption catalog & GitHub/Web scraper benchmark
 uv run python -m evidence_api.cli quote generate --text "Supply 12 Ti-6Al-4V lugs (1.5 kg) with 3 calc notes"
 uv run python -m evidence_api.cli quote assumptions
 uv run python -m evidence_api.cli quote scrape --offline
+
+# Compute closed-loop Rev A -> Rev B Change-Order delta & Stress Office RCPSP portfolio leveling
+uv run python -m evidence_api.cli quote change-order --baseline-text "CS-29 frame static" --revised-text "CS-29 frame static + F&DT + STC" --country ES
+uv run python -m evidence_api.cli quote portfolio-level --rfq-count 2 --country ES --lead-cve 1
 ```
 
 ### FastAPI Endpoints ([`app.py`](../../apps/api/src/evidence_api/app.py))
@@ -107,9 +115,11 @@ uv run python -m evidence_api.cli quote scrape --offline
 - `POST /quotations/rotorcraft/idp-deep-inspect` & `POST /quotations/rotorcraft/contract-audit`
 - `POST /quotations/rotorcraft/export-xlsx` & `POST /quotations/rotorcraft/export-pdf`
 - `POST /quotations/rotorcraft/advanced-calibration` & `GET /quotations/rotorcraft/erp-template`
+- `POST /quotations/rotorcraft/change-order` & `POST /quotations/rotorcraft/change-order/export-xlsx` & `POST /quotations/rotorcraft/change-order/export-pdf`
+- `POST /quotations/rotorcraft/portfolio-capacity`
 - `GET /demo` (`#tab-quote` / `Alt+7`) & `GET /static/quotation_cockpit.js`
 
-### MCP Tools ([`mcp_server.py`](../../apps/api/src/evidence_api/mcp_server.py) — 9 Quotation Tools / 41 Total)
+### MCP Tools ([`mcp_server.py`](../../apps/api/src/evidence_api/mcp_server.py) — 11 Quotation Tools / 43 Total)
 
 - `generate_multiagent_quotation`
 - `scrape_global_quotation_repos`
@@ -120,6 +130,8 @@ uv run python -m evidence_api.cli quote scrape --offline
 - `inspect_deep_idp_package`
 - `export_quotation_oem_artifacts`
 - `run_advanced_quotation_calibration`
+- `compute_quotation_change_order`
+- `level_rotorcraft_portfolio_capacity`
 
 ### Test Suites
 
@@ -127,3 +139,4 @@ uv run python -m evidence_api.cli quote scrape --offline
 - [`test_rotorcraft_18_archetypes_and_countries.py`](../../tests/test_rotorcraft_18_archetypes_and_countries.py)
 - [`test_historical_2000_calibration_idp_knn.py`](../../tests/test_historical_2000_calibration_idp_knn.py)
 - [`test_year1_quotation_master_roadmap.py`](../../tests/test_year1_quotation_master_roadmap.py)
+- [`test_sprint2_rotorcraft_stress_ccn_portfolio_security.py`](../../tests/test_sprint2_rotorcraft_stress_ccn_portfolio_security.py)

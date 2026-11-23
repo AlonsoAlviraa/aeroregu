@@ -4485,6 +4485,244 @@ def create_app() -> FastAPI:
             },
         )
 
+    @app.post("/quotations/rotorcraft/change-order")
+    def rotorcraft_change_order_endpoint(body: dict[str, Any], request: Request) -> JSONResponse:
+        from evidence_coverage.composite_dag_quotation import run_composite_rotorcraft_quotation
+        from evidence_coverage.quotation_change_order import compute_quotation_change_order
+
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return JSONResponse(
+                _abstain("quotation_change_order@1.0.0", {}, "invalid_tenant"),
+                status_code=400,
+            )
+        actor_id, auth_err = _check_endpoint_access(
+            request, tenant_id=tenant_id, requested_actor=body.get("actor_id")
+        )
+        if auth_err is not None:
+            return auth_err
+        ledger = open_ledger(tenant_id)
+
+        if isinstance(body.get("baseline_dossier"), dict):
+            baseline = body["baseline_dossier"]
+        elif isinstance(body.get("baseline_spec"), dict):
+            b_spec = _build_composite_spec(
+                dict(body["baseline_spec"]), tenant_id=tenant_id, actor_id=actor_id
+            )
+            baseline = run_composite_rotorcraft_quotation(ledger, b_spec)
+        else:
+            return JSONResponse(
+                _abstain("quotation_change_order@1.0.0", {}, "missing_baseline_dossier"),
+                status_code=400,
+            )
+
+        rev_raw = dict(body.get("revised_spec") or body)
+        rev_spec = _build_composite_spec(rev_raw, tenant_id=tenant_id, actor_id=actor_id)
+        ccn = compute_quotation_change_order(
+            ledger,
+            baseline,
+            rev_spec,
+            cr_id=str(body.get("cr_id") or "CCN-001"),
+            change_reason=str(body.get("change_reason") or "Scope & schedule change request"),
+            enforce_contract_gate=bool(body.get("enforce_contract_gate", True)),
+        )
+        if ccn.get("confidence") == "abstain":
+            abstain_payload = _abstain(
+                "quotation_change_order@1.0.0",
+                {"cr_id": ccn["cr_id"]},
+                ccn.get("abstain_reason") or "abstain",
+            )
+            abstain_payload["decision_status"] = ccn["decision_status"]
+            abstain_payload["contract_delta"] = ccn.get("contract_delta")
+            abstain_payload["change_order_merkle_root"] = ccn.get("change_order_merkle_root")
+            return JSONResponse(abstain_payload)
+        return JSONResponse(
+            _ok(
+                "quotation_change_order@1.0.0",
+                {"cr_id": ccn["cr_id"], "baseline_rfq_id": ccn["baseline_rfq_id"]},
+                ccn,
+            )
+        )
+
+    @app.post("/quotations/rotorcraft/change-order/export-xlsx")
+    def rotorcraft_change_order_export_xlsx_endpoint(
+        body: dict[str, Any], request: Request
+    ) -> Response:
+        from evidence_coverage.composite_dag_quotation import run_composite_rotorcraft_quotation
+        from evidence_coverage.quotation_change_order import compute_quotation_change_order
+        from evidence_coverage.quotation_exporter import export_change_order_xlsx
+
+        if isinstance(body.get("ccn_dossier"), dict):
+            ccn = body["ccn_dossier"]
+        else:
+            tenant_id = _validate_tenant(body.get("tenant_id"))
+            if tenant_id is None:
+                return JSONResponse(
+                    _abstain("quotation_change_order_xlsx@1.0.0", {}, "invalid_tenant"),
+                    status_code=400,
+                )
+            actor_id, auth_err = _check_endpoint_access(
+                request, tenant_id=tenant_id, requested_actor=body.get("actor_id")
+            )
+            if auth_err is not None:
+                return auth_err
+            ledger = open_ledger(tenant_id)
+            if isinstance(body.get("baseline_dossier"), dict):
+                baseline = body["baseline_dossier"]
+            elif isinstance(body.get("baseline_spec"), dict):
+                b_spec = _build_composite_spec(
+                    dict(body["baseline_spec"]), tenant_id=tenant_id, actor_id=actor_id
+                )
+                baseline = run_composite_rotorcraft_quotation(ledger, b_spec)
+            else:
+                return JSONResponse(
+                    _abstain("quotation_change_order_xlsx@1.0.0", {}, "missing_baseline"),
+                    status_code=400,
+                )
+            rev_spec = _build_composite_spec(
+                dict(body.get("revised_spec") or body), tenant_id=tenant_id, actor_id=actor_id
+            )
+            ccn = compute_quotation_change_order(
+                ledger,
+                baseline,
+                rev_spec,
+                cr_id=str(body.get("cr_id") or "CCN-001"),
+                change_reason=str(body.get("change_reason") or "CCN Addendum"),
+            )
+            if ccn.get("confidence") == "abstain":
+                return JSONResponse(
+                    _abstain(
+                        "quotation_change_order_xlsx@1.0.0",
+                        {},
+                        ccn.get("abstain_reason") or "abstain",
+                    ),
+                    status_code=422,
+                )
+        exported = export_change_order_xlsx(ccn)
+        cr_id = str(ccn.get("cr_id") or "CCN-001").replace('"', "")
+        return Response(
+            content=exported["xlsx_bytes"],
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f'attachment; filename="{cr_id}_change_order.xlsx"',
+                "X-AeroRegu-SHA256": exported["xlsx_sha256"],
+                "X-AeroRegu-Formula-Count": str(exported["formula_count"]),
+            },
+        )
+
+    @app.post("/quotations/rotorcraft/change-order/export-pdf")
+    def rotorcraft_change_order_export_pdf_endpoint(
+        body: dict[str, Any], request: Request
+    ) -> Response:
+        from evidence_coverage.composite_dag_quotation import run_composite_rotorcraft_quotation
+        from evidence_coverage.quotation_change_order import compute_quotation_change_order
+        from evidence_coverage.quotation_exporter import export_change_order_signed_pdf
+
+        if isinstance(body.get("ccn_dossier"), dict):
+            ccn = body["ccn_dossier"]
+        else:
+            tenant_id = _validate_tenant(body.get("tenant_id"))
+            if tenant_id is None:
+                return JSONResponse(
+                    _abstain("quotation_change_order_pdf@1.0.0", {}, "invalid_tenant"),
+                    status_code=400,
+                )
+            actor_id, auth_err = _check_endpoint_access(
+                request, tenant_id=tenant_id, requested_actor=body.get("actor_id")
+            )
+            if auth_err is not None:
+                return auth_err
+            ledger = open_ledger(tenant_id)
+            if isinstance(body.get("baseline_dossier"), dict):
+                baseline = body["baseline_dossier"]
+            elif isinstance(body.get("baseline_spec"), dict):
+                b_spec = _build_composite_spec(
+                    dict(body["baseline_spec"]), tenant_id=tenant_id, actor_id=actor_id
+                )
+                baseline = run_composite_rotorcraft_quotation(ledger, b_spec)
+            else:
+                return JSONResponse(
+                    _abstain("quotation_change_order_pdf@1.0.0", {}, "missing_baseline"),
+                    status_code=400,
+                )
+            rev_spec = _build_composite_spec(
+                dict(body.get("revised_spec") or body), tenant_id=tenant_id, actor_id=actor_id
+            )
+            ccn = compute_quotation_change_order(
+                ledger,
+                baseline,
+                rev_spec,
+                cr_id=str(body.get("cr_id") or "CCN-001"),
+                change_reason=str(body.get("change_reason") or "CCN Addendum"),
+            )
+            if ccn.get("confidence") == "abstain":
+                return JSONResponse(
+                    _abstain(
+                        "quotation_change_order_pdf@1.0.0",
+                        {},
+                        ccn.get("abstain_reason") or "abstain",
+                    ),
+                    status_code=422,
+                )
+        priv_pem, pub_pem = _attestation_keypair()
+        exported = export_change_order_signed_pdf(
+            ccn, private_key_pem=priv_pem, public_key_pem=pub_pem
+        )
+        cr_id = str(ccn.get("cr_id") or "CCN-001").replace('"', "")
+        return Response(
+            content=exported["pdf_bytes"],
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{cr_id}_signed_ccn.pdf"',
+                "X-AeroRegu-SHA256": exported["pdf_sha256"],
+                "X-AeroRegu-Merkle-Root": exported["merkle_root"],
+            },
+        )
+
+    @app.post("/quotations/rotorcraft/portfolio-capacity")
+    def rotorcraft_portfolio_capacity_endpoint(
+        body: dict[str, Any], request: Request
+    ) -> JSONResponse:
+        from evidence_coverage.composite_dag_quotation import run_composite_rotorcraft_quotation
+        from evidence_coverage.portfolio_capacity_leveler import level_portfolio_capacity
+
+        dossiers = list(body.get("dossiers") or [])
+        if not dossiers and isinstance(body.get("rfq_specs"), list):
+            tenant_id = _validate_tenant(body.get("tenant_id"))
+            if tenant_id is None:
+                return JSONResponse(
+                    _abstain("portfolio_capacity_leveler@1.0.0", {}, "invalid_tenant"),
+                    status_code=400,
+                )
+            actor_id, auth_err = _check_endpoint_access(
+                request, tenant_id=tenant_id, requested_actor=body.get("actor_id")
+            )
+            if auth_err is not None:
+                return auth_err
+            ledger = open_ledger(tenant_id)
+            for idx, raw_s in enumerate(body["rfq_specs"]):
+                spec = _build_composite_spec(
+                    {"rfq_id": f"RFQ-{idx + 1:03d}", **dict(raw_s)},
+                    tenant_id=tenant_id,
+                    actor_id=actor_id,
+                )
+                d = run_composite_rotorcraft_quotation(ledger, spec)
+                if d.get("confidence") != "abstain":
+                    dossiers.append(d)
+
+        headcount = (
+            {str(k): int(v) for k, v in body["team_headcount"].items()}
+            if isinstance(body.get("team_headcount"), dict)
+            else None
+        )
+        res = level_portfolio_capacity(
+            dossiers,
+            team_headcount=headcount,
+            max_utilization_pct=str(body.get("max_utilization_pct") or "85.000"),
+            max_horizon_weeks=int(body.get("max_horizon_weeks") or 104),
+        )
+        return JSONResponse(_ok("portfolio_capacity_leveler@1.0.0", {}, res))
+
     @app.get("/mcp/catalog")
     def get_mcp_catalog_endpoint() -> JSONResponse:
         from evidence_api.mcp_server import get_mcp_catalog

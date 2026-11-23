@@ -877,6 +877,47 @@ MCP_TOOLS: tuple[dict[str, Any], ...] = (
             },
         },
     },
+    {
+        "name": "compute_quotation_change_order",
+        "description": (
+            "Compute closed-loop Rev A -> Rev B Change-Order (CCN) delta pricing across WBS "
+            "archetypes, CPM critical path, multi-year cash flow/NPV, contractual poison gates, "
+            "triggered assumptions, and Z3 SMT amended margin/NPV proofs."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "baseline_rfq_text": {"type": "string"},
+                "baseline_archetypes": {"type": "array", "items": {"type": "string"}},
+                "revised_rfq_text": {"type": "string"},
+                "revised_archetypes": {"type": "array", "items": {"type": "string"}},
+                "country_code": {"type": "string", "default": "EU_DEFAULT"},
+                "baseline_units": {"type": "integer", "default": 1},
+                "revised_units": {"type": "integer", "default": 2},
+                "cr_id": {"type": "string", "default": "CCN-001"},
+                "change_reason": {"type": "string", "default": "Scope change"},
+                "tenant_id": {"type": "string", "default": "demo"},
+            },
+            "required": ["baseline_rfq_text", "revised_rfq_text"],
+        },
+    },
+    {
+        "name": "level_rotorcraft_portfolio_capacity",
+        "description": (
+            "Perform deterministic RCPSP capacity leveling across multiple queued helicopter "
+            "RFQs and 7 Stress Office engineering roles, identifying LEAD_CVE/FDT_SPEC "
+            "bottlenecks, schedule slip weeks, nearshore overflow hours, and combined peak CF."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "rfq_specs": {"type": "array", "items": {"type": "object"}},
+                "team_headcount": {"type": "object"},
+                "max_utilization_pct": {"type": "string", "default": "85.000"},
+                "tenant_id": {"type": "string", "default": "demo"},
+            },
+        },
+    },
 )
 
 MCP_RESOURCES: tuple[dict[str, Any], ...] = (
@@ -1101,6 +1142,7 @@ def _call_tool(
                 "generate_multiagent_quotation",
                 "generate_rotorcraft_archetype_quotation",
                 "generate_composite_rotorcraft_quotation",
+                "compute_quotation_change_order",
             }
             or (
                 name in {"evidence_calc_run", "evidence_ingest_document"}
@@ -2269,6 +2311,102 @@ def _call_tool(
             country_code=str(arguments.get("country_code") or "EU_DEFAULT"),
             k_folds=int(arguments.get("k_folds") or 5),
             exclude_outliers=bool(arguments.get("exclude_outliers", True)),
+        )
+
+    if name == "compute_quotation_change_order":
+        from evidence_coverage.composite_dag_quotation import (
+            CompositeRotorcraftQuotationSpec,
+            run_composite_rotorcraft_quotation,
+        )
+        from evidence_coverage.quotation_change_order import compute_quotation_change_order
+
+        tenant = _validate_tenant(str(arguments.get("tenant_id") or "demo"))
+        if tenant is None:
+            return True, {"error": "invalid_tenant"}
+        ledger = open_ledger(tenant)
+        country = str(arguments.get("country_code") or "EU_DEFAULT")
+        base_spec = CompositeRotorcraftQuotationSpec(
+            rfq_id="MCP-REV-A",
+            rfq_text=str(arguments.get("baseline_rfq_text") or ""),
+            archetype_ids=tuple(
+                str(a) for a in (arguments.get("baseline_archetypes") or ("Q-DES-02", "Q-STR-03"))
+            ),
+            country_code=country,
+            unit_count=int(arguments.get("baseline_units") or 1),
+            tenant_id=tenant,
+        )
+        baseline = run_composite_rotorcraft_quotation(ledger, base_spec)
+        rev_spec = CompositeRotorcraftQuotationSpec(
+            rfq_id="MCP-REV-B",
+            rfq_text=str(arguments.get("revised_rfq_text") or ""),
+            archetype_ids=tuple(
+                str(a)
+                for a in (
+                    arguments.get("revised_archetypes")
+                    or ("Q-DES-02", "Q-STR-03", "Q-FDT-01", "Q-DOA-02")
+                )
+            ),
+            country_code=country,
+            unit_count=int(arguments.get("revised_units") or 2),
+            tenant_id=tenant,
+        )
+        return False, compute_quotation_change_order(
+            ledger,
+            baseline,
+            rev_spec,
+            cr_id=str(arguments.get("cr_id") or "CCN-001"),
+            change_reason=str(arguments.get("change_reason") or "MCP Change Request"),
+        )
+
+    if name == "level_rotorcraft_portfolio_capacity":
+        from evidence_coverage.composite_dag_quotation import (
+            CompositeRotorcraftQuotationSpec,
+            run_composite_rotorcraft_quotation,
+        )
+        from evidence_coverage.portfolio_capacity_leveler import level_portfolio_capacity
+
+        tenant = _validate_tenant(str(arguments.get("tenant_id") or "demo"))
+        if tenant is None:
+            return True, {"error": "invalid_tenant"}
+        ledger = open_ledger(tenant)
+        specs = list(
+            arguments.get("rfq_specs")
+            or [
+                {
+                    "rfq_id": "PORT-01",
+                    "rfq_text": "CS-29 frame static & FDT Net 60.",
+                    "archetype_ids": ["Q-DES-02", "Q-STR-03", "Q-FDT-01", "Q-DOA-02"],
+                },
+                {
+                    "rfq_id": "PORT-02",
+                    "rfq_text": "CS-29 hoist STC & rig test Net 60.",
+                    "archetype_ids": ["Q-STR-03", "Q-DOA-02", "Q-TST-01"],
+                },
+            ]
+        )
+        dossiers = []
+        for idx, rs in enumerate(specs):
+            d = run_composite_rotorcraft_quotation(
+                ledger,
+                CompositeRotorcraftQuotationSpec(
+                    rfq_id=str(rs.get("rfq_id") or f"PORT-{idx + 1:02d}"),
+                    rfq_text=str(rs.get("rfq_text") or "CS-29 structural analysis."),
+                    archetype_ids=tuple(str(a) for a in (rs.get("archetype_ids") or ("Q-STR-03",))),
+                    country_code=str(rs.get("country_code") or "ES"),
+                    tenant_id=tenant,
+                ),
+            )
+            if d.get("confidence") != "abstain":
+                dossiers.append(d)
+        headcount = (
+            {str(k): int(v) for k, v in arguments["team_headcount"].items()}
+            if isinstance(arguments.get("team_headcount"), dict)
+            else None
+        )
+        return False, level_portfolio_capacity(
+            dossiers,
+            team_headcount=headcount,
+            max_utilization_pct=str(arguments.get("max_utilization_pct") or "85.000"),
         )
 
     return True, {"error": f"unknown_tool: {name}"}
