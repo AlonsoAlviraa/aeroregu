@@ -73,6 +73,10 @@ _RESERVED_BUILTIN_IDS = frozenset(
         "orthotropic_composite_plate_buckling",
         "skin_stringer_crippling_interaction",
         "walker_mean_stress_crack_growth",
+        "cs29_skid_landing_gear_drop_energy",
+        "shaft_whirl_critical_speed_screen",
+        "firewall_thermal_buckling_screen",
+        "hertzian_bearing_contact_stress",
     }
 )
 

@@ -1,0 +1,54 @@
+{
+  "method_id": "firewall_thermal_buckling_screen",
+  "method_version": "firewall_thermal_buckling_screen@1.0.0",
+  "title": "CS 29.1191 Engine-Bay Firewall Constrained Thermal Expansion Buckling & Yield Screen",
+  "label": "ASSUMPTION",
+  "equation": "sigma_th = k_res*E_hot*alpha*dT; sigma_cr = kc*pi^2*E_hot/(12*(1-nu^2))*(t/b)^2; governing_ms = min(sigma_cr/(SF*sigma_th), F_ty_hot/(SF*sigma_th)) - 1",
+  "note": "Propulsion-bay CS 29.1191 titanium/stainless firewall panel thermal restraint compressive stress against plate buckling and elevated-temperature yield.",
+  "quantum": "0.0001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "panel_width_b_mm": "millimeter",
+    "panel_thickness_t_mm": "millimeter",
+    "youngs_modulus_hot_mpa": "megapascal",
+    "poissons_ratio": "dimensionless",
+    "cte_per_c": "1 / kelvin",
+    "delta_temp_c": "kelvin",
+    "restraint_factor": "dimensionless",
+    "plate_buckling_kc": "dimensionless",
+    "hot_yield_allowable_mpa": "megapascal",
+    "safety_factor": "dimensionless"
+  },
+  "required": [
+    "panel_width_b_mm",
+    "panel_thickness_t_mm",
+    "youngs_modulus_hot_mpa",
+    "poissons_ratio",
+    "cte_per_c",
+    "delta_temp_c",
+    "restraint_factor",
+    "plate_buckling_kc",
+    "hot_yield_allowable_mpa",
+    "safety_factor"
+  ],
+  "limits": {
+    "panel_width_b_mm": { "min_exclusive": "0", "max": "5000" },
+    "panel_thickness_t_mm": { "min_exclusive": "0", "max": "100" },
+    "youngs_modulus_hot_mpa": { "min_exclusive": "0", "max": "1000000" },
+    "poissons_ratio": { "min": "0", "max": "0.49" },
+    "cte_per_c": { "min_exclusive": "0", "max": "0.001" },
+    "delta_temp_c": { "min_exclusive": "0", "max": "2000" },
+    "restraint_factor": { "min_exclusive": "0", "max": "1" },
+    "plate_buckling_kc": { "min_exclusive": "0", "max": "20" },
+    "hot_yield_allowable_mpa": { "min_exclusive": "0", "max": "5000" },
+    "safety_factor": { "min": "1", "max": "10" }
+  },
+  "sources": [
+    {
+      "source_id": "cs29-firewall-thermal",
+      "uri": "https://aeroregu.local/cards/firewall_thermal_buckling_screen",
+      "content_hash": "4a01b788e9c40d217f8b112e54c22f981d7732aa9b120e43c9910e58a41f5503",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

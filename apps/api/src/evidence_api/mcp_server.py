@@ -1001,6 +1001,46 @@ MCP_TOOLS: tuple[dict[str, Any], ...] = (
             },
         },
     },
+    {
+        "name": "export_portfolio_capacity_oem_artifacts",
+        "description": (
+            "Level Stress Office RCPSP portfolio capacity across queued helicopter RFQs, "
+            "optimize onshore-CVE + nearshore allocation, and export live-formula Excel (.xlsx) "
+            "plus Ed25519 DSSE + ISO QR signed PDF plans."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "rfq_specs": {"type": "array", "items": {"type": "object"}},
+                "team_headcount": {"type": "object"},
+                "onshore_country": {"type": "string", "default": "DE"},
+                "nearshore_country": {"type": "string", "default": "ES"},
+                "max_utilization_pct": {"type": "string", "default": "85.000"},
+                "tenant_id": {"type": "string", "default": "demo"},
+                "xlsx_output_path": {"type": "string"},
+                "pdf_output_path": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "run_batch_stress_summary_dossier",
+        "description": (
+            "Execute batch component stress checks across the 56-card catalog with 50-digit Arb "
+            "intervals, MMPDS/CMH-17 material intervals, Z3 SMT formal proofs, Ledger sealing, "
+            "and optional live-formula Excel (.xlsx) / DSSE signed PDF export."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "dossier_id": {"type": "string", "default": "STRESS-NOTE-001"},
+                "checks": {"type": "array", "items": {"type": "object"}},
+                "record": {"type": "boolean", "default": True},
+                "tenant_id": {"type": "string", "default": "demo"},
+                "xlsx_output_path": {"type": "string"},
+                "pdf_output_path": {"type": "string"},
+            },
+        },
+    },
 )
 
 MCP_RESOURCES: tuple[dict[str, Any], ...] = (
@@ -1228,6 +1268,8 @@ def _call_tool(
                 "compute_quotation_change_order",
                 "run_bid_actual_evm_postmortem",
                 "export_evm_postmortem_oem_artifacts",
+                "export_portfolio_capacity_oem_artifacts",
+                "run_batch_stress_summary_dossier",
             }
             or (
                 name in {"evidence_calc_run", "evidence_ingest_document"}
@@ -2659,6 +2701,156 @@ def _call_tool(
             "gpforce_equilibrium": gpforce_res,
             "abaqus_composite_drift": abaqus_res,
         }
+
+    if name == "export_portfolio_capacity_oem_artifacts":
+        from evidence_coverage.composite_dag_quotation import (
+            CompositeRotorcraftQuotationSpec,
+            run_composite_rotorcraft_quotation,
+        )
+        from evidence_coverage.portfolio_capacity_leveler import (
+            level_portfolio_capacity,
+            optimize_portfolio_nearshore_allocation,
+        )
+        from evidence_coverage.quotation_exporter import (
+            export_portfolio_capacity_signed_pdf,
+            export_portfolio_capacity_xlsx,
+        )
+
+        from evidence_api.app import _attestation_keypair, _now, _validate_tenant, open_ledger
+
+        tenant = _validate_tenant(str(arguments.get("tenant_id") or "demo"))
+        if tenant is None:
+            return True, {"error": "invalid_tenant"}
+        ledger = open_ledger(tenant)
+        now = _now()
+        specs = list(
+            arguments.get("rfq_specs")
+            or [
+                {
+                    "rfq_id": "RFQ-PORT-01",
+                    "rfq_text": "CS-29 frame static & F&DT Net 60.",
+                    "archetype_ids": ["Q-DES-02", "Q-STR-03", "Q-FDT-01", "Q-DOA-02"],
+                    "country_code": str(arguments.get("nearshore_country") or "ES"),
+                },
+                {
+                    "rfq_id": "RFQ-PORT-02",
+                    "rfq_text": "CS-29 hoist STC Net 60.",
+                    "archetype_ids": ["Q-STR-03", "Q-FDT-01", "Q-DOA-02", "Q-TST-01"],
+                    "country_code": str(arguments.get("nearshore_country") or "ES"),
+                },
+            ]
+        )
+        dossiers = []
+        for idx, raw_s in enumerate(specs):
+            spec = CompositeRotorcraftQuotationSpec(
+                rfq_id=str(raw_s.get("rfq_id") or f"RFQ-PORT-{idx + 1:02d}"),
+                rfq_text=str(raw_s.get("rfq_text") or "CS-29 helicopter stress package."),
+                archetype_ids=tuple(raw_s.get("archetype_ids") or ("Q-STR-03", "Q-DOA-02")),
+                country_code=str(raw_s.get("country_code") or "ES"),
+                tenant_id=tenant,
+                created_at=now,
+            )
+            dossiers.append(run_composite_rotorcraft_quotation(ledger, spec))
+        raw_hc = arguments.get("team_headcount")
+        headcount = (
+            {str(k): int(v) for k, v in raw_hc.items()} if isinstance(raw_hc, dict) else None
+        )
+        port_res = level_portfolio_capacity(
+            dossiers,
+            team_headcount=headcount,
+            max_utilization_pct=str(arguments.get("max_utilization_pct") or "85.000"),
+        )
+        ns_plan = optimize_portfolio_nearshore_allocation(
+            port_res,
+            onshore_country=str(arguments.get("onshore_country") or "DE"),
+            nearshore_country=str(arguments.get("nearshore_country") or "ES"),
+        )
+        x_res = export_portfolio_capacity_xlsx(
+            port_res, nearshore_plan=ns_plan, output_path=arguments.get("xlsx_output_path")
+        )
+        priv_pem, pub_pem = _attestation_keypair()
+        p_res = export_portfolio_capacity_signed_pdf(
+            port_res,
+            nearshore_plan=ns_plan,
+            private_key_pem=priv_pem,
+            public_key_pem=pub_pem,
+            output_path=arguments.get("pdf_output_path"),
+        )
+        return False, {
+            "portfolio_rfq_count": port_res["portfolio_rfq_count"],
+            "net_savings_eur": ns_plan["net_savings_eur"],
+            "cve_governance_preserved": ns_plan["cve_governance_preserved"],
+            "xlsx_sha256": x_res["xlsx_sha256"],
+            "xlsx_sheet_names": x_res["sheet_names"],
+            "xlsx_formula_count": x_res["formula_count"],
+            "xlsx_output_path": x_res["output_path"],
+            "pdf_sha256": p_res["pdf_sha256"],
+            "merkle_root": p_res["merkle_root"],
+            "pdf_output_path": p_res["output_path"],
+        }
+
+    if name == "run_batch_stress_summary_dossier":
+        from evidence_coverage.stress_dossier_packager import (
+            build_stress_summary_dossier,
+            export_stress_dossier_signed_pdf,
+            export_stress_dossier_xlsx,
+        )
+
+        from evidence_api.app import _attestation_keypair, _validate_tenant, open_ledger
+        from evidence_api.formal_methods import METHOD_DEFAULT_INPUTS
+
+        tenant = _validate_tenant(str(arguments.get("tenant_id") or "demo"))
+        if tenant is None:
+            return True, {"error": "invalid_tenant"}
+        ledger = open_ledger(tenant) if bool(arguments.get("record", True)) else None
+        checks = list(
+            arguments.get("checks")
+            or [
+                {
+                    "check_id": "SKID-01",
+                    "component_name": "Skid Cross-Tube",
+                    "method_id": "cs29_skid_landing_gear_drop_energy",
+                    "inputs": dict(METHOD_DEFAULT_INPUTS["cs29_skid_landing_gear_drop_energy"]),
+                },
+                {
+                    "check_id": "WHIRL-02",
+                    "component_name": "Tail Rotor Drive Shaft",
+                    "method_id": "shaft_whirl_critical_speed_screen",
+                    "inputs": dict(METHOD_DEFAULT_INPUTS["shaft_whirl_critical_speed_screen"]),
+                },
+            ]
+        )
+        dos = build_stress_summary_dossier(
+            str(arguments.get("dossier_id") or "STRESS-NOTE-001"),
+            checks,
+            ledger=ledger,
+            tenant_id=tenant,
+            include_formal_proofs=True,
+        )
+        out: dict[str, Any] = {
+            "dossier_id": dos["dossier_id"],
+            "check_count": dos["check_count"],
+            "global_ms_min": dos["global_ms_min"],
+            "governing_check_id": dos["governing_check_id"],
+            "formal_proved_count": dos["formal_proved_count"],
+            "overall_status": dos["overall_status"],
+            "merkle_root": dos["merkle_root"],
+        }
+        if arguments.get("xlsx_output_path"):
+            xr = export_stress_dossier_xlsx(dos, output_path=arguments["xlsx_output_path"])
+            out["xlsx_sha256"] = xr["xlsx_sha256"]
+            out["xlsx_output_path"] = xr["output_path"]
+        if arguments.get("pdf_output_path"):
+            priv_pem, pub_pem = _attestation_keypair()
+            pr = export_stress_dossier_signed_pdf(
+                dos,
+                private_key_pem=priv_pem,
+                public_key_pem=pub_pem,
+                output_path=arguments["pdf_output_path"],
+            )
+            out["pdf_sha256"] = pr["pdf_sha256"]
+            out["pdf_output_path"] = pr["output_path"]
+        return False, out
 
     return True, {"error": f"unknown_tool: {name}"}
 

@@ -982,6 +982,14 @@ def evaluate_method_intervals(
         return evaluate_skin_stringer_intervals(inputs, staged_outputs)
     if method_id == "walker_mean_stress_crack_growth":
         return evaluate_walker_crack_intervals(inputs, staged_outputs)
+    if method_id == "cs29_skid_landing_gear_drop_energy":
+        return evaluate_skid_drop_intervals(inputs, staged_outputs)
+    if method_id == "shaft_whirl_critical_speed_screen":
+        return evaluate_shaft_whirl_intervals(inputs, staged_outputs)
+    if method_id == "firewall_thermal_buckling_screen":
+        return evaluate_firewall_thermal_intervals(inputs, staged_outputs)
+    if method_id == "hertzian_bearing_contact_stress":
+        return evaluate_hertzian_contact_intervals(inputs, staged_outputs)
     if method_id in STRESS_MANUAL_RUNNERS:
         return evaluate_stress_manual_intervals(method_id, inputs, staged_outputs)
     if card is not None and card.get("plugin") and card.get("formulas"):
@@ -1839,6 +1847,161 @@ def evaluate_walker_crack_intervals(
         "life_margin_of_safety": _drift_entry(
             ms_life, str(staged_outputs["life_margin_of_safety"])
         ),
+    }
+
+
+def evaluate_skid_drop_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    w_kg = _arb_from_decimal_text(str(inputs["gross_weight_kg"]))
+    h_drop = _arb_from_decimal_text(str(inputs["drop_height_m"]))
+    kl = _arb_from_decimal_text(str(inputs["rotor_lift_fraction"]))
+    stroke = _arb_from_decimal_text(str(inputs["vertical_stroke_m"]))
+    eta = _arb_from_decimal_text(str(inputs["gear_efficiency_eta"]))
+    od = _arb_from_decimal_text(str(inputs["cross_tube_od_mm"]))
+    wall = _arb_from_decimal_text(str(inputs["cross_tube_wall_mm"]))
+    arm = _arb_from_decimal_text(str(inputs["cantilever_arm_mm"]))
+    fy = _arb_from_decimal_text(str(inputs["yield_allowable_mpa"]))
+    sf = _arb_from_decimal_text(str(inputs["safety_factor"]))
+
+    pi_val = arb.pi()
+    weight_n = w_kg * _arb_from_decimal_text("9.80665")
+    e_drop = weight_n * (h_drop + (arb(1) - kl) * stroke)
+    n_z = e_drop / (weight_n * stroke * eta)
+    f_leg = _arb_from_decimal_text("0.25") * n_z * weight_n
+    d_in = od - arb(2) * wall
+    i_tube = pi_val * ((od**4) - (d_in**4)) / arb(64)
+    z_mod = i_tube / (od / arb(2))
+    sig_b = (f_leg * arm) / z_mod
+    ms = (fy / (sf * sig_b)) - arb(1)
+
+    return {
+        "total_drop_energy_j": _drift_entry(e_drop, str(staged_outputs["total_drop_energy_j"])),
+        "landing_load_factor_nz": _drift_entry(n_z, str(staged_outputs["landing_load_factor_nz"])),
+        "skid_leg_reaction_n": _drift_entry(f_leg, str(staged_outputs["skid_leg_reaction_n"])),
+        "tube_section_modulus_mm3": _drift_entry(
+            z_mod, str(staged_outputs["tube_section_modulus_mm3"])
+        ),
+        "cross_tube_bending_mpa": _drift_entry(
+            sig_b, str(staged_outputs["cross_tube_bending_mpa"])
+        ),
+        "margin_of_safety": _drift_entry(ms, str(staged_outputs["margin_of_safety"])),
+    }
+
+
+def evaluate_shaft_whirl_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    l_mm = _arb_from_decimal_text(str(inputs["shaft_length_mm"]))
+    d_o = _arb_from_decimal_text(str(inputs["outer_diameter_mm"]))
+    d_i = _arb_from_decimal_text(str(inputs["inner_diameter_mm"]))
+    e_mpa = _arb_from_decimal_text(str(inputs["youngs_modulus_mpa"]))
+    rho = _arb_from_decimal_text(str(inputs["density_kg_m3"]))
+    lam = _arb_from_decimal_text(str(inputs["bearing_fixity_lambda"]))
+    op_rpm = _arb_from_decimal_text(str(inputs["operating_rpm"]))
+    os_fac = _arb_from_decimal_text(str(inputs["overspeed_factor"]))
+
+    pi_val = arb.pi()
+    area = pi_val * ((d_o * d_o) - (d_i * d_i)) / arb(4)
+    inert = pi_val * ((d_o**4) - (d_i**4)) / arb(64)
+    r_g = (inert / area).sqrt()
+    c_mm_s = ((e_mpa * arb(1000000)) / rho).sqrt() * arb(1000)
+    omega = ((lam / l_mm) ** 2) * r_g * c_mm_s
+    f_hz = omega / (arb(2) * pi_val)
+    n_cr = f_hz * arb(60)
+    ratio = n_cr / op_rpm
+    ms = (n_cr / (op_rpm * os_fac)) - arb(1)
+
+    return {
+        "section_area_mm2": _drift_entry(area, str(staged_outputs["section_area_mm2"])),
+        "section_inertia_mm4": _drift_entry(inert, str(staged_outputs["section_inertia_mm4"])),
+        "first_whirl_freq_hz": _drift_entry(f_hz, str(staged_outputs["first_whirl_freq_hz"])),
+        "critical_whirl_rpm": _drift_entry(n_cr, str(staged_outputs["critical_whirl_rpm"])),
+        "whirl_speed_ratio": _drift_entry(ratio, str(staged_outputs["whirl_speed_ratio"])),
+        "margin_of_safety": _drift_entry(ms, str(staged_outputs["margin_of_safety"])),
+    }
+
+
+def evaluate_firewall_thermal_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    wid = _arb_from_decimal_text(str(inputs["panel_width_b_mm"]))
+    thk = _arb_from_decimal_text(str(inputs["panel_thickness_t_mm"]))
+    e_hot = _arb_from_decimal_text(str(inputs["youngs_modulus_hot_mpa"]))
+    nu = _arb_from_decimal_text(str(inputs["poissons_ratio"]))
+    cte = _arb_from_decimal_text(str(inputs["cte_per_c"]))
+    dtemp = _arb_from_decimal_text(str(inputs["delta_temp_c"]))
+    k_res = _arb_from_decimal_text(str(inputs["restraint_factor"]))
+    kc = _arb_from_decimal_text(str(inputs["plate_buckling_kc"]))
+    fy_hot = _arb_from_decimal_text(str(inputs["hot_yield_allowable_mpa"]))
+    sf = _arb_from_decimal_text(str(inputs["safety_factor"]))
+
+    pi_val = arb.pi()
+    sig_th = k_res * e_hot * cte * dtemp
+    sig_cr = (kc * (pi_val * pi_val) * e_hot / (arb(12) * (arb(1) - (nu * nu)))) * (
+        (thk / wid) ** 2
+    )
+    b_ms = (sig_cr / (sf * sig_th)) - arb(1)
+    y_ms = (fy_hot / (sf * sig_th)) - arb(1)
+    gov_ms = b_ms if _arb_mid_dec(b_ms) <= _arb_mid_dec(y_ms) else y_ms
+
+    return {
+        "thermal_compressive_stress_mpa": _drift_entry(
+            sig_th, str(staged_outputs["thermal_compressive_stress_mpa"])
+        ),
+        "critical_buckling_stress_mpa": _drift_entry(
+            sig_cr, str(staged_outputs["critical_buckling_stress_mpa"])
+        ),
+        "buckling_ms": _drift_entry(b_ms, str(staged_outputs["buckling_ms"])),
+        "yield_ms": _drift_entry(y_ms, str(staged_outputs["yield_ms"])),
+        "governing_ms": _drift_entry(gov_ms, str(staged_outputs["governing_ms"])),
+    }
+
+
+def evaluate_hertzian_contact_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    load_n = _arb_from_decimal_text(str(inputs["normal_load_n"]))
+    len_mm = _arb_from_decimal_text(str(inputs["contact_length_mm"]))
+    d1 = _arb_from_decimal_text(str(inputs["roller_diameter_mm"]))
+    d2 = _arb_from_decimal_text(str(inputs["raceway_diameter_mm"]))
+    e1 = _arb_from_decimal_text(str(inputs["youngs_modulus_1_mpa"]))
+    nu1 = _arb_from_decimal_text(str(inputs["poissons_ratio_1"]))
+    e2 = _arb_from_decimal_text(str(inputs["youngs_modulus_2_mpa"]))
+    nu2 = _arb_from_decimal_text(str(inputs["poissons_ratio_2"]))
+    p_allow = _arb_from_decimal_text(str(inputs["contact_allowable_mpa"]))
+    sf = _arb_from_decimal_text(str(inputs["safety_factor"]))
+
+    pi_val = arb.pi()
+    inv_e_star = ((arb(1) - (nu1 * nu1)) / e1) + ((arb(1) - (nu2 * nu2)) / e2)
+    e_star = arb(1) / inv_e_star
+    r_eq = (d1 * d2) / (arb(2) * (d1 + d2))
+    b_half = ((arb(4) * load_n * r_eq) / (pi_val * len_mm * e_star)).sqrt()
+    p0 = (arb(2) * load_n) / (pi_val * b_half * len_mm)
+    tau_max = _arb_from_decimal_text("0.300") * p0
+    z_depth = _arb_from_decimal_text("0.786") * b_half
+    ms = (p_allow / (sf * p0)) - arb(1)
+
+    return {
+        "effective_modulus_mpa": _drift_entry(e_star, str(staged_outputs["effective_modulus_mpa"])),
+        "equivalent_radius_mm": _drift_entry(r_eq, str(staged_outputs["equivalent_radius_mm"])),
+        "contact_half_width_mm": _drift_entry(b_half, str(staged_outputs["contact_half_width_mm"])),
+        "peak_contact_pressure_mpa": _drift_entry(
+            p0, str(staged_outputs["peak_contact_pressure_mpa"])
+        ),
+        "max_subsurface_shear_mpa": _drift_entry(
+            tau_max, str(staged_outputs["max_subsurface_shear_mpa"])
+        ),
+        "shear_depth_z_mm": _drift_entry(z_depth, str(staged_outputs["shear_depth_z_mm"])),
+        "margin_of_safety": _drift_entry(ms, str(staged_outputs["margin_of_safety"])),
     }
 
 

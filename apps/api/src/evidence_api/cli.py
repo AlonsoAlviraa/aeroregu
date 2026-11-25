@@ -3284,9 +3284,13 @@ def quote_change_order_cmd(
 def quote_portfolio_level_cmd(
     rfq_count: int = typer.Option(2, "--rfq-count", help="Number of queued helicopter RFQs."),
     country: str = typer.Option("ES", "--country", help="Country rate profile."),
+    onshore: str = typer.Option("DE", "--onshore", help="Onshore CVE home country rate card."),
+    nearshore: str = typer.Option("ES", "--nearshore", help="Nearshore execution hub country."),
     lead_cve: int = typer.Option(2, "--lead-cve", help="Available Lead CVE headcount."),
     fdt_spec: int = typer.Option(2, "--fdt-spec", help="Available F&DT specialist headcount."),
     max_util: str = typer.Option("85.000", "--max-util", help="Target max weekly utilization (%)."),
+    xlsx_out: Path | None = typer.Option(None, "--xlsx-out", help="Write native .xlsx workbook."),
+    pdf_out: Path | None = typer.Option(None, "--pdf-out", help="Write signed DSSE/QR .pdf."),
     tenant: str = typer.Option("demo", "--tenant", help="Tenant ID."),
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
@@ -3295,9 +3299,16 @@ def quote_portfolio_level_cmd(
         CompositeRotorcraftQuotationSpec,
         run_composite_rotorcraft_quotation,
     )
-    from evidence_coverage.portfolio_capacity_leveler import level_portfolio_capacity
+    from evidence_coverage.portfolio_capacity_leveler import (
+        level_portfolio_capacity,
+        optimize_portfolio_nearshore_allocation,
+    )
+    from evidence_coverage.quotation_exporter import (
+        export_portfolio_capacity_signed_pdf,
+        export_portfolio_capacity_xlsx,
+    )
 
-    from evidence_api.app import _now, open_ledger
+    from evidence_api.app import _attestation_keypair, _now, open_ledger
 
     checked = _tenant_or_exit(tenant)
     ledger = open_ledger(checked)
@@ -3325,6 +3336,31 @@ def quote_portfolio_level_cmd(
         team_headcount={"LEAD_CVE": lead_cve, "FDT_SPEC": fdt_spec},
         max_utilization_pct=max_util,
     )
+    ns_plan = optimize_portfolio_nearshore_allocation(
+        res, onshore_country=onshore, nearshore_country=nearshore, cve_onshore_only=True
+    )
+    res["nearshore_optimization"] = ns_plan
+    if xlsx_out is not None:
+        xr = export_portfolio_capacity_xlsx(res, nearshore_plan=ns_plan, output_path=xlsx_out)
+        res["xlsx_export"] = {
+            "output_path": xr["output_path"],
+            "xlsx_sha256": xr["xlsx_sha256"],
+            "formula_count": xr["formula_count"],
+        }
+    if pdf_out is not None:
+        priv_pem, pub_pem = _attestation_keypair()
+        pr = export_portfolio_capacity_signed_pdf(
+            res,
+            nearshore_plan=ns_plan,
+            private_key_pem=priv_pem,
+            public_key_pem=pub_pem,
+            output_path=pdf_out,
+        )
+        res["pdf_export"] = {
+            "output_path": pr["output_path"],
+            "pdf_sha256": pr["pdf_sha256"],
+            "merkle_root": pr["merkle_root"],
+        }
     if _wants_json(json_out):
         _emit_json(res)
         return
@@ -3334,7 +3370,7 @@ def quote_portfolio_level_cmd(
         f"OverloadedWks={res['overloaded_weeks_before_leveling']} | "
         f"TopBottleneck={top['role']} ({top['unconstrained_peak_utilization_pct']}%) | "
         f"Overflow={res['recommended_nearshore_overflow_hours']}h | "
-        f"PeakCF=-{res['combined_peak_negative_cashflow_eur']} EUR"
+        f"NearshoreSavings={ns_plan['net_savings_eur']} EUR"
     )
 
 
@@ -3506,6 +3542,100 @@ def quote_fem_vv_audit_cmd(
         return
     console.print(
         Panel(json.dumps(out, indent=2), title="FEM V&V Audit (SOL105 / GPFORCE / Abaqus)")
+    )
+
+
+@quote_app.command("stress-dossier")
+def quote_stress_dossier_cmd(
+    dossier_id: str = typer.Option("STRESS-H145-001", "--dossier-id", help="Dossier ID."),
+    checks_json: Path | None = typer.Option(
+        None, "--checks-json", help="Optional JSON file with list of stress checks."
+    ),
+    xlsx_out: Path | None = typer.Option(None, "--xlsx-out", help="Write native .xlsx matrix."),
+    pdf_out: Path | None = typer.Option(None, "--pdf-out", help="Write signed DSSE/QR .pdf."),
+    tenant: str = typer.Option("demo", "--tenant", help="Tenant ID."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Run batch component stress checks with Arb + Z3 SMT proofs and export OEM dossier."""
+    from evidence_coverage.stress_dossier_packager import (
+        build_stress_summary_dossier,
+        export_stress_dossier_signed_pdf,
+        export_stress_dossier_xlsx,
+    )
+
+    from evidence_api.app import _attestation_keypair, open_ledger
+    from evidence_api.formal_methods import METHOD_DEFAULT_INPUTS
+
+    checked = _tenant_or_exit(tenant)
+    ledger = open_ledger(checked)
+    if checks_json is not None and checks_json.is_file():
+        checks = json.loads(checks_json.read_text(encoding="utf-8"))
+    else:
+        checks = [
+            {
+                "check_id": "SKID-01",
+                "component_name": "Skid Cross-Tube Aft",
+                "method_id": "cs29_skid_landing_gear_drop_energy",
+                "inputs": dict(METHOD_DEFAULT_INPUTS["cs29_skid_landing_gear_drop_energy"]),
+                "material_lookup": {
+                    "target_field": "yield_allowable_mpa",
+                    "material_id": "AL-7075-T651",
+                    "basis": "A",
+                    "temp_c": "23",
+                    "temp_uncertainty_c": "5",
+                },
+            },
+            {
+                "check_id": "TRDS-02",
+                "component_name": "Tail Rotor Drive Shaft",
+                "method_id": "shaft_whirl_critical_speed_screen",
+                "inputs": dict(METHOD_DEFAULT_INPUTS["shaft_whirl_critical_speed_screen"]),
+            },
+            {
+                "check_id": "FIRE-03",
+                "component_name": "Engine Firewall Panel",
+                "method_id": "firewall_thermal_buckling_screen",
+                "inputs": dict(METHOD_DEFAULT_INPUTS["firewall_thermal_buckling_screen"]),
+            },
+            {
+                "check_id": "SWASH-04",
+                "component_name": "Swashplate Duplex Bearing",
+                "method_id": "hertzian_bearing_contact_stress",
+                "inputs": dict(METHOD_DEFAULT_INPUTS["hertzian_bearing_contact_stress"]),
+            },
+        ]
+
+    res = build_stress_summary_dossier(
+        dossier_id, checks, ledger=ledger, tenant_id=checked, include_formal_proofs=True
+    )
+    if xlsx_out is not None:
+        xr = export_stress_dossier_xlsx(res, output_path=xlsx_out)
+        res["xlsx_export"] = {
+            "output_path": xr["output_path"],
+            "xlsx_sha256": xr["xlsx_sha256"],
+            "formula_count": xr["formula_count"],
+        }
+    if pdf_out is not None:
+        priv_pem, pub_pem = _attestation_keypair()
+        pr = export_stress_dossier_signed_pdf(
+            res,
+            private_key_pem=priv_pem,
+            public_key_pem=pub_pem,
+            output_path=pdf_out,
+        )
+        res["pdf_export"] = {
+            "output_path": pr["output_path"],
+            "pdf_sha256": pr["pdf_sha256"],
+            "merkle_root": pr["merkle_root"],
+        }
+    if _wants_json(json_out):
+        _emit_json(res)
+        return
+    console.print(
+        f"[green]Stress Dossier {res['dossier_id']}[/green] | "
+        f"Checks={res['passed_margin_count']}/{res['check_count']} | "
+        f"Z3={res['formal_proved_count']}/{res['check_count']} | "
+        f"MinMS={res['global_ms_min']} ({res['governing_check_id']})"
     )
 
 

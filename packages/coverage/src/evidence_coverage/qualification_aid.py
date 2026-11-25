@@ -361,6 +361,59 @@ def run_iq_oq_qualification_suite(repo_root: Path | None = None) -> dict[str, An
         }
     )
 
+    checks.append(
+        {
+            "id": "IQ-05",
+            "phase": "IQ",
+            "name": "builtin_stress_catalog_56_plus",
+            "passed": len(method_ids) >= 56,
+            "detail": f"cards={len(method_ids)}",
+        }
+    )
+
+    from decimal import Decimal
+
+    from evidence_calc.allowables import lookup_allowable
+
+    from evidence_coverage.quotation_exporter import _sanitize_excel_text
+
+    al_iv = lookup_allowable(
+        "AL-7075-T651",
+        basis="A",
+        property_name="fty_mpa",
+        thickness_mm="20",
+        temp_c="85",
+        environment="RTD",
+        include_intervals=True,
+        temp_uncertainty_c="5",
+        thickness_uncertainty_mm="1",
+    )
+    iv_entry = (al_iv.get("exact_intervals") or {}).get("allowable_value_mpa") or {}
+    oq5_ok = bool(
+        iv_entry
+        and Decimal(iv_entry["lower"])
+        <= Decimal(al_iv["allowable_value_mpa"])
+        <= Decimal(iv_entry["upper"])
+    )
+    checks.append(
+        {
+            "id": "OQ-05",
+            "phase": "OQ",
+            "name": "allowables_arb_interval_enclosure",
+            "passed": oq5_ok,
+        }
+    )
+
+    san = _sanitize_excel_text("=CMD|' /C calc'!A0")
+    checks.append(
+        {
+            "id": "OQ-06",
+            "phase": "OQ",
+            "name": "excel_cwe1236_formula_neutralization",
+            "passed": san.startswith("'="),
+        }
+    )
+
     iq_passed = all(c["passed"] for c in checks if c["phase"] == "IQ")
     oq_passed = all(c["passed"] for c in checks if c["phase"] == "OQ")
     overall = iq_passed and oq_passed

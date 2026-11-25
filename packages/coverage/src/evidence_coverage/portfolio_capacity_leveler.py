@@ -17,7 +17,10 @@ from typing import Any
 
 from evidence_calc.quantize import format_quantum
 
-from evidence_coverage.rotorcraft_quotation_catalog import ROTORCRAFT_QUOTATION_ARCHETYPES
+from evidence_coverage.rotorcraft_quotation_catalog import (
+    COUNTRY_RATE_CARDS,
+    ROTORCRAFT_QUOTATION_ARCHETYPES,
+)
 
 _ZERO = Decimal("0")
 _ONE = Decimal("1")
@@ -278,14 +281,18 @@ def level_portfolio_capacity(
 
     # Compute exact overflow hours across leveled grid (any week > target_cap or past max_horizon)
     peak_leveled_hrs = {r: _ZERO for r in STRESS_OFFICE_ROLES}
+    overflow_by_role = {r: _ZERO for r in STRESS_OFFICE_ROLES}
     for w, w_row in leveled_grid.items():
         for role in STRESS_OFFICE_ROLES:
             if w_row[role] > peak_leveled_hrs[role]:
                 peak_leveled_hrs[role] = w_row[role]
             if w >= max_horizon_weeks:
                 overflow_hours += w_row[role]
+                overflow_by_role[role] += w_row[role]
             elif w_row[role] > target_cap[role]:
-                overflow_hours += w_row[role] - target_cap[role]
+                exc = w_row[role] - target_cap[role]
+                overflow_hours += exc
+                overflow_by_role[role] += exc
 
     peak_util_after = {
         role: format_quantum((peak_leveled_hrs[role] / nominal_cap[role]) * _HUNDRED, _Q2)
@@ -389,6 +396,9 @@ def level_portfolio_capacity(
         "bottleneck_roles": bottleneck_roles,
         "peak_utilization_by_role_pct": peak_util_before,
         "leveled_peak_utilization_by_role_pct": peak_util_after,
+        "overflow_hours_by_role": {
+            r: format_quantum(overflow_by_role[r], _Q3) for r in STRESS_OFFICE_ROLES
+        },
         "recommended_nearshore_overflow_hours": format_quantum(overflow_hours, _Q3),
         "rfq_schedules": rfq_schedules,
         "leveled_schedule": leveled_schedule,
@@ -396,5 +406,122 @@ def level_portfolio_capacity(
         "combined_monthly_cashflow": combined_monthly,
         "advisory_only": (
             "ESTIMATE portfolio capacity leveling model for Stress Office resource planning only."
+        ),
+    }
+
+
+_ROLE_TO_RATE_KEY: dict[str, str] = {
+    "LEAD_CVE": "cve_rate",
+    "SENIOR_STRESS": "loads_rate",
+    "STRESS_ENG": "stress_rate",
+    "CAD_ENG": "cad_rate",
+    "FDT_SPEC": "fdt_dyn_rate",
+    "TEST_ENG": "test_rate",
+    "PM_DOA": "systems_rate",
+}
+
+
+def optimize_portfolio_nearshore_allocation(
+    portfolio_result: dict[str, Any],
+    *,
+    onshore_country: str = "DE",
+    nearshore_country: str = "ES",
+    cve_onshore_only: bool = True,
+    coordination_overhead_pct: str = "6.000",
+    onshore_overtime_surcharge_pct: str = "15.000",
+) -> dict[str, Any]:
+    """Optimize multi-site overflow allocation while keeping Part 21.A.239(b) CVE onshore."""
+    on_c = onshore_country.strip().upper() or "EU_DEFAULT"
+    ns_c = nearshore_country.strip().upper() or "ES"
+    if on_c not in COUNTRY_RATE_CARDS or ns_c not in COUNTRY_RATE_CARDS:
+        raise ValueError("unknown_country_code")
+
+    on_card = COUNTRY_RATE_CARDS[on_c]
+    ns_card = COUNTRY_RATE_CARDS[ns_c]
+    coord_frac = max(_ZERO, _d(coordination_overhead_pct, "6.000") / _HUNDRED)
+    ot_mult = _ONE + max(_ZERO, _d(onshore_overtime_surcharge_pct, "15.000") / _HUNDRED)
+
+    overflow_map = portfolio_result.get("overflow_hours_by_role") or {}
+    # Backward-compatible fallback if portfolio_result came from an un-expanded caller dict
+    if not overflow_map:
+        total_ov = _d(portfolio_result.get("recommended_nearshore_overflow_hours"))
+        overflow_map = {r: "0.000" for r in STRESS_OFFICE_ROLES}
+        if total_ov > _ZERO:
+            overflow_map["STRESS_ENG"] = format_quantum(total_ov, _Q3)
+
+    per_role: list[dict[str, Any]] = []
+    tot_overflow = _ZERO
+    tot_offloaded = _ZERO
+    tot_retained = _ZERO
+    tot_base_cost = _ZERO
+    tot_hybrid_cost = _ZERO
+    cve_offloaded_h = _ZERO
+
+    for role in STRESS_OFFICE_ROLES:
+        ov_h = max(_ZERO, _d(overflow_map.get(role)))
+        rk = _ROLE_TO_RATE_KEY[role]
+        r_on = _d(on_card["rates"][rk])
+        r_ns = _d(ns_card["rates"][rk])
+
+        base_cost = ov_h * r_on * ot_mult
+        ns_unit_eff = r_ns * (_ONE + coord_frac)
+        if role == "LEAD_CVE" and cve_onshore_only:
+            off_h = _ZERO
+            ret_h = ov_h
+            hyb_cost = base_cost
+            policy = "ONSHORE_ONLY_PART21_CVE"
+        elif ov_h > _ZERO and ns_unit_eff < (r_on * ot_mult):
+            off_h = ov_h
+            ret_h = _ZERO
+            hyb_cost = ov_h * ns_unit_eff
+            policy = f"OFFLOAD_TO_{ns_c}"
+        else:
+            off_h = _ZERO
+            ret_h = ov_h
+            hyb_cost = base_cost
+            policy = f"RETAIN_AT_{on_c}"
+
+        if role == "LEAD_CVE":
+            cve_offloaded_h = off_h
+
+        savings = base_cost - hyb_cost
+        tot_overflow += ov_h
+        tot_offloaded += off_h
+        tot_retained += ret_h
+        tot_base_cost += base_cost
+        tot_hybrid_cost += hyb_cost
+        per_role.append(
+            {
+                "role": role,
+                "overflow_hours": format_quantum(ov_h, _Q3),
+                "retained_onshore_hours": format_quantum(ret_h, _Q3),
+                "offloaded_nearshore_hours": format_quantum(off_h, _Q3),
+                "onshore_rate_eur_h": format_quantum(r_on, _Q2),
+                "nearshore_rate_eur_h": format_quantum(r_ns, _Q2),
+                "baseline_onshore_cost_eur": format_quantum(base_cost, _Q2),
+                "hybrid_cost_eur": format_quantum(hyb_cost, _Q2),
+                "savings_eur": format_quantum(savings, _Q2),
+                "allocation_policy": policy,
+            }
+        )
+
+    net_savings = tot_base_cost - tot_hybrid_cost
+    savings_pct = (net_savings / tot_base_cost) * _HUNDRED if tot_base_cost > _ZERO else _ZERO
+    return {
+        "onshore_country": on_c,
+        "nearshore_country": ns_c,
+        "cve_onshore_only": cve_onshore_only,
+        "cve_governance_preserved": cve_offloaded_h == _ZERO,
+        "coordination_overhead_pct": format_quantum(coord_frac * _HUNDRED, _Q2),
+        "total_overflow_hours": format_quantum(tot_overflow, _Q3),
+        "total_offloaded_hours": format_quantum(tot_offloaded, _Q3),
+        "total_retained_onshore_hours": format_quantum(tot_retained, _Q3),
+        "baseline_onshore_overflow_cost_eur": format_quantum(tot_base_cost, _Q2),
+        "hybrid_overflow_cost_eur": format_quantum(tot_hybrid_cost, _Q2),
+        "net_savings_eur": format_quantum(net_savings, _Q2),
+        "savings_pct": format_quantum(savings_pct, _Q2),
+        "per_role_allocation": per_role,
+        "advisory_only": (
+            "ESTIMATE multi-site allocation heuristic; requires HR/DOA CVE governance sign-off."
         ),
     }

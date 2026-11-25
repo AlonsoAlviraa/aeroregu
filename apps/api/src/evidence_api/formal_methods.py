@@ -69,6 +69,11 @@ METHOD_FAMILIES: dict[str, str] = {
     "orthotropic_composite_plate_buckling": "composites_cmh17",
     "skin_stringer_crippling_interaction": "thin_walled_stability",
     "walker_mean_stress_crack_growth": "fatigue_fracture",
+    # Rotorcraft Systems, Propulsion & Landing-Gear Extensions (Sprint 5 — 56-card catalog)
+    "cs29_skid_landing_gear_drop_energy": "rotorcraft_dynamics",
+    "shaft_whirl_critical_speed_screen": "rotorcraft_dynamics",
+    "firewall_thermal_buckling_screen": "thin_walled_stability",
+    "hertzian_bearing_contact_stress": "fasteners_joints",
 }
 
 METHOD_DEFAULT_INPUTS: dict[str, dict[str, Any]] = {
@@ -508,6 +513,52 @@ METHOD_DEFAULT_INPUTS: dict[str, dict[str, Any]] = {
         "walker_gamma": "0.7",
         "required_cycles": "20000",
         "scatter_factor": "2.0",
+    },
+    "cs29_skid_landing_gear_drop_energy": {
+        "gross_weight_kg": "2800",
+        "drop_height_m": "0.330",
+        "rotor_lift_fraction": "0.667",
+        "vertical_stroke_m": "0.220",
+        "gear_efficiency_eta": "0.750",
+        "cross_tube_od_mm": "76.0",
+        "cross_tube_wall_mm": "6.0",
+        "cantilever_arm_mm": "420.0",
+        "yield_allowable_mpa": "441.0",
+        "safety_factor": "1.000",
+    },
+    "shaft_whirl_critical_speed_screen": {
+        "shaft_length_mm": "1450",
+        "outer_diameter_mm": "82.0",
+        "inner_diameter_mm": "76.0",
+        "youngs_modulus_mpa": "71700",
+        "density_kg_m3": "2810",
+        "bearing_fixity_lambda": "3.14159",
+        "operating_rpm": "4200",
+        "overspeed_factor": "1.200",
+    },
+    "firewall_thermal_buckling_screen": {
+        "panel_width_b_mm": "75.0",
+        "panel_thickness_t_mm": "2.00",
+        "youngs_modulus_hot_mpa": "95000",
+        "poissons_ratio": "0.310",
+        "cte_per_c": "0.0000090",
+        "delta_temp_c": "220",
+        "restraint_factor": "0.650",
+        "plate_buckling_kc": "4.000",
+        "hot_yield_allowable_mpa": "520",
+        "safety_factor": "1.150",
+    },
+    "hertzian_bearing_contact_stress": {
+        "normal_load_n": "18000",
+        "contact_length_mm": "28.0",
+        "roller_diameter_mm": "16.0",
+        "raceway_diameter_mm": "120.0",
+        "youngs_modulus_1_mpa": "205000",
+        "poissons_ratio_1": "0.290",
+        "youngs_modulus_2_mpa": "205000",
+        "poissons_ratio_2": "0.290",
+        "contact_allowable_mpa": "2800",
+        "safety_factor": "1.250",
     },
 }
 
@@ -2617,6 +2668,175 @@ def _prove_builtin_method(
             build_violation=_v_wlk,
             proved_reason="Walker R-ratio safe inspection life exceeds required cycles",
             cex_reason="Walker factored crack growth life falls below required cycles",
+        ).to_dict()
+
+    if method_id == "cs29_skid_landing_gear_drop_energy":
+        keys = [
+            "gross_weight_kg",
+            "drop_height_m",
+            "rotor_lift_fraction",
+            "vertical_stroke_m",
+            "gear_efficiency_eta",
+            "cross_tube_od_mm",
+            "cross_tube_wall_mm",
+            "cantilever_arm_mm",
+            "yield_allowable_mpa",
+            "safety_factor",
+        ]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+
+        def _v_skid(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            g0 = z3.RealVal("9.80665")
+            w_n = p["gross_weight_kg"] * g0
+            e_drop = w_n * (
+                p["drop_height_m"] + (1 - p["rotor_lift_fraction"]) * p["vertical_stroke_m"]
+            )
+            n_z = e_drop / (w_n * p["vertical_stroke_m"] * p["gear_efficiency_eta"])
+            f_leg = z3.RealVal("0.25") * n_z * w_n
+            od = p["cross_tube_od_mm"]
+            d_in = od - 2 * p["cross_tube_wall_mm"]
+            i_tube = pi_v * ((od**4) - (d_in**4)) / 64
+            z_mod = i_tube / (od / 2)
+            s.add(
+                f_leg * p["cantilever_arm_mm"] * p["safety_factor"]
+                > p["yield_allowable_mpa"] * z_mod
+            )
+
+        return engine.prove_z3_property(
+            property_name="cs29_skid_cross_tube_bending_safety",
+            bounds=b,
+            constants=c,
+            assertion="SF * M_skid / Z_tube <= yield_allowable_mpa",
+            build_violation=_v_skid,
+            proved_reason="CS 29.725 skid cross-tube bending stress stays below F_ty",
+            cex_reason="Skid cross-tube bending stress exceeds yield allowable under drop load",
+        ).to_dict()
+
+    if method_id == "shaft_whirl_critical_speed_screen":
+        keys = [
+            "shaft_length_mm",
+            "outer_diameter_mm",
+            "inner_diameter_mm",
+            "youngs_modulus_mpa",
+            "density_kg_m3",
+            "bearing_fixity_lambda",
+            "operating_rpm",
+            "overspeed_factor",
+        ]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+
+        def _v_whirl(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            do = p["outer_diameter_mm"]
+            di = p["inner_diameter_mm"]
+            lhs = (
+                900
+                * (p["bearing_fixity_lambda"] ** 4)
+                * ((do * do + di * di) / 16)
+                * p["youngs_modulus_mpa"]
+                * z3.RealVal("1000000000000")
+            )
+            rhs = (
+                ((p["operating_rpm"] * p["overspeed_factor"]) ** 2)
+                * (pi_v * pi_v)
+                * (p["shaft_length_mm"] ** 4)
+                * p["density_kg_m3"]
+            )
+            s.add(lhs < rhs)
+
+        return engine.prove_z3_property(
+            property_name="shaft_whirl_overspeed_margin",
+            bounds=b,
+            constants=c,
+            assertion="N_cr_whirl >= operating_rpm * overspeed_factor",
+            build_violation=_v_whirl,
+            proved_reason="Tail-rotor driveshaft critical whirl speed exceeds overspeed limit",
+            cex_reason="Critical whirl speed drops below factored operating overspeed",
+        ).to_dict()
+
+    if method_id == "firewall_thermal_buckling_screen":
+        keys = [
+            "panel_width_b_mm",
+            "panel_thickness_t_mm",
+            "youngs_modulus_hot_mpa",
+            "poissons_ratio",
+            "cte_per_c",
+            "delta_temp_c",
+            "restraint_factor",
+            "plate_buckling_kc",
+            "hot_yield_allowable_mpa",
+            "safety_factor",
+        ]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+
+        def _v_fw(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            sig_th = (
+                p["restraint_factor"]
+                * p["youngs_modulus_hot_mpa"]
+                * p["cte_per_c"]
+                * p["delta_temp_c"]
+            )
+            sig_cr_num = (
+                p["plate_buckling_kc"]
+                * (pi_v * pi_v)
+                * p["youngs_modulus_hot_mpa"]
+                * (p["panel_thickness_t_mm"] ** 2)
+            )
+            sig_cr_den = 12 * (1 - p["poissons_ratio"] ** 2) * (p["panel_width_b_mm"] ** 2)
+            s.add(
+                z3.Or(
+                    p["safety_factor"] * sig_th * sig_cr_den > sig_cr_num,
+                    p["safety_factor"] * sig_th > p["hot_yield_allowable_mpa"],
+                )
+            )
+
+        return engine.prove_z3_property(
+            property_name="cs29_firewall_thermal_buckling_safety",
+            bounds=b,
+            constants=c,
+            assertion="SF * sigma_thermal <= min(sigma_cr_buckling, F_ty_hot)",
+            build_violation=_v_fw,
+            proved_reason="Firewall thermal stress stays within buckling and hot yield limits",
+            cex_reason="Firewall constrained thermal stress exceeds buckling or hot yield limit",
+        ).to_dict()
+
+    if method_id == "hertzian_bearing_contact_stress":
+        keys = [
+            "normal_load_n",
+            "contact_length_mm",
+            "roller_diameter_mm",
+            "raceway_diameter_mm",
+            "youngs_modulus_1_mpa",
+            "poissons_ratio_1",
+            "youngs_modulus_2_mpa",
+            "poissons_ratio_2",
+            "contact_allowable_mpa",
+            "safety_factor",
+        ]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+
+        def _v_hz(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            inv_e_star = ((1 - p["poissons_ratio_1"] ** 2) / p["youngs_modulus_1_mpa"]) + (
+                (1 - p["poissons_ratio_2"] ** 2) / p["youngs_modulus_2_mpa"]
+            )
+            e_star = 1 / inv_e_star
+            r_eq = (p["roller_diameter_mm"] * p["raceway_diameter_mm"]) / (
+                2 * (p["roller_diameter_mm"] + p["raceway_diameter_mm"])
+            )
+            p0_sq = (p["normal_load_n"] * e_star) / (pi_v * p["contact_length_mm"] * r_eq)
+            s.add(p0_sq * (p["safety_factor"] ** 2) > (p["contact_allowable_mpa"] ** 2))
+
+        return engine.prove_z3_property(
+            property_name="hertzian_contact_brinelling_safety",
+            bounds=b,
+            constants=c,
+            assertion="SF * p0_hertz <= contact_allowable_mpa",
+            build_violation=_v_hz,
+            proved_reason="Hertzian peak contact pressure p0 satisfies static bearing allowable",
+            cex_reason="Hertzian contact pressure exceeds factored static bearing limit",
         ).to_dict()
 
     return {

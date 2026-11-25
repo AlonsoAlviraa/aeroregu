@@ -1,0 +1,54 @@
+{
+  "method_id": "cs29_skid_landing_gear_drop_energy",
+  "method_version": "cs29_skid_landing_gear_drop_energy@1.0.0",
+  "title": "CS 29.725/29.727 Helicopter Skid Landing-Gear Drop Energy & Cross-Tube Bending",
+  "label": "ASSUMPTION",
+  "equation": "E_drop = W*(h + (1-K_L)*s); N_z = E_drop/(W*s*eta); F_leg = 0.25*N_z*W; sigma_bend = F_leg*arm/Z_tube; MS = F_ty/(SF*sigma_bend) - 1",
+  "note": "Rotorcraft skid landing gear energy absorption and tubular crossbeam elastic bending sizing under CS 29.725/727 limit & reserve drop conditions.",
+  "quantum": "0.0001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "gross_weight_kg": "kilogram",
+    "drop_height_m": "meter",
+    "rotor_lift_fraction": "dimensionless",
+    "vertical_stroke_m": "meter",
+    "gear_efficiency_eta": "dimensionless",
+    "cross_tube_od_mm": "millimeter",
+    "cross_tube_wall_mm": "millimeter",
+    "cantilever_arm_mm": "millimeter",
+    "yield_allowable_mpa": "megapascal",
+    "safety_factor": "dimensionless"
+  },
+  "required": [
+    "gross_weight_kg",
+    "drop_height_m",
+    "rotor_lift_fraction",
+    "vertical_stroke_m",
+    "gear_efficiency_eta",
+    "cross_tube_od_mm",
+    "cross_tube_wall_mm",
+    "cantilever_arm_mm",
+    "yield_allowable_mpa",
+    "safety_factor"
+  ],
+  "limits": {
+    "gross_weight_kg": { "min_exclusive": "0", "max": "100000" },
+    "drop_height_m": { "min_exclusive": "0", "max": "10" },
+    "rotor_lift_fraction": { "min": "0", "max": "0.99" },
+    "vertical_stroke_m": { "min_exclusive": "0", "max": "5" },
+    "gear_efficiency_eta": { "min_exclusive": "0", "max": "1" },
+    "cross_tube_od_mm": { "min_exclusive": "0", "max": "1000" },
+    "cross_tube_wall_mm": { "min_exclusive": "0", "max": "200" },
+    "cantilever_arm_mm": { "min_exclusive": "0", "max": "5000" },
+    "yield_allowable_mpa": { "min_exclusive": "0", "max": "5000" },
+    "safety_factor": { "min": "1", "max": "10" }
+  },
+  "sources": [
+    {
+      "source_id": "cs29-skid-drop",
+      "uri": "https://aeroregu.local/cards/cs29_skid_landing_gear_drop_energy",
+      "content_hash": "8c31b2a19044d77211fa8c4f13a0e921b4c2d5e87a11f4e81239c0d88412a501",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

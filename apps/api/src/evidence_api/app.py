@@ -3607,6 +3607,9 @@ def create_app() -> FastAPI:
                 thickness_mm=str(body.get("thickness_mm") or "10"),
                 temp_c=str(body.get("temp_c") or "23"),
                 environment=str(body.get("environment") or "RTD"),
+                include_intervals=bool(body.get("include_intervals", False)),
+                temp_uncertainty_c=str(body.get("temp_uncertainty_c") or "0"),
+                thickness_uncertainty_mm=str(body.get("thickness_uncertainty_mm") or "0"),
             )
         except (AbstainError, InvalidOperation, ValueError) as exc:
             reason = exc.reason if isinstance(exc, AbstainError) else "invalid_allowable_input"
@@ -4686,22 +4689,40 @@ def create_app() -> FastAPI:
     def rotorcraft_portfolio_capacity_endpoint(
         body: dict[str, Any], request: Request
     ) -> JSONResponse:
+        port_res, ns_plan, err = _resolve_portfolio_and_nearshore(
+            body, request, "portfolio_capacity_leveler@1.0.0"
+        )
+        if err is not None:
+            return err
+        assert port_res is not None
+        payload = {**port_res}
+        if ns_plan is not None:
+            payload["nearshore_optimization"] = ns_plan
+        return JSONResponse(_ok("portfolio_capacity_leveler@1.0.0", {}, payload))
+
+    def _resolve_portfolio_and_nearshore(
+        body: dict[str, Any], request: Request, version: str
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, JSONResponse | None]:
         from evidence_coverage.composite_dag_quotation import run_composite_rotorcraft_quotation
-        from evidence_coverage.portfolio_capacity_leveler import level_portfolio_capacity
+        from evidence_coverage.portfolio_capacity_leveler import (
+            level_portfolio_capacity,
+            optimize_portfolio_nearshore_allocation,
+        )
 
         dossiers = list(body.get("dossiers") or [])
         if not dossiers and isinstance(body.get("rfq_specs"), list):
             tenant_id = _validate_tenant(body.get("tenant_id"))
             if tenant_id is None:
-                return JSONResponse(
-                    _abstain("portfolio_capacity_leveler@1.0.0", {}, "invalid_tenant"),
-                    status_code=400,
+                return (
+                    None,
+                    None,
+                    JSONResponse(_abstain(version, {}, "invalid_tenant"), status_code=400),
                 )
             actor_id, auth_err = _check_endpoint_access(
                 request, tenant_id=tenant_id, requested_actor=body.get("actor_id")
             )
             if auth_err is not None:
-                return auth_err
+                return None, None, auth_err
             ledger = open_ledger(tenant_id)
             for idx, raw_s in enumerate(body["rfq_specs"]):
                 spec = _build_composite_spec(
@@ -4718,13 +4739,122 @@ def create_app() -> FastAPI:
             if isinstance(body.get("team_headcount"), dict)
             else None
         )
-        res = level_portfolio_capacity(
+        port_res = level_portfolio_capacity(
             dossiers,
             team_headcount=headcount,
             max_utilization_pct=str(body.get("max_utilization_pct") or "85.000"),
             max_horizon_weeks=int(body.get("max_horizon_weeks") or 104),
         )
-        return JSONResponse(_ok("portfolio_capacity_leveler@1.0.0", {}, res))
+        ns_plan = None
+        if body.get("optimize_nearshore", True) and dossiers:
+            try:
+                ns_plan = optimize_portfolio_nearshore_allocation(
+                    port_res,
+                    onshore_country=str(body.get("onshore_country") or "DE"),
+                    nearshore_country=str(body.get("nearshore_country") or "ES"),
+                    cve_onshore_only=bool(body.get("cve_onshore_only", True)),
+                )
+            except ValueError as exc:
+                return None, None, JSONResponse(_abstain(version, {}, str(exc)), status_code=400)
+        return port_res, ns_plan, None
+
+    @app.post("/quotations/rotorcraft/portfolio-capacity/export-xlsx")
+    def rotorcraft_portfolio_export_xlsx_endpoint(
+        body: dict[str, Any], request: Request
+    ) -> Response:
+        from evidence_coverage.quotation_exporter import export_portfolio_capacity_xlsx
+
+        port_res, ns_plan, err = _resolve_portfolio_and_nearshore(
+            body, request, "portfolio_export_xlsx@1.0.0"
+        )
+        if err is not None:
+            return err
+        assert port_res is not None
+        exported = export_portfolio_capacity_xlsx(port_res, nearshore_plan=ns_plan)
+        return Response(
+            content=exported["xlsx_bytes"],
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": 'attachment; filename="portfolio_rcpsp_plan.xlsx"',
+                "X-AeroRegu-SHA256": exported["xlsx_sha256"],
+                "X-AeroRegu-Formula-Count": str(exported["formula_count"]),
+            },
+        )
+
+    @app.post("/quotations/rotorcraft/portfolio-capacity/export-pdf")
+    def rotorcraft_portfolio_export_pdf_endpoint(
+        body: dict[str, Any], request: Request
+    ) -> Response:
+        from evidence_coverage.quotation_exporter import export_portfolio_capacity_signed_pdf
+
+        port_res, ns_plan, err = _resolve_portfolio_and_nearshore(
+            body, request, "portfolio_export_pdf@1.0.0"
+        )
+        if err is not None:
+            return err
+        assert port_res is not None
+        priv_pem, pub_pem = _attestation_keypair()
+        exported = export_portfolio_capacity_signed_pdf(
+            port_res,
+            nearshore_plan=ns_plan,
+            private_key_pem=priv_pem,
+            public_key_pem=pub_pem,
+        )
+        return Response(
+            content=exported["pdf_bytes"],
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": 'attachment; filename="portfolio_rcpsp_signed.pdf"',
+                "X-AeroRegu-SHA256": exported["pdf_sha256"],
+                "X-AeroRegu-Merkle-Root": exported["merkle_root"],
+            },
+        )
+
+    @app.post("/calc/batch-stress-dossier")
+    def calc_batch_stress_dossier_endpoint(body: dict[str, Any], request: Request) -> JSONResponse:
+        from evidence_coverage.stress_dossier_packager import build_stress_summary_dossier
+
+        checks = list(body.get("checks") or [])
+        if not checks:
+            return JSONResponse(
+                _abstain("stress_dossier@1.0.0", {}, "empty_stress_checks"),
+                status_code=400,
+            )
+        record_to_ledger = bool(body.get("record", False))
+        ledger_obj = None
+        tenant_id = "demo"
+        actor_id = "stress-office"
+        if record_to_ledger:
+            checked_t = _validate_tenant(body.get("tenant_id"))
+            if checked_t is None:
+                return JSONResponse(
+                    _abstain("stress_dossier@1.0.0", {}, "invalid_tenant"),
+                    status_code=400,
+                )
+            resolved_actor, auth_err = _check_endpoint_access(
+                request, tenant_id=checked_t, requested_actor=body.get("actor_id")
+            )
+            if auth_err is not None:
+                return auth_err
+            tenant_id = checked_t
+            actor_id = resolved_actor
+            ledger_obj = open_ledger(tenant_id)
+        try:
+            res = build_stress_summary_dossier(
+                str(body.get("dossier_id") or "STRESS-NOTE-001"),
+                checks,
+                ledger=ledger_obj,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                include_formal_proofs=bool(body.get("include_formal_proofs", True)),
+            )
+        except (AbstainError, ValueError, KeyError) as exc:
+            reason = exc.reason if isinstance(exc, AbstainError) else str(exc)
+            return JSONResponse(
+                _abstain("stress_dossier@1.0.0", {}, reason),
+                status_code=400,
+            )
+        return JSONResponse(_ok("stress_dossier@1.0.0", {"dossier_id": res["dossier_id"]}, res))
 
     @app.post("/quotations/rotorcraft/fx-hedging")
     def rotorcraft_fx_hedging_endpoint(body: dict[str, Any]) -> JSONResponse:

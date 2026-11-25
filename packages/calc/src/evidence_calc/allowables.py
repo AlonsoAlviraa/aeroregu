@@ -8,11 +8,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-from decimal import Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_EVEN, Decimal
+from fractions import Fraction
 from typing import Any
+
+from flint import arb, ctx, fmpq
 
 from evidence_calc.errors import AbstainError
 from evidence_calc.quantize import format_quantum
+
+_BALL_DPS = 50
+_DISPLAY_QUANTUM = Decimal("0.000001")
 
 _CATALOG_META: dict[str, str] = {
     "metallic_source": "MMPDS-16 (2022)",
@@ -306,6 +312,47 @@ def list_materials() -> list[str]:
     return sorted(_ALLOWABLES_DB.keys())
 
 
+def _arb_from_dec(val: Decimal) -> arb:
+    """Convert an exact Decimal to a 50-digit FLINT Arb ball."""
+    ctx.dps = _BALL_DPS
+    frac = Fraction(format(val, "f"))
+    if frac.denominator == 1:
+        return arb(int(frac.numerator))
+    return arb(fmpq(int(frac.numerator), int(frac.denominator)))
+
+
+def _arb_bounds_decimal(ball: arb, scale: Decimal = _DISPLAY_QUANTUM) -> dict[str, str]:
+    """Extract sound Decimal lower/upper bounds and midpoint from an Arb ball."""
+    ctx.dps = _BALL_DPS
+    mid_dec = Decimal(ball.mid().str(40, radius=False))
+    rad_dec = Decimal(ball.rad().str(15, radius=False))
+    sig_ulp = max(Decimal("1e-35"), abs(mid_dec) * Decimal("1e-35"))
+    outward_rad = rad_dec * Decimal("1.000001") + sig_ulp
+    lower_dec = (mid_dec - outward_rad).quantize(scale, rounding=ROUND_FLOOR)
+    upper_dec = (mid_dec + outward_rad).quantize(scale, rounding=ROUND_CEILING)
+    mid_quant = mid_dec.quantize(scale, rounding=ROUND_HALF_EVEN)
+    return {
+        "mid": format(mid_quant, "f"),
+        "lower": format(lower_dec, "f"),
+        "upper": format(upper_dec, "f"),
+        "radius": format(rad_dec, "E"),
+    }
+
+
+def _thermal_knockdown(temp_c: Decimal) -> Decimal:
+    if temp_c <= Decimal("25"):
+        return Decimal("1")
+    delta = temp_c - Decimal("25")
+    return max(Decimal("0.72"), Decimal("1") - delta * Decimal("0.0012"))
+
+
+def _thickness_knockdown(thk_mm: Decimal, min_thk: Decimal, max_thk: Decimal) -> Decimal:
+    thk_mid = (min_thk + max_thk) / Decimal("2")
+    if thk_mm <= thk_mid:
+        return Decimal("1")
+    return max(Decimal("0.93"), Decimal("1") - (thk_mm - thk_mid) * Decimal("0.0005"))
+
+
 def lookup_allowable(
     material_id: str,
     *,
@@ -314,6 +361,9 @@ def lookup_allowable(
     thickness_mm: str = "10",
     temp_c: str = "23",
     environment: str = "RTD",
+    include_intervals: bool = False,
+    temp_uncertainty_c: str = "0",
+    thickness_uncertainty_mm: str = "0",
 ) -> dict[str, Any]:
     """Resolve pinned A-Basis / B-Basis allowable with thickness, temp & env knockdown."""
     norm_mat = material_id.strip().upper()
@@ -332,9 +382,13 @@ def lookup_allowable(
 
     thk = Decimal(str(thickness_mm))
     temp = Decimal(str(temp_c))
-    if thk < Decimal(entry["min_thickness_mm"]) or thk > Decimal(entry["max_thickness_mm"]):
+    min_thk = Decimal(entry["min_thickness_mm"])
+    max_thk = Decimal(entry["max_thickness_mm"])
+    min_temp = Decimal(entry["min_temp_c"])
+    max_temp = Decimal(entry["max_temp_c"])
+    if thk < min_thk or thk > max_thk:
         raise AbstainError("allowable_outside_thickness_range")
-    if temp < Decimal(entry["min_temp_c"]) or temp > Decimal(entry["max_temp_c"]):
+    if temp < min_temp or temp > max_temp:
         raise AbstainError("allowable_outside_temp_range")
 
     env_key = environment.strip().upper()
@@ -343,25 +397,16 @@ def lookup_allowable(
         raise AbstainError("unknown_environmental_condition")
 
     env_kd = Decimal(env_map[env_key])
-    # Temperature thermal derating beyond ambient 25 C (linear conservative slope)
-    thermal_kd = Decimal("1")
-    if temp > Decimal("25"):
-        delta = temp - Decimal("25")
-        thermal_kd = max(Decimal("0.72"), Decimal("1") - delta * Decimal("0.0012"))
-
-    # Thick-section quench sensitivity penalty beyond midpoint thickness
-    thk_mid = (Decimal(entry["min_thickness_mm"]) + Decimal(entry["max_thickness_mm"])) / Decimal(
-        "2"
-    )
-    thk_kd = Decimal("1")
-    if thk > thk_mid:
-        thk_kd = max(Decimal("0.93"), Decimal("1") - (thk - thk_mid) * Decimal("0.0005"))
+    thermal_kd = _thermal_knockdown(temp)
+    thk_kd = _thickness_knockdown(thk, min_thk, max_thk)
 
     base_val = Decimal(basis_table[prop_key])
     effective_kd = env_kd * thermal_kd * thk_kd
     allowable_val = base_val * effective_kd
+    staged_allow = format_quantum(allowable_val, Decimal("0.001"))
+    staged_kd = format_quantum(effective_kd, Decimal("0.0001"))
 
-    return {
+    out: dict[str, Any] = {
         "material_id": norm_mat,
         "standard": entry["standard"],
         "form": entry["form"],
@@ -369,10 +414,52 @@ def lookup_allowable(
         "property_name": prop_key,
         "environment": env_key,
         "base_value_mpa": format_quantum(base_val, Decimal("0.001")),
-        "allowable_value_mpa": format_quantum(allowable_val, Decimal("0.001")),
-        "knockdown_factor": format_quantum(effective_kd, Decimal("0.0001")),
+        "allowable_value_mpa": staged_allow,
+        "knockdown_factor": staged_kd,
         "e_gpa": entry["e_gpa"],
         "nu": entry["nu"],
         "density_kg_m3": entry["density_kg_m3"],
         "catalog_sha256": allowable_catalog_sha256(),
     }
+
+    if include_intervals:
+        t_unc = Decimal(str(temp_uncertainty_c))
+        h_unc = Decimal(str(thickness_uncertainty_mm))
+        if t_unc < Decimal("0") or h_unc < Decimal("0"):
+            raise AbstainError("invalid_allowable_uncertainty")
+        t_lo = temp - t_unc
+        t_hi = temp + t_unc
+        h_lo = thk - h_unc
+        h_hi = thk + h_unc
+        if t_lo < min_temp or t_hi > max_temp:
+            raise AbstainError("allowable_outside_temp_range")
+        if h_lo < min_thk or h_hi > max_thk:
+            raise AbstainError("allowable_outside_thickness_range")
+
+        ctx.dps = _BALL_DPS
+        # Monotone knockdowns over [t_lo, t_hi] and [h_lo, h_hi]: union endpoints in 50-digit Arb
+        th_kd_ball = _arb_from_dec(_thermal_knockdown(t_lo)).union(
+            _arb_from_dec(_thermal_knockdown(t_hi))
+        )
+        tk_kd_ball = _arb_from_dec(_thickness_knockdown(h_lo, min_thk, max_thk)).union(
+            _arb_from_dec(_thickness_knockdown(h_hi, min_thk, max_thk))
+        )
+        kd_ball = _arb_from_dec(env_kd) * th_kd_ball * tk_kd_ball
+        allow_ball = _arb_from_dec(base_val) * kd_ball
+
+        allow_iv = _arb_bounds_decimal(allow_ball)
+        kd_iv = _arb_bounds_decimal(kd_ball)
+        allow_iv["staged"] = staged_allow
+        kd_iv["staged"] = staged_kd
+        out["exact_intervals"] = {
+            "allowable_value_mpa": allow_iv,
+            "knockdown_factor": kd_iv,
+        }
+        out["certified_lower_bound_mpa"] = allow_iv["lower"]
+        out["uncertainty_envelope"] = {
+            "temp_c_range": [format(t_lo, "f"), format(t_hi, "f")],
+            "thickness_mm_range": [format(h_lo, "f"), format(h_hi, "f")],
+            "ball_dps": _BALL_DPS,
+        }
+
+    return out

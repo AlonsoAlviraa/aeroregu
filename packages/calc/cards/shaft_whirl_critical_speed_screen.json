@@ -1,0 +1,48 @@
+{
+  "method_id": "shaft_whirl_critical_speed_screen",
+  "method_version": "shaft_whirl_critical_speed_screen@1.0.0",
+  "title": "Tail-Rotor Driveshaft First Bending Critical Whirl Speed & Overspeed Margin",
+  "label": "ASSUMPTION",
+  "equation": "N_cr = (60/(2*pi))*(lambda/L)^2*sqrt(E*I/(rho*A)); MS = N_cr/(RPM_op*OS_factor) - 1",
+  "note": "Hollow circular rotorcraft tail-rotor driveshaft Euler-Rayleigh fundamental lateral whirl speed and overspeed clearance screen.",
+  "quantum": "0.0001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "shaft_length_mm": "millimeter",
+    "outer_diameter_mm": "millimeter",
+    "inner_diameter_mm": "millimeter",
+    "youngs_modulus_mpa": "megapascal",
+    "density_kg_m3": "kilogram / meter ** 3",
+    "bearing_fixity_lambda": "dimensionless",
+    "operating_rpm": "revolution / minute",
+    "overspeed_factor": "dimensionless"
+  },
+  "required": [
+    "shaft_length_mm",
+    "outer_diameter_mm",
+    "inner_diameter_mm",
+    "youngs_modulus_mpa",
+    "density_kg_m3",
+    "bearing_fixity_lambda",
+    "operating_rpm",
+    "overspeed_factor"
+  ],
+  "limits": {
+    "shaft_length_mm": { "min_exclusive": "0", "max": "20000" },
+    "outer_diameter_mm": { "min_exclusive": "0", "max": "1000" },
+    "inner_diameter_mm": { "min": "0", "max": "999" },
+    "youngs_modulus_mpa": { "min_exclusive": "0", "max": "1000000" },
+    "density_kg_m3": { "min_exclusive": "0", "max": "25000" },
+    "bearing_fixity_lambda": { "min_exclusive": "0", "max": "20" },
+    "operating_rpm": { "min_exclusive": "0", "max": "100000" },
+    "overspeed_factor": { "min": "1", "max": "5" }
+  },
+  "sources": [
+    {
+      "source_id": "roark-shaft-whirl",
+      "uri": "https://aeroregu.local/cards/shaft_whirl_critical_speed_screen",
+      "content_hash": "1d947b02c5e183a00f74a3c2910be77244890fa882d1b2e43f67c08e5c19b502",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

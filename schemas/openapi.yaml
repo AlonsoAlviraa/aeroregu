@@ -1912,6 +1912,56 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Envelope"
+  /quotations/rotorcraft/portfolio-capacity/export-xlsx:
+    post:
+      operationId: exportRotorcraftPortfolioCapacityXlsx
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Download native live-formula Excel (.xlsx) RCPSP portfolio & nearshore plan workbook.
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+  /quotations/rotorcraft/portfolio-capacity/export-pdf:
+    post:
+      operationId: exportRotorcraftPortfolioCapacityPdf
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Download Ed25519 DSSE and ISO QR signed RCPSP portfolio & nearshore plan PDF.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  /calc/batch-stress-dossier:
+    post:
+      operationId: runBatchStressSummaryDossier
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Execute batch multi-component stress checks with 50-digit Arb intervals, Z3 SMT proofs, and Ledger sealing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
   /quotations/rotorcraft/fx-hedging:
     post:
       operationId: evaluateRotorcraftFxHedging

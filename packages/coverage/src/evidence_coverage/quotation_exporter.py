@@ -1429,6 +1429,439 @@ def export_change_order_signed_pdf(
     }
 
 
+def export_portfolio_capacity_xlsx(
+    portfolio_result: dict[str, Any],
+    *,
+    nearshore_plan: dict[str, Any] | None = None,
+    output_path: Path | str | None = None,
+) -> dict[str, Any]:
+    """Generate native live-formula Excel (.xlsx) workbook for RCPSP Portfolio & Nearshore Plan."""
+    wb = Workbook()
+    ws_sum = wb.active
+    ws_sum.title = "1_Portfolio_Summary"
+    ws_roles = wb.create_sheet("2_Role_Bottlenecks")
+    ws_rfqs = wb.create_sheet("3_RFQ_Schedule_Slip")
+    ws_ns = wb.create_sheet("4_Nearshore_Optimization")
+
+    formula_count = 0
+    roles = list(portfolio_result.get("bottleneck_roles") or [])
+    overflow_map = portfolio_result.get("overflow_hours_by_role") or {}
+    rfqs = list(portfolio_result.get("rfq_schedules") or [])
+    ns_roles = list((nearshore_plan or {}).get("per_role_allocation") or [])
+
+    # TAB 2: Role Bottlenecks
+    r_hdr = [
+        "Role",
+        "Headcount",
+        "Weekly Target (h)",
+        "Unconstrained Peak (h)",
+        "Unconstrained Util (%)",
+        "Leveled Util (%)",
+        "Overflow (h)",
+        "Bottleneck Status",
+    ]
+    ws_roles.append(r_hdr)
+    _style_header_row(ws_roles, 1, len(r_hdr))
+    ws_roles.freeze_panes = "A2"
+
+    for idx, r_item in enumerate(roles, start=2):
+        role_id = str(r_item.get("role") or "")
+        ws_roles.append(
+            [
+                _sanitize_excel_text(role_id),
+                int(r_item.get("headcount") or 0),
+                _num_val(r_item.get("weekly_target_hours")),
+                _num_val(r_item.get("unconstrained_peak_hours")),
+                _num_val(r_item.get("unconstrained_peak_utilization_pct")),
+                _num_val(r_item.get("leveled_peak_utilization_pct")),
+                _num_val(overflow_map.get(role_id, "0")),
+                f'=IF(E{idx}>100,"OVERLOADED",IF(F{idx}>85,"CONSTRAINED","OK"))',
+            ]
+        )
+        formula_count += 1
+        for c_i in (3, 4, 5, 6, 7):
+            ws_roles.cell(row=idx, column=c_i).number_format = "#,##0.00"
+
+    if not roles:
+        ws_roles.append(["NONE", 0, 0, 0, 0, 0, 0, '=IF(E2>100,"OVERLOADED","OK")'])
+        formula_count += 1
+        last_role = 2
+    else:
+        last_role = 1 + len(roles)
+    tot_role = last_role + 1
+    ws_roles.append(
+        [
+            "OFFICE TOTAL / PEAK",
+            f"=SUM(B2:B{last_role})",
+            f"=SUM(C2:C{last_role})",
+            f"=SUM(D2:D{last_role})",
+            f"=MAX(E2:E{last_role})",
+            f"=MAX(F2:F{last_role})",
+            f"=SUM(G2:G{last_role})",
+            f'=COUNTIF(H2:H{last_role},"OVERLOADED")',
+        ]
+    )
+    formula_count += 7
+    for c_i in range(1, len(r_hdr) + 1):
+        ws_roles.cell(row=tot_role, column=c_i).font = _BOLD_FONT
+        ws_roles.cell(row=tot_role, column=c_i).fill = _ACCENT_FILL
+    _autofit_columns(ws_roles)
+
+    # TAB 3: RFQ Schedule Slip
+    rfq_hdr = [
+        "RFQ ID",
+        "Unconstrained Finish (wk)",
+        "Leveled Finish (wk)",
+        "Schedule Slip (wk)",
+        "Leveled Start Month",
+        "Schedule Status",
+    ]
+    ws_rfqs.append(rfq_hdr)
+    _style_header_row(ws_rfqs, 1, len(rfq_hdr))
+    ws_rfqs.freeze_panes = "A2"
+
+    for idx, rfq in enumerate(rfqs, start=2):
+        ws_rfqs.append(
+            [
+                _sanitize_excel_text(rfq.get("rfq_id", "")),
+                int(rfq.get("unconstrained_finish_week") or 0),
+                int(rfq.get("leveled_finish_week") or 0),
+                f"=C{idx}-B{idx}",
+                int(rfq.get("leveled_start_month") or 0),
+                f'=IF(D{idx}>0,"SLIPPED","ON_TIME")',
+            ]
+        )
+        formula_count += 2
+
+    if not rfqs:
+        ws_rfqs.append(["NONE", 0, 0, "=C2-B2", 0, "ON_TIME"])
+        formula_count += 1
+        last_rfq = 2
+    else:
+        last_rfq = 1 + len(rfqs)
+    tot_rfq = last_rfq + 1
+    ws_rfqs.append(
+        [
+            "PORTFOLIO TOTAL / MAX",
+            f"=MAX(B2:B{last_rfq})",
+            f"=MAX(C2:C{last_rfq})",
+            f"=SUM(D2:D{last_rfq})",
+            f"=MAX(E2:E{last_rfq})",
+            f'=COUNTIF(F2:F{last_rfq},"SLIPPED")',
+        ]
+    )
+    formula_count += 5
+    for c_i in range(1, len(rfq_hdr) + 1):
+        ws_rfqs.cell(row=tot_rfq, column=c_i).font = _BOLD_FONT
+        ws_rfqs.cell(row=tot_rfq, column=c_i).fill = _ACCENT_FILL
+    _autofit_columns(ws_rfqs)
+
+    # TAB 4: Nearshore Allocation Optimization
+    ns_hdr = [
+        "Role",
+        "Overflow (h)",
+        "Retained Onshore (h)",
+        "Offloaded Nearshore (h)",
+        "Baseline Cost (EUR)",
+        "Hybrid Cost (EUR)",
+        "Net Savings (EUR)",
+        "Allocation Policy",
+    ]
+    ws_ns.append(ns_hdr)
+    _style_header_row(ws_ns, 1, len(ns_hdr))
+    ws_ns.freeze_panes = "A2"
+
+    for idx, n_item in enumerate(ns_roles, start=2):
+        ws_ns.append(
+            [
+                _sanitize_excel_text(n_item.get("role", "")),
+                _num_val(n_item.get("overflow_hours")),
+                _num_val(n_item.get("retained_onshore_hours")),
+                _num_val(n_item.get("offloaded_nearshore_hours")),
+                _num_val(n_item.get("baseline_onshore_cost_eur")),
+                _num_val(n_item.get("hybrid_cost_eur")),
+                f"=E{idx}-F{idx}",
+                _sanitize_excel_text(n_item.get("allocation_policy", "")),
+            ]
+        )
+        formula_count += 1
+        for c_i in (2, 3, 4, 5, 6, 7):
+            ws_ns.cell(row=idx, column=c_i).number_format = "#,##0.00"
+
+    if not ns_roles:
+        ws_ns.append(["NONE", 0, 0, 0, 0, 0, "=E2-F2", "NOT_RUN"])
+        formula_count += 1
+        last_ns = 2
+    else:
+        last_ns = 1 + len(ns_roles)
+    tot_ns = last_ns + 1
+    ws_ns.append(
+        [
+            "OPTIMIZATION TOTAL",
+            f"=SUM(B2:B{last_ns})",
+            f"=SUM(C2:C{last_ns})",
+            f"=SUM(D2:D{last_ns})",
+            f"=SUM(E2:E{last_ns})",
+            f"=SUM(F2:F{last_ns})",
+            f"=E{tot_ns}-F{tot_ns}",
+            f"=IF(E{tot_ns}>0,(G{tot_ns}/E{tot_ns})*100,0)",
+        ]
+    )
+    formula_count += 7
+    for c_i in range(1, len(ns_hdr) + 1):
+        ws_ns.cell(row=tot_ns, column=c_i).font = _BOLD_FONT
+        ws_ns.cell(row=tot_ns, column=c_i).fill = _ACCENT_FILL
+    _autofit_columns(ws_ns)
+
+    # TAB 1: Executive Summary (Cross-Sheet Live Formulas)
+    ws_sum.append(["AeroRegu — Stress Office RCPSP Portfolio & Multi-Site Plan", "", ""])
+    ws_sum["A1"].font = _TITLE_FONT
+    ws_sum.append(
+        [
+            "ADVISORY NOTICE",
+            "ESTIMATE / ASSUMPTION leveling aid. Requires engineering manager & CVE sign-off.",
+            "",
+        ]
+    )
+    ws_sum.append(["Portfolio KPI", "Live Formula / Value", "Source Tab"])
+    _style_header_row(ws_sum, 3, 3)
+
+    summary_rows = [
+        ("Queued RFQs Count", int(portfolio_result.get("portfolio_rfq_count") or 0), "Input"),
+        ("WBS Activities Count", int(portfolio_result.get("activity_count") or 0), "Input"),
+        (
+            "Overloaded Weeks Before Leveling",
+            int(portfolio_result.get("overloaded_weeks_before_leveling") or 0),
+            "RCPSP",
+        ),
+        ("Total Stress Office Headcount", f"='2_Role_Bottlenecks'!B{tot_role}", "Live Roles"),
+        ("Peak Unconstrained Util (%)", f"='2_Role_Bottlenecks'!E{tot_role}", "Live Roles"),
+        ("Peak Leveled Util (%)", f"='2_Role_Bottlenecks'!F{tot_role}", "Live Roles"),
+        ("Total Overflow Hours (h)", f"='2_Role_Bottlenecks'!G{tot_role}", "Live Roles"),
+        ("Max Leveled Finish Week", f"='3_RFQ_Schedule_Slip'!C{tot_rfq}", "Live Slip"),
+        ("Cumulative RFQ Slip Weeks", f"='3_RFQ_Schedule_Slip'!D{tot_rfq}", "Live Slip"),
+        (
+            "Combined Peak Negative Cash Flow (EUR)",
+            _num_val(portfolio_result.get("combined_peak_negative_cashflow_eur")),
+            "Cash-Flow",
+        ),
+        (
+            "Nearshore Hub",
+            _sanitize_excel_text(
+                f"{(nearshore_plan or {}).get('onshore_country', 'N/A')} -> "
+                f"{(nearshore_plan or {}).get('nearshore_country', 'N/A')}"
+            ),
+            "Policy",
+        ),
+        ("Retained Onshore Overflow (h)", f"='4_Nearshore_Optimization'!C{tot_ns}", "Live Hub"),
+        ("Offloaded Nearshore Hours (h)", f"='4_Nearshore_Optimization'!D{tot_ns}", "Live Hub"),
+        ("Baseline Onshore Cost (EUR)", f"='4_Nearshore_Optimization'!E{tot_ns}", "Live Hub"),
+        ("Hybrid Multi-Site Cost (EUR)", f"='4_Nearshore_Optimization'!F{tot_ns}", "Live Hub"),
+        ("Net Multi-Site Savings (EUR)", "=B17-B18", "Live Hub"),
+        (
+            "CVE Governance Preserved",
+            _sanitize_excel_text(
+                str(bool((nearshore_plan or {}).get("cve_governance_preserved", True)))
+            ),
+            "Part 21J",
+        ),
+    ]
+    for row_i, (lbl, val, src) in enumerate(summary_rows, start=4):
+        ws_sum.append([lbl, val, src])
+        if isinstance(val, str) and val.startswith("="):
+            formula_count += 1
+            ws_sum.cell(row=row_i, column=2).number_format = "#,##0.00"
+    _autofit_columns(ws_sum)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    xlsx_bytes = buf.getvalue()
+    out_str: str | None = None
+    if output_path is not None:
+        out_p = Path(output_path)
+        out_p.parent.mkdir(parents=True, exist_ok=True)
+        out_p.write_bytes(xlsx_bytes)
+        out_str = str(out_p)
+    return {
+        "xlsx_bytes": xlsx_bytes,
+        "xlsx_sha256": hashlib.sha256(xlsx_bytes).hexdigest(),
+        "sheet_names": wb.sheetnames,
+        "formula_count": formula_count,
+        "output_path": out_str,
+    }
+
+
+def export_portfolio_capacity_signed_pdf(
+    portfolio_result: dict[str, Any],
+    *,
+    nearshore_plan: dict[str, Any] | None = None,
+    private_key_pem: bytes | None = None,
+    public_key_pem: bytes | None = None,
+    output_path: Path | str | None = None,
+) -> dict[str, Any]:
+    """Generate an Ed25519 DSSE + ISO QR signed PDF for RCPSP Portfolio & Nearshore Plan."""
+    priv_pem, pub_pem = _resolve_signing_keypair(private_key_pem, public_key_pem)
+    canonical_src = json.dumps(
+        {
+            "portfolio_rfq_count": portfolio_result.get("portfolio_rfq_count"),
+            "bottleneck_roles": portfolio_result.get("bottleneck_roles"),
+            "rfq_schedules": portfolio_result.get("rfq_schedules"),
+            "recommended_nearshore_overflow_hours": portfolio_result.get(
+                "recommended_nearshore_overflow_hours"
+            ),
+            "nearshore_plan": nearshore_plan,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    merkle = hashlib.sha256(canonical_src.encode("utf-8")).hexdigest()
+
+    attestation_payload = {
+        "schema": "evidence-layer/portfolio-capacity-pdf@1.0.0",
+        "portfolio_rfq_count": int(portfolio_result.get("portfolio_rfq_count") or 0),
+        "overloaded_weeks_before_leveling": int(
+            portfolio_result.get("overloaded_weeks_before_leveling") or 0
+        ),
+        "recommended_nearshore_overflow_hours": str(
+            portfolio_result.get("recommended_nearshore_overflow_hours") or "0.000"
+        ),
+        "combined_peak_negative_cashflow_eur": str(
+            portfolio_result.get("combined_peak_negative_cashflow_eur") or "0.000"
+        ),
+        "nearshore_savings_eur": str((nearshore_plan or {}).get("net_savings_eur") or "0.00"),
+        "cve_governance_preserved": bool(
+            (nearshore_plan or {}).get("cve_governance_preserved", True)
+        ),
+        "merkle_root": merkle,
+    }
+    dsse_envelope = sign_attestation_dsse(attestation_payload, priv_pem)
+    dsse_bytes = json.dumps(dsse_envelope, sort_keys=True, indent=2).encode("utf-8")
+    sig_raw = base64.b64decode(dsse_envelope["signatures"][0]["sig"])
+    sig_sha256 = hashlib.sha256(sig_raw).hexdigest()
+
+    qr_payload = "aeroregu-port:" + json.dumps(
+        {
+            "v": 1,
+            "n": int(portfolio_result.get("portfolio_rfq_count") or 0),
+            "m": merkle[:16],
+            "s": sig_sha256[:16],
+            "ov": str(portfolio_result.get("recommended_nearshore_overflow_hours") or "0")[:10],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    qr_png = render_qr_png(qr_payload, scale=8, border=6)
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    banner_rgb = (15 / 255, 23 / 255, 42 / 255)
+    page.draw_rect(pymupdf.Rect(32, 28, 563, 92), color=banner_rgb, fill=banner_rgb)
+    page.insert_text(
+        (44, 54),
+        "AeroRegu - Signed Portfolio RCPSP & Multi-Site Plan",
+        fontsize=13.0,
+        color=(1, 1, 1),
+    )
+    page.insert_text(
+        (44, 74),
+        "ESTIMATE / ASSUMPTION capacity leveling plan. Part 21.A.239 CVE remains onshore.",
+        fontsize=8.2,
+        color=(0.82, 0.88, 0.96),
+    )
+    page.insert_image(pymupdf.Rect(452, 108, 556, 212), stream=qr_png)
+
+    top_role = (portfolio_result.get("bottleneck_roles") or [{}])[0]
+    ov_wks = portfolio_result.get("overloaded_weeks_before_leveling")
+    pk_cf = portfolio_result.get("combined_peak_negative_cashflow_eur")
+    lines = [
+        f"Queued RFQs: {portfolio_result.get('portfolio_rfq_count')}  |  "
+        f"Activities: {portfolio_result.get('activity_count')}",
+        f"Overloaded Weeks Before Leveling: {ov_wks}",
+        f"Top Bottleneck: {top_role.get('role', 'N/A')} "
+        f"({top_role.get('unconstrained_peak_utilization_pct', '0')}%)",
+        f"Overflow Hours: {portfolio_result.get('recommended_nearshore_overflow_hours')} h",
+        f"Combined Peak Neg Cash Flow: -{pk_cf} EUR",
+        f"Nearshore Route: {(nearshore_plan or {}).get('onshore_country', 'N/A')} -> "
+        f"{(nearshore_plan or {}).get('nearshore_country', 'N/A')} | "
+        f"Savings={(nearshore_plan or {}).get('net_savings_eur', '0.00')} EUR",
+        f"CVE Onshore Preserved: {(nearshore_plan or {}).get('cve_governance_preserved', True)}",
+        f"Portfolio Digest: {merkle[:48]}...",
+    ]
+    y = 124
+    for ln in lines:
+        page.insert_text((38, y), ln[:90], fontsize=9.0, color=(0.1, 0.14, 0.22))
+        y += 16
+
+    y += 10
+    page.insert_text((38, y), "7-Role Bottleneck & Leveled Utilization", fontsize=11.0)
+    y += 16
+    for br in (portfolio_result.get("bottleneck_roles") or [])[:7]:
+        un_u = br["unconstrained_peak_utilization_pct"]
+        lv_u = br["leveled_peak_utilization_pct"]
+        page.insert_text(
+            (42, y),
+            f"{br['role']}: hc={br['headcount']} unconstr={un_u}% leveled={lv_u}%",
+            fontsize=8.3,
+            color=(0.18, 0.22, 0.30),
+        )
+        y += 14
+
+    y += 8
+    page.insert_text((38, y), "RFQ Leveled Schedule Slip", fontsize=11.0)
+    y += 16
+    for rs in (portfolio_result.get("rfq_schedules") or [])[:10]:
+        if y > 790:
+            break
+        page.insert_text(
+            (42, y),
+            f"{rs['rfq_id']}: {rs['unconstrained_finish_week']}w -> {rs['leveled_finish_week']}w "
+            f"(slip={rs['schedule_slip_weeks']}w)",
+            fontsize=8.2,
+            color=(0.12, 0.18, 0.28),
+        )
+        y += 13
+
+    doc.embfile_add(
+        _DSSE_ATTACHMENT_NAME,
+        dsse_bytes,
+        filename=_DSSE_ATTACHMENT_NAME,
+        desc="DSSE v1 Ed25519 Portfolio Capacity Attestation Envelope",
+    )
+    doc.embfile_add(
+        _PUBKEY_ATTACHMENT_NAME,
+        pub_pem,
+        filename=_PUBKEY_ATTACHMENT_NAME,
+        desc="Ed25519 Verification Public Key (PEM)",
+    )
+    doc.set_metadata(
+        {
+            "title": "AeroRegu Signed Portfolio RCPSP Plan",
+            "subject": f"merkle={merkle}",
+            "keywords": qr_payload,
+            "creator": "aeroregu-portfolio-exporter",
+        }
+    )
+    pdf_bytes = doc.tobytes(deflate=True)
+    doc.close()
+
+    out_str: str | None = None
+    if output_path is not None:
+        out_p = Path(output_path)
+        out_p.parent.mkdir(parents=True, exist_ok=True)
+        out_p.write_bytes(pdf_bytes)
+        out_str = str(out_p)
+    return {
+        "pdf_bytes": pdf_bytes,
+        "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
+        "merkle_root": merkle,
+        "qr_payload": qr_payload,
+        "dsse_envelope": dsse_envelope,
+        "public_key_pem": pub_pem.decode("ascii"),
+        "output_path": out_str,
+    }
+
+
 def export_evm_postmortem_xlsx(
     postmortem_report: dict[str, Any],
     *,

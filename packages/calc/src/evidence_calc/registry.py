@@ -25,6 +25,7 @@ from evidence_calc.quotation_costing import (
 from evidence_calc.rigid_body_point_mass import run_rigid_body_point_mass
 from evidence_calc.rotorcraft_stress import ROTORCRAFT_STRESS_CARD_RUNNERS
 from evidence_calc.rotorcraft_stress_ext import ROTORCRAFT_STRESS_EXT_CARD_RUNNERS
+from evidence_calc.rotorcraft_systems_stress import ROTORCRAFT_SYSTEMS_CARD_RUNNERS
 from evidence_calc.stress_manual import STRESS_MANUAL_CARD_RUNNERS
 from evidence_calc.stress_manual_ext import STRESS_MANUAL_EXT_CARD_RUNNERS
 from evidence_calc.structural_sizing import (
@@ -51,6 +52,7 @@ _RUNNERS = {
     **STRESS_MANUAL_CARD_RUNNERS,
     **ROTORCRAFT_STRESS_CARD_RUNNERS,
     **ROTORCRAFT_STRESS_EXT_CARD_RUNNERS,
+    **ROTORCRAFT_SYSTEMS_CARD_RUNNERS,
     **STRESS_MANUAL_EXT_CARD_RUNNERS,
 }
 _CARDS: dict[str, dict[str, Any]] = {}
@@ -136,6 +138,9 @@ def run_method(
                 thickness_mm=str(spec.get("thickness_mm", "10")),
                 temp_c=str(spec.get("temp_c", "23")),
                 environment=str(spec.get("environment", "RTD")),
+                include_intervals=bool(spec.get("include_intervals", include_intervals)),
+                temp_uncertainty_c=str(spec.get("temp_uncertainty_c", "0")),
+                thickness_uncertainty_mm=str(spec.get("thickness_uncertainty_mm", "0")),
             )
             raw_inputs[field_name] = str(mat_res["allowable_value_mpa"])
             if "_input_units" in raw_inputs:
