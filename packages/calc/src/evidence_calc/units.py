@@ -119,6 +119,33 @@ def dimension_exponents(name: str) -> dict[str, int] | None:
     return exponents
 
 
+def extended_dimension_exponents(name: str) -> dict[str, int] | None:
+    """SI-letter exponents supporting extended engineering/SI Unicode & symbolic tokens.
+
+    Preserves the pinned ``dimension_exponents`` registry contract while resolving
+    extended aerospace/electrical tokens (``kvar``, ``Jy``, ``arcmin``, ``arcsec``,
+    ``kJ/mol``, ``mG``) and safe superscript/middot forms (``m²``, ``m³``, ``N·m``).
+    """
+    text = str(name).strip()
+    extended_aliases = {
+        "kvar": "kilovolt * ampere",
+        "Jy": "watt / meter ** 2 / hertz",
+        "arcmin": "arcminute",
+        "arcsec": "arcsecond",
+        "kJ/mol": "kilojoule / mole",
+        "mG": "milligauss",
+        "N·m": "newton * meter",
+        "m²": "meter ** 2",
+        "m³": "meter ** 3",
+    }
+    if text in extended_aliases:
+        return dimension_exponents(extended_aliases[text])
+    if not any(ch in text for ch in ("°", "⁻")) and any(ch in text for ch in ("²", "³", "·")):
+        cleaned = text.replace("²", "**2").replace("³", "**3").replace("·", " * ").strip()
+        return dimension_exponents(extended_aliases.get(cleaned, cleaned))
+    return dimension_exponents(text)
+
+
 def same_unit(left: str, right: str) -> bool:
     """True when the units match and the scale factor is one."""
     try:

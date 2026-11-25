@@ -5122,6 +5122,235 @@ def create_app() -> FastAPI:
             )
         )
 
+    def _resolve_stress_dossier(
+        body: dict[str, Any], request: Request, version: str
+    ) -> tuple[dict[str, Any] | None, JSONResponse | None]:
+        from evidence_coverage.stress_dossier_packager import build_stress_summary_dossier
+
+        from evidence_api.formal_methods import METHOD_DEFAULT_INPUTS
+
+        if isinstance(body.get("dossier"), dict) and body["dossier"].get("checks_results"):
+            return dict(body["dossier"]), None
+
+        checks = list(body.get("checks") or [])
+        if not checks:
+            checks = [
+                {
+                    "check_id": "SKID-01",
+                    "component_name": "Skid Cross-Tube Aft",
+                    "method_id": "cs29_skid_landing_gear_drop_energy",
+                    "inputs": dict(METHOD_DEFAULT_INPUTS["cs29_skid_landing_gear_drop_energy"]),
+                },
+                {
+                    "check_id": "TRDS-02",
+                    "component_name": "Tail Rotor Drive Shaft",
+                    "method_id": "shaft_whirl_critical_speed_screen",
+                    "inputs": dict(METHOD_DEFAULT_INPUTS["shaft_whirl_critical_speed_screen"]),
+                },
+                {
+                    "check_id": "FIRE-03",
+                    "component_name": "CS 29.1191 Firewall",
+                    "method_id": "firewall_thermal_buckling_screen",
+                    "inputs": dict(METHOD_DEFAULT_INPUTS["firewall_thermal_buckling_screen"]),
+                },
+            ]
+        ledger_obj = None
+        tenant_id = "demo"
+        actor_id = "stress-office"
+        if bool(body.get("record", False)):
+            checked_t = _validate_tenant(body.get("tenant_id"))
+            if checked_t is None:
+                return None, JSONResponse(_abstain(version, {}, "invalid_tenant"), status_code=400)
+            resolved_actor, auth_err = _check_endpoint_access(
+                request, tenant_id=checked_t, requested_actor=body.get("actor_id")
+            )
+            if auth_err is not None:
+                return None, auth_err
+            tenant_id = checked_t
+            actor_id = resolved_actor
+            ledger_obj = open_ledger(tenant_id)
+        try:
+            dos = build_stress_summary_dossier(
+                str(body.get("dossier_id") or "STRESS-NOTE-001"),
+                checks,
+                ledger=ledger_obj,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                include_formal_proofs=bool(body.get("include_formal_proofs", True)),
+            )
+        except (AbstainError, ValueError, KeyError) as exc:
+            reason = exc.reason if isinstance(exc, AbstainError) else str(exc)
+            return None, JSONResponse(_abstain(version, {}, reason), status_code=400)
+        return dos, None
+
+    @app.post("/calc/batch-stress-dossier/export-xlsx")
+    def calc_batch_stress_export_xlsx_endpoint(body: dict[str, Any], request: Request) -> Response:
+        from evidence_coverage.stress_dossier_packager import export_stress_dossier_xlsx
+
+        dos, err = _resolve_stress_dossier(body, request, "stress_dossier_xlsx@1.0.0")
+        if err is not None:
+            return err
+        assert dos is not None
+        exported = export_stress_dossier_xlsx(dos)
+        did = str(dos.get("dossier_id") or "STRESS-NOTE-001").replace('"', "")
+        return Response(
+            content=exported["xlsx_bytes"],
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f'attachment; filename="{did}_stress_dossier.xlsx"',
+                "X-AeroRegu-SHA256": exported["xlsx_sha256"],
+                "X-AeroRegu-Formula-Count": str(exported["formula_count"]),
+            },
+        )
+
+    @app.post("/calc/batch-stress-dossier/export-pdf")
+    def calc_batch_stress_export_pdf_endpoint(body: dict[str, Any], request: Request) -> Response:
+        from evidence_coverage.stress_dossier_packager import export_stress_dossier_signed_pdf
+
+        dos, err = _resolve_stress_dossier(body, request, "stress_dossier_pdf@1.0.0")
+        if err is not None:
+            return err
+        assert dos is not None
+        priv_pem, pub_pem = _attestation_keypair()
+        exported = export_stress_dossier_signed_pdf(
+            dos, private_key_pem=priv_pem, public_key_pem=pub_pem
+        )
+        did = str(dos.get("dossier_id") or "STRESS-NOTE-001").replace('"', "")
+        return Response(
+            content=exported["pdf_bytes"],
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{did}_signed_stress_dossier.pdf"',
+                "X-AeroRegu-SHA256": exported["pdf_sha256"],
+                "X-AeroRegu-Merkle-Root": exported["merkle_root"],
+            },
+        )
+
+    @app.post("/ingest/heavy-pdf")
+    def ingest_heavy_pdf_endpoint(body: dict[str, Any]) -> JSONResponse:
+        from evidence_ingest.pdf import ingest_pdf_parallel
+
+        fname = str(body.get("filename") or "heavy_spec.pdf").strip() or "heavy_spec.pdf"
+        raw, err = _decode_body_bytes(body, "heavy_pdf@1.0.0", fname)
+        if err is not None:
+            return err
+        assert raw is not None
+        try:
+            res = ingest_pdf_parallel(
+                raw,
+                source_uri=fname,
+                max_workers=int(body.get("max_workers") or 4),
+                chunk_pages=int(body.get("chunk_pages") or 20),
+            )
+        except IngestAbstain as exc:
+            return JSONResponse(
+                _abstain("heavy_pdf@1.0.0", {"filename": fname}, exc.reason), status_code=422
+            )
+        return JSONResponse(
+            _ok(
+                "heavy_pdf@1.0.0",
+                {"filename": fname, "source_hash": res["source_hash"]},
+                {
+                    "source_uri": res["source_uri"],
+                    "source_hash": res["source_hash"],
+                    "total_pages": res["total_pages"],
+                    "worker_count": res["worker_count"],
+                    "pages_per_second": res["pages_per_second"],
+                    "heavy_pdf_async": res["heavy_pdf_async"],
+                    "verified_pages": res["verified_pages"],
+                    "abstained_pages": res["abstained_pages"],
+                    "modalities": res["modalities"],
+                    "block_count": len(res["blocks"]),
+                },
+            )
+        )
+
+    from evidence_coverage.enterprise_kms_airgap import WebAuthnStepUpManager
+
+    webauthn_mgr = WebAuthnStepUpManager()
+
+    @app.post("/auth/webauthn/reauth/options")
+    def webauthn_reauth_options_endpoint(body: dict[str, Any]) -> JSONResponse:
+        user_id = str(body.get("user_id") or "cve-reviewer").strip()
+        reg = body.get("register_credential")
+        if isinstance(reg, dict) and reg.get("credential_id") and reg.get("public_key_pem"):
+            webauthn_mgr.register_user_credential(
+                user_id=str(reg.get("user_id") or user_id),
+                credential_id=str(reg["credential_id"]),
+                public_key_pem=str(reg["public_key_pem"]),
+                transports=tuple(reg.get("transports") or ("internal",)),
+            )
+        try:
+            opts = webauthn_mgr.generate_reauth_options(
+                user_id=user_id, rp_id=str(body.get("rp_id") or "aeroregu.local")
+            )
+        except ValueError as exc:
+            return JSONResponse(
+                _abstain("webauthn_reauth@1.0.0", {"user_id": user_id}, str(exc)), status_code=404
+            )
+        return JSONResponse(_ok("webauthn_reauth@1.0.0", {"user_id": user_id}, opts))
+
+    @app.post("/auth/webauthn/reauth/verify")
+    def webauthn_reauth_verify_endpoint(body: dict[str, Any]) -> JSONResponse:
+        active_user = str(body.get("user_id") or "cve-reviewer").strip()
+        cred_id = str(body.get("id") or body.get("credential_id") or "").strip()
+        challenge = str(body.get("challenge") or "").strip()
+        sig_b64 = str(
+            body.get("signature_b64") or (body.get("response") or {}).get("signature") or ""
+        ).strip()
+        ver = webauthn_mgr.verify_reauth_assertion(
+            active_user_id=active_user,
+            credential_id=cred_id,
+            challenge=challenge,
+            signature_b64=sig_b64,
+        )
+        if not ver.get("verified"):
+            return JSONResponse(
+                _abstain(
+                    "webauthn_reauth@1.0.0",
+                    {"user_id": active_user, "rpId": ver.get("rpId")},
+                    str(ver.get("reason")),
+                ),
+                status_code=int(ver.get("status_code") or 401),
+            )
+        return JSONResponse(_ok("webauthn_reauth@1.0.0", {"user_id": active_user}, ver))
+
+    @app.post("/security/sbom-airgap-audit")
+    def security_sbom_airgap_audit_endpoint(body: dict[str, Any]) -> JSONResponse:
+        from evidence_coverage.cluster_readiness import verify_cluster_infra_manifests
+        from evidence_coverage.enterprise_kms_airgap import (
+            PKCS11HSMBridge,
+            generate_cyclonedx_sbom_from_uv_lock,
+        )
+        from evidence_kernel.paths import repo_root as _repo_root
+
+        root = _repo_root()
+        signer = PKCS11HSMBridge() if bool(body.get("sign_with_hsm", True)) else None
+        sbom_res = generate_cyclonedx_sbom_from_uv_lock(
+            root,
+            offline_cve_advisories=body.get("offline_cve_advisories"),
+            sign_backend=signer,
+        )
+        cluster_res = verify_cluster_infra_manifests(root)
+        return JSONResponse(
+            _ok(
+                "sbom_airgap_audit@1.0.0",
+                {},
+                {
+                    "bom_format": sbom_res["bom_format"],
+                    "spec_version": sbom_res["spec_version"],
+                    "component_count": sbom_res["component_count"],
+                    "cve_finding_count": sbom_res["cve_finding_count"],
+                    "cve_findings": sbom_res["cve_findings"],
+                    "airgap_clean": sbom_res["airgap_clean"],
+                    "sbom_sha256": sbom_res["sbom_sha256"],
+                    "dsse_signed": sbom_res["dsse_envelope"] is not None,
+                    "cluster_verified": cluster_res["verified"],
+                    "cluster_checks": cluster_res["checks"],
+                },
+            )
+        )
+
     @app.get("/mcp/catalog")
     def get_mcp_catalog_endpoint() -> JSONResponse:
         from evidence_api.mcp_server import get_mcp_catalog

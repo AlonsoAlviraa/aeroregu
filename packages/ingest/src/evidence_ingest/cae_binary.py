@@ -640,7 +640,13 @@ def parse_cae_h5_bytes(raw: bytes, source_hash: str) -> dict[str, Any]:
 
 
 def run_sandboxed_cae_worker(
-    raw: bytes, source_hash: str, ext: str, *, timeout_s: float = 15.0
+    raw: bytes,
+    source_hash: str,
+    ext: str,
+    *,
+    timeout_s: float = 15.0,
+    max_output_bytes: int = 2_000_000,
+    residual_tol_n: float = 0.05,
 ) -> dict[str, Any]:
     """Run .odb / .rst extraction inside a clean isolated subprocess with sanitized env."""
     norm_ext = ext.lower().lstrip(".")
@@ -651,7 +657,7 @@ def run_sandboxed_cae_worker(
         in_file = Path(tdir) / f"model.{norm_ext}"
         in_file.write_bytes(raw)
         worker_script = (
-            "import json, sys, hashlib\n"
+            "import json, sys\n"
             "from pathlib import Path\n"
             "p = Path(sys.argv[1])\n"
             "data = p.read_bytes()\n"
@@ -680,12 +686,30 @@ def run_sandboxed_cae_worker(
         )
         if proc.returncode != 0:
             raise IngestAbstain(f"sandboxed_worker_failed:{proc.returncode}")
+        if len(proc.stdout.encode("utf-8")) > max_output_bytes:
+            raise IngestAbstain("sandboxed_worker_output_exceeded")
         out = json.loads(proc.stdout.strip() or "{}")
         if out.get("abstain"):
             raise IngestAbstain(str(out["abstain"]))
         payload = out.get("data") or {}
         ms_val = payload.get("ms_min", "0.150")
         eq_ok = bool(payload.get("equilibrium_verified", True))
+
+        max_res = 0.0
+        for eq in payload.get("equilibrium_residuals") or []:
+            if not isinstance(eq, dict):
+                continue
+            row_max = max(abs(float(eq.get(k, 0.0))) for k in ("fx", "fy", "fz", "mx", "my", "mz"))
+            max_res = max(max_res, row_max)
+            if row_max > residual_tol_n:
+                eq_ok = False
+
+        pid_summary = dict(payload.get("pid_ms_summary") or {})
+        if not pid_summary and isinstance(payload.get("subcase_pid_ms"), dict):
+            for pid, vals in payload["subcase_pid_ms"].items():
+                if isinstance(vals, list) and vals:
+                    pid_summary[str(pid)] = str(min(Decimal(str(v)) for v in vals))
+
         return {
             "format": f"sandboxed_{norm_ext}",
             "source_hash": source_hash,
@@ -693,8 +717,9 @@ def run_sandboxed_cae_worker(
             "element_count": int(payload.get("element_count", 0)),
             "subcase_count": int(payload.get("subcase_count", 1)),
             "equilibrium_verified": eq_ok,
+            "max_equilibrium_residual_n": round(max_res, 6),
             "ms_min": str(ms_val),
-            "pid_ms_summary": payload.get("pid_ms_summary", {}),
+            "pid_ms_summary": pid_summary,
             "parameters": [
                 make_param_entry(
                     path=f"{norm_ext.upper()}\\RESULTS\\ms_min",
@@ -717,3 +742,34 @@ def run_sandboxed_cae_worker(
                 )
             ],
         }
+
+
+def benchmark_cae_streaming_file(path: Path) -> dict[str, Any]:
+    """Benchmark streaming .op2 / .h5 ingestion throughput & bounded peak Python allocation."""
+    import tracemalloc
+
+    p = Path(path)
+    raw_head = p.read_bytes()[:16]
+    digest = hashlib.sha256(p.read_bytes()).hexdigest()
+    tracemalloc.start()
+    t0 = time.perf_counter()
+    try:
+        if raw_head.startswith(HDF5_SIGNATURE):
+            res = parse_cae_h5_file(p, source_hash=digest)
+        else:
+            res = parse_nastran_op2_file(p, source_hash=digest)
+        elapsed = max(1e-6, time.perf_counter() - t0)
+        _curr, peak_bytes = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    elem_cnt = int(res.get("element_count") or 0)
+    return {
+        "format": res.get("format"),
+        "element_count": elem_cnt,
+        "subcase_count": int(res.get("subcase_count") or 0),
+        "equilibrium_all_passed": bool(res.get("equilibrium_all_passed")),
+        "elapsed_seconds": round(elapsed, 4),
+        "elements_per_second": round(elem_cnt / elapsed, 1),
+        "peak_traced_mb": round(peak_bytes / (1024.0 * 1024.0), 3),
+        "pid_count": len(res.get("pid_ms_summary") or {}),
+    }

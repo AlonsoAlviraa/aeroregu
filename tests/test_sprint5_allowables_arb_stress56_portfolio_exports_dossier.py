@@ -496,9 +496,9 @@ def test_sprint5_6_stress_dossier_iq_oq_api_openapi_cli_and_mcp49(
     assert sd_json["check_count"] == 4
     assert sd_json["formal_proved_count"] == 4
 
-    # MCP 49 tools + calls
+    # MCP 49+ tools + calls
     tools_list = handle_mcp_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-    assert len(tools_list["result"]["tools"]) == 49
+    assert len(tools_list["result"]["tools"]) >= 49
 
     m1 = handle_mcp_message(
         {

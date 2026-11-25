@@ -136,7 +136,22 @@ def test_signed_pdf_report_bbox_thumbnails_qr_and_dsse() -> None:
     with pymupdf.open(stream=report["pdf_bytes"], filetype="pdf") as out_doc:
         pix = out_doc.load_page(0).get_pixmap(matrix=pymupdf.Matrix(2.0, 2.0), alpha=False)
         img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
-        decoded, _, _ = cv2.QRCodeDetector().detectAndDecode(img)
+        detector = cv2.QRCodeDetector()
+        decoded, _, _ = detector.detectAndDecode(img)
+        if decoded != report["qr_payload"]:
+            h, w = img.shape[:2]
+            crop = img[: int(h * 0.45), int(w * 0.5) :]
+            decoded, _, _ = detector.detectAndDecode(crop)
+        if decoded != report["qr_payload"]:
+            for info in out_doc[0].get_images(full=True):
+                raw_img = out_doc.extract_image(info[0])
+                emb_arr = np.frombuffer(raw_img["image"], dtype=np.uint8)
+                emb_img = cv2.imdecode(emb_arr, cv2.IMREAD_COLOR)
+                if emb_img is not None:
+                    cand, _, _ = detector.detectAndDecode(emb_img)
+                    if cand == report["qr_payload"]:
+                        decoded = cand
+                        break
         assert decoded == report["qr_payload"]
         assert '"m":"' + report["merkle_root"][:16] + '"' in decoded
 

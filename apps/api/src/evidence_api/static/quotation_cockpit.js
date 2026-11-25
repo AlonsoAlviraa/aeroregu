@@ -53,6 +53,19 @@
       .replace(/"/g, "&quot;");
   }
 
+  function safeSetHTML(el, html) {
+    if (!el) return;
+    const cfg = {
+      elements: ["strong", "span", "em", "code", "br"],
+      attributes: ["class"],
+    };
+    if (typeof el.setHTML === "function") {
+      el.setHTML(html, { sanitizer: cfg });
+      return;
+    }
+    el.innerHTML = html;
+  }
+
   function renderArchetypeCheckboxes(archetypes) {
     const grid = document.getElementById("quote-archetype-grid");
     if (!grid) return;
@@ -627,14 +640,25 @@
     const pBody = document.querySelector("#quote-portfolio-table tbody");
     const leadCve = Number(document.getElementById("quote-lead-cve-fte")?.value || 2);
     const fdtSpec = Number(document.getElementById("quote-fdt-fte")?.value || 2);
+    const onshore = document.getElementById("quote-port-onshore")?.value || "DE";
+    const nearshore = document.getElementById("quote-port-nearshore")?.value || "ES";
     const dossiers = [];
     if (baselineDossier) dossiers.push(baselineDossier);
     if (latestDossier && latestDossier !== baselineDossier) dossiers.push(latestDossier);
     const body = dossiers.length
-      ? { dossiers, team_headcount: { LEAD_CVE: leadCve, FDT_SPEC: fdtSpec } }
+      ? {
+          dossiers,
+          team_headcount: { LEAD_CVE: leadCve, FDT_SPEC: fdtSpec },
+          optimize_nearshore: true,
+          onshore_country: onshore,
+          nearshore_country: nearshore,
+        }
       : {
           tenant_id: tenantOf(),
           team_headcount: { LEAD_CVE: leadCve, FDT_SPEC: fdtSpec },
+          optimize_nearshore: true,
+          onshore_country: onshore,
+          nearshore_country: nearshore,
           rfq_specs: [
             { rfq_id: "PORT-01", rfq_text: "CS-29 frame static & FDT Net 60.", archetype_ids: ["Q-DES-02", "Q-STR-03", "Q-FDT-01", "Q-DOA-02"] },
             { rfq_id: "PORT-02", rfq_text: "CS-29 hoist STC & rig Net 60.", archetype_ids: ["Q-STR-03", "Q-DOA-02", "Q-TST-01"] },
@@ -649,8 +673,12 @@
       });
       const json = await resp.json();
       const res = json?.result || {};
+      const ns = res.nearshore_optimization || {};
       if (ccnStatus) {
-        ccnStatus.innerHTML = `Portfolio RCPSP (${escapeHtml(res.portfolio_rfq_count)} RFQs): Semanas sobrecargadas <strong>${escapeHtml(res.overloaded_weeks_before_leveling)}</strong> | Overflow Nearshore: <strong>${escapeHtml(res.recommended_nearshore_overflow_hours)}h</strong> | Peak Neg CF Combinado: <strong>-${escapeHtml(res.combined_peak_negative_cashflow_eur)} EUR</strong>`;
+        safeSetHTML(
+          ccnStatus,
+          `Portfolio RCPSP (${escapeHtml(res.portfolio_rfq_count)} RFQs): Sobrecarga <strong>${escapeHtml(res.overloaded_weeks_before_leveling)} sem</strong> | Overflow: <strong>${escapeHtml(res.recommended_nearshore_overflow_hours)}h</strong> | Ahorro Nearshore (${escapeHtml(ns.onshore_country || onshore)}-&gt;${escapeHtml(ns.nearshore_country || nearshore)}): <strong>${escapeHtml(ns.net_savings_eur || "0.00")} EUR</strong> (CVE Onshore=${escapeHtml(String(ns.cve_governance_preserved ?? true))})`
+        );
       }
       if (pBody) {
         pBody.innerHTML = (res.bottleneck_roles || [])
@@ -667,6 +695,49 @@
       }
     } catch (err) {
       if (ccnStatus) ccnStatus.textContent = `Error RCPSP portfolio: ${err?.message || err}`;
+    }
+  }
+
+  async function downloadPortfolioBinary(url, filename) {
+    const ccnStatus = document.getElementById("quote-ccn-status");
+    const leadCve = Number(document.getElementById("quote-lead-cve-fte")?.value || 2);
+    const fdtSpec = Number(document.getElementById("quote-fdt-fte")?.value || 2);
+    const onshore = document.getElementById("quote-port-onshore")?.value || "DE";
+    const nearshore = document.getElementById("quote-port-nearshore")?.value || "ES";
+    const body = {
+      tenant_id: tenantOf(),
+      team_headcount: { LEAD_CVE: leadCve, FDT_SPEC: fdtSpec },
+      optimize_nearshore: true,
+      onshore_country: onshore,
+      nearshore_country: nearshore,
+      rfq_specs: [
+        { rfq_id: "PORT-01", rfq_text: "CS-29 frame static & FDT Net 60.", archetype_ids: ["Q-DES-02", "Q-STR-03", "Q-FDT-01", "Q-DOA-02"] },
+        { rfq_id: "PORT-02", rfq_text: "CS-29 hoist STC & rig Net 60.", archetype_ids: ["Q-STR-03", "Q-DOA-02", "Q-TST-01"] },
+      ],
+    };
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        if (ccnStatus) ccnStatus.textContent = `Error descargando ${filename} (${resp.status})`;
+        return;
+      }
+      const blob = await resp.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objUrl);
+      if (ccnStatus) ccnStatus.textContent = `Descargado Portfolio: ${filename}`;
+    } catch (err) {
+      if (ccnStatus) ccnStatus.textContent = `Error descargando ${filename}: ${err?.message || err}`;
     }
   }
 
@@ -806,6 +877,225 @@
     }
   }
 
+  let latestStressDossier = null;
+  let reauthAbortController = new AbortController();
+
+  async function runAllowableArbLookup() {
+    const statusEl = document.getElementById("quote-stress-dossier-status");
+    const mat = document.getElementById("quote-allow-mat")?.value || "AL-7075-T651";
+    const temp = document.getElementById("quote-allow-temp")?.value || "85";
+    const tempUnc = document.getElementById("quote-allow-temp-unc")?.value || "5";
+    const thk = document.getElementById("quote-allow-thk")?.value || "20";
+    const basis = document.getElementById("quote-allow-basis")?.value || "A";
+    try {
+      const resp = await fetch("/calc/allowables", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          material_id: mat,
+          basis,
+          property_name: "fty_mpa",
+          thickness_mm: thk,
+          temp_c: temp,
+          environment: "RTD",
+          include_intervals: true,
+          temp_uncertainty_c: tempUnc,
+        }),
+      });
+      const json = await resp.json();
+      if (!resp.ok || json.abstain) {
+        if (statusEl) statusEl.textContent = `ABSTAIN allowables (${mat}): ${json.abstain?.reason || resp.status}`;
+        return;
+      }
+      const res = json.result || {};
+      const iv = res.exact_intervals?.allowable_value_mpa || {};
+      if (statusEl) {
+        safeSetHTML(
+          statusEl,
+          `MMPDS/CMH-17 <strong>${escapeHtml(res.material_id)}</strong> (${escapeHtml(res.basis)}-Basis): Fty=<strong>${escapeHtml(res.allowable_value_mpa)} MPa</strong> | Intervalo Arb 50 dígitos=[<code>${escapeHtml(iv.lower || res.allowable_value_mpa)}</code>, <code>${escapeHtml(iv.upper || res.allowable_value_mpa)}</code>] | Catálogo SHA=${escapeHtml(String(res.catalog_sha256 || "").slice(0, 12))}...`
+        );
+      }
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Error allowables Arb: ${err?.message || err}`;
+    }
+  }
+
+  async function runBatchStressDossier() {
+    const statusEl = document.getElementById("quote-stress-dossier-status");
+    const tbody = document.querySelector("#quote-stress-table tbody");
+    const dossierId = document.getElementById("quote-stress-dossier-id")?.value || "STRESS-H145-V4";
+    const mat = document.getElementById("quote-allow-mat")?.value || "AL-7075-T651";
+    const checks = [
+      {
+        check_id: "SKID-01",
+        component_name: "Skid Cross-Tube Aft",
+        method_id: "cs29_skid_landing_gear_drop_energy",
+        inputs: {
+          gross_weight_kg: "2800",
+          drop_height_m: "0.330",
+          rotor_lift_fraction: "0.667",
+          vertical_stroke_m: "0.220",
+          gear_efficiency_eta: "0.750",
+          cross_tube_od_mm: "76.0",
+          cross_tube_wall_mm: "6.0",
+          cantilever_arm_mm: "420.0",
+          yield_allowable_mpa: "441.0",
+          safety_factor: "1.000",
+        },
+        material_lookup: { target_field: "yield_allowable_mpa", material_id: mat, basis: "A", temp_c: "50", temp_uncertainty_c: "5" },
+      },
+      {
+        check_id: "TRDS-02",
+        component_name: "Tail Rotor Drive Shaft",
+        method_id: "shaft_whirl_critical_speed_screen",
+        inputs: {
+          shaft_length_mm: "1450",
+          outer_diameter_mm: "82.0",
+          inner_diameter_mm: "76.0",
+          youngs_modulus_mpa: "71700",
+          density_kg_m3: "2810",
+          bearing_fixity_lambda: "3.14159",
+          operating_rpm: "4200",
+          overspeed_factor: "1.200",
+        },
+      },
+      {
+        check_id: "FIRE-03",
+        component_name: "CS 29.1191 Engine Firewall",
+        method_id: "firewall_thermal_buckling_screen",
+        inputs: {
+          panel_width_b_mm: "75.0",
+          panel_thickness_t_mm: "2.00",
+          youngs_modulus_hot_mpa: "95000",
+          poissons_ratio: "0.310",
+          cte_per_c: "0.0000090",
+          delta_temp_c: "220",
+          restraint_factor: "0.650",
+          plate_buckling_kc: "4.000",
+          hot_yield_allowable_mpa: "520",
+          safety_factor: "1.150",
+        },
+      },
+    ];
+    try {
+      const resp = await fetch("/calc/batch-stress-dossier", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ dossier_id: dossierId, tenant_id: tenantOf(), record: false, checks }),
+      });
+      const json = await resp.json();
+      latestStressDossier = json?.result || {};
+      if (statusEl) {
+        safeSetHTML(
+          statusEl,
+          `Stress Dossier <strong>${escapeHtml(latestStressDossier.dossier_id)}</strong>: ${escapeHtml(latestStressDossier.passed_margin_count)}/${escapeHtml(latestStressDossier.check_count)} MS>=0 | Z3=${escapeHtml(latestStressDossier.formal_proved_count)} | Min MS=<strong>${escapeHtml(latestStressDossier.global_ms_min)}</strong> (${escapeHtml(latestStressDossier.governing_check_id)})`
+        );
+      }
+      if (tbody) {
+        tbody.innerHTML = (latestStressDossier.checks_results || [])
+          .map(
+            (ch) => `
+            <tr>
+              <th scope="row">${escapeHtml(ch.check_id)}</th>
+              <td>${escapeHtml(ch.component_name)}</td>
+              <td><code>${escapeHtml(ch.method_id)}</code></td>
+              <td>${escapeHtml(ch.governing_ms)} [${escapeHtml(ch.arb_interval?.lower || "-")}, ${escapeHtml(ch.arb_interval?.upper || "-")}]</td>
+              <td>${escapeHtml(ch.formal_proof?.status || "N/A")}</td>
+            </tr>`
+          )
+          .join("");
+      }
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Error Stress Dossier: ${err?.message || err}`;
+    }
+  }
+
+  async function downloadStressDossierBinary(url, filename) {
+    const statusEl = document.getElementById("quote-stress-dossier-status");
+    const dossierId = document.getElementById("quote-stress-dossier-id")?.value || "STRESS-H145-V4";
+    const body = latestStressDossier
+      ? { dossier: latestStressDossier }
+      : { dossier_id: dossierId, tenant_id: tenantOf() };
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        if (statusEl) statusEl.textContent = `Error descargando ${filename} (${resp.status})`;
+        return;
+      }
+      const blob = await resp.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objUrl);
+      if (statusEl) statusEl.textContent = `Descargado Stress Dossier: ${filename}`;
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Error descargando ${filename}: ${err?.message || err}`;
+    }
+  }
+
+  async function triggerPasskeyStepUpReauth() {
+    const statusEl = document.getElementById("quote-stress-dossier-status");
+    if (typeof window.PublicKeyCredential !== "function" || !navigator.credentials?.get) {
+      if (statusEl) statusEl.textContent = "WebAuthn Passkey API no disponible en este navegador.";
+      return;
+    }
+    reauthAbortController.abort();
+    reauthAbortController = new AbortController();
+    try {
+      const optResp = await fetch("/auth/webauthn/reauth/options", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ user_id: tenantOf() }),
+      });
+      if (!optResp.ok) {
+        if (statusEl) statusEl.textContent = `Sin passkeys registradas para step-up (${optResp.status}).`;
+        return;
+      }
+      const optJson = await optResp.json();
+      const optionsJSON = optJson.result || optJson;
+      const publicKey = PublicKeyCredential.parseRequestOptionsFromJSON(optionsJSON);
+      const credential = await navigator.credentials.get({
+        publicKey,
+        signal: reauthAbortController.signal,
+      });
+      if (!credential) return;
+      const encoded = credential.toJSON();
+      const verResp = await fetch("/auth/webauthn/reauth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ ...encoded, challenge: optionsJSON.challenge, user_id: tenantOf() }),
+      });
+      if (verResp.ok) {
+        if (statusEl) statusEl.textContent = "Step-Up Passkey CVE verificado correctamente.";
+      } else if (verResp.status === 404 && typeof PublicKeyCredential.signalUnknownCredential === "function") {
+        await PublicKeyCredential.signalUnknownCredential({
+          rpId: publicKey.rpId,
+          credentialId: encoded.id,
+        });
+        if (statusEl) statusEl.textContent = "Credencial desconocida señalizada al gestor Passkey.";
+      }
+    } catch (err) {
+      if (err?.name === "NotAllowedError") {
+        if (statusEl) statusEl.textContent = "Reautenticación Passkey cancelada por el usuario.";
+      } else if (statusEl) {
+        statusEl.textContent = `Error Passkey step-up: ${err?.message || err}`;
+      }
+    }
+  }
+
   function bindCockpit() {
     hydrateCatalog();
 
@@ -850,6 +1140,12 @@
       downloadCcnBinary("/quotations/rotorcraft/change-order/export-pdf", "aeroregu_signed_ccn.pdf");
     });
     document.getElementById("quote-portfolio-btn")?.addEventListener("click", runPortfolioCapacity);
+    document.getElementById("quote-portfolio-xlsx-btn")?.addEventListener("click", () => {
+      downloadPortfolioBinary("/quotations/rotorcraft/portfolio-capacity/export-xlsx", "aeroregu_portfolio_rcpsp.xlsx");
+    });
+    document.getElementById("quote-portfolio-pdf-btn")?.addEventListener("click", () => {
+      downloadPortfolioBinary("/quotations/rotorcraft/portfolio-capacity/export-pdf", "aeroregu_signed_portfolio.pdf");
+    });
     document.getElementById("quote-fx-run-btn")?.addEventListener("click", runFxHedging);
     document.getElementById("quote-evm-run-btn")?.addEventListener("click", runEvmPostmortem);
     document.getElementById("quote-evm-xlsx-btn")?.addEventListener("click", () => {
@@ -858,6 +1154,15 @@
     document.getElementById("quote-evm-pdf-btn")?.addEventListener("click", () => {
       downloadEvmBinary("/quotations/rotorcraft/evm-postmortem/export-pdf", "aeroregu_signed_evm.pdf");
     });
+    document.getElementById("quote-allow-arb-btn")?.addEventListener("click", runAllowableArbLookup);
+    document.getElementById("quote-stress-dossier-run-btn")?.addEventListener("click", runBatchStressDossier);
+    document.getElementById("quote-stress-xlsx-btn")?.addEventListener("click", () => {
+      downloadStressDossierBinary("/calc/batch-stress-dossier/export-xlsx", "aeroregu_stress_dossier.xlsx");
+    });
+    document.getElementById("quote-stress-pdf-btn")?.addEventListener("click", () => {
+      downloadStressDossierBinary("/calc/batch-stress-dossier/export-pdf", "aeroregu_signed_stress_dossier.pdf");
+    });
+    document.getElementById("quote-passkey-reauth-btn")?.addEventListener("click", triggerPasskeyStepUpReauth);
 
     document.addEventListener("keydown", (e) => {
       if (e.altKey && e.key === "7") {

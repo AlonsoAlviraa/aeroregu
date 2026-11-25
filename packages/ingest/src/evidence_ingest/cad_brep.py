@@ -46,6 +46,12 @@ _AEROSPACE_DENSITIES_KG_M3: dict[str, float] = {
     "T800": 1590.0,
     "T800-M21": 1580.0,
     "T800-M21-UD": 1580.0,
+    "INCONEL-718": 8190.0,
+    "INCONEL718": 8190.0,
+    "17-4PH": 7800.0,
+    "17-4PH-H1025": 7800.0,
+    "E-GLASS-8552": 1900.0,
+    "NOMEX-HRH10-48": 48.0,
     "STEEL": 7850.0,
     "15-5PH": 7800.0,
     "INCONEL": 8190.0,
@@ -1085,4 +1091,70 @@ def analyze_step_brep(
         "web_thickness_reports": web_reports,
         "composite_ply_book": ply_book,
         "parameters": params,
+    }
+
+
+def analyze_step_with_ocp_or_polyhedral(
+    step_bytes: bytes,
+    *,
+    default_material: str = "AL-7075-T651",
+) -> dict[str, Any]:
+    """Analyze STEP geometry using optional OpenCASCADE (OCP) NURBS or polyhedral fallback."""
+    import hashlib
+    import importlib.util
+    import tempfile
+    from pathlib import Path
+
+    mat_key = default_material.strip().upper()
+    rho = _AEROSPACE_DENSITIES_KG_M3.get(mat_key, 2810.0)
+    digest = hashlib.sha256(step_bytes).hexdigest()
+    has_ocp = importlib.util.find_spec("OCP") is not None
+    if has_ocp:
+        try:  # pragma: no cover - executed only when OCP-cadquery is installed
+            from OCP.BRepGProp import BRepGProp
+            from OCP.GProp import GProp_GProps
+            from OCP.IFSelect import IFSelect_RetDone
+            from OCP.STEPControl import STEPControl_Reader
+
+            with tempfile.NamedTemporaryFile(suffix=".stp", delete=False) as tf:
+                tf.write(step_bytes)
+                tmp = Path(tf.name)
+            try:
+                reader = STEPControl_Reader()
+                status = reader.ReadFile(str(tmp))
+                if status == IFSelect_RetDone:
+                    reader.TransferRoots()
+                    shape = reader.OneShape()
+                    vprops = GProp_GProps()
+                    BRepGProp.VolumeProperties_s(shape, vprops)
+                    sprops = GProp_GProps()
+                    BRepGProp.SurfaceProperties_s(shape, sprops)
+                    vol_mm3 = float(vprops.Mass())
+                    surf_mm2 = float(sprops.Mass())
+                    cg = vprops.CentreOfMass()
+                    mass_kg = vol_mm3 * 1e-9 * rho
+                    return {
+                        "kernel_backend": "opencascade_nurbs",
+                        "ocp_available": True,
+                        "assembly_volume_mm3": decimal_str(Decimal(f"{vol_mm3:.4f}"), "0.0001"),
+                        "assembly_surface_area_mm2": decimal_str(
+                            Decimal(f"{surf_mm2:.4f}"), "0.0001"
+                        ),
+                        "assembly_mass_kg": decimal_str(Decimal(f"{mass_kg:.8f}"), "0.000001"),
+                        "assembly_cg_mm": [
+                            decimal_str(Decimal(f"{cg.X():.4f}"), "0.0001"),
+                            decimal_str(Decimal(f"{cg.Y():.4f}"), "0.0001"),
+                            decimal_str(Decimal(f"{cg.Z():.4f}"), "0.0001"),
+                        ],
+                    }
+            finally:
+                tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    poly = analyze_step_brep(step_bytes, digest, default_density_kg_m3=rho)
+    return {
+        **poly,
+        "kernel_backend": "polyhedral_exact",
+        "ocp_available": has_ocp,
     }

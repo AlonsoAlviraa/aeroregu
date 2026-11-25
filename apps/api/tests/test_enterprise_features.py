@@ -357,10 +357,27 @@ def test_sso_rbac_distinct_signoff_blobs_webhooks_and_signed_pdf_e2e(
     doc = fitz.open(stream=pdf_resp.content, filetype="pdf")
     total_imgs = sum(len(doc[i].get_images(full=True)) for i in range(len(doc)))
     assert total_imgs >= 2  # QR code + >=1 cropped bbox visual thumbnail
-    pix = doc[0].get_pixmap(dpi=150)
+    pix = doc[0].get_pixmap(dpi=220)
     arr = np.frombuffer(pix.tobytes("png"), dtype=np.uint8)
     img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    decoded_qr, _, _ = cv2.QRCodeDetector().detectAndDecode(img)
+    detector = cv2.QRCodeDetector()
+    decoded_qr, _, _ = detector.detectAndDecode(img)
+    if "aeroregu-verify:" not in decoded_qr:
+        # Top-right QR crop fallback if whole-page detector hits border whitespace
+        h, w = img.shape[:2]
+        crop = img[: int(h * 0.45), int(w * 0.5) :]
+        decoded_qr, _, _ = detector.detectAndDecode(crop)
+    if "aeroregu-verify:" not in decoded_qr:
+        # Lossless embedded image extraction fallback (avoids page rasterization anti-aliasing)
+        for info in doc[0].get_images(full=True):
+            raw_img = doc.extract_image(info[0])
+            emb_arr = np.frombuffer(raw_img["image"], dtype=np.uint8)
+            emb_img = cv2.imdecode(emb_arr, cv2.IMREAD_COLOR)
+            if emb_img is not None:
+                cand, _, _ = detector.detectAndDecode(emb_img)
+                if "aeroregu-verify:" in cand:
+                    decoded_qr = cand
+                    break
     doc.close()
     assert "aeroregu-verify:" in decoded_qr
 

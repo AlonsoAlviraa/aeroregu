@@ -1,0 +1,11 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: aeroregu-api-pdb
+  labels:
+    app: aeroregu-api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: aeroregu-api

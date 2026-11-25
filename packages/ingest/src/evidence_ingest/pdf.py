@@ -21,6 +21,63 @@ _DEGRADED_MARKER_RE = re.compile(
     re.IGNORECASE,
 )
 _NUMERIC_CORRUPTION_RE = re.compile(r"(?:(?<=\d)[OIl?~](?=[\d.])|(?<=[\d.])[OIl?~](?=\d))")
+_NUMBER_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9_])[-+]?\d+(?:\.\d+)?(?![A-Za-z0-9_])")
+
+
+def dual_pass_ocr_verify_text(
+    pass_a: str,
+    pass_b: str,
+    *,
+    min_token_agreement: float = 0.85,
+) -> dict[str, Any]:
+    """Compare two independent OCR passes; fail closed if numeric values or tokens disagree."""
+    toks_a = [t.lower() for t in pass_a.split() if t.strip()]
+    toks_b = [t.lower() for t in pass_b.split() if t.strip()]
+    if not toks_a and not toks_b:
+        return {
+            "abstain": True,
+            "reason": "low_ocr_confidence_empty_passes",
+            "token_agreement": 0.0,
+            "numeric_exact_match": False,
+        }
+    set_a, set_b = set(toks_a), set(toks_b)
+    union = set_a | set_b
+    agreement = len(set_a & set_b) / max(1, len(union))
+
+    nums_a = _NUMBER_TOKEN_RE.findall(pass_a)
+    nums_b = _NUMBER_TOKEN_RE.findall(pass_b)
+    nums_match = nums_a == nums_b
+    corrupted = bool(_NUMERIC_CORRUPTION_RE.search(pass_a) or _NUMERIC_CORRUPTION_RE.search(pass_b))
+
+    if corrupted:
+        return {
+            "abstain": True,
+            "reason": "low_ocr_confidence_numeric_corruption",
+            "token_agreement": round(agreement, 4),
+            "numeric_exact_match": False,
+        }
+    if not nums_match:
+        return {
+            "abstain": True,
+            "reason": "low_ocr_confidence_numeric_mismatch",
+            "token_agreement": round(agreement, 4),
+            "numeric_exact_match": False,
+            "pass_a_numbers": nums_a,
+            "pass_b_numbers": nums_b,
+        }
+    if agreement < min_token_agreement:
+        return {
+            "abstain": True,
+            "reason": "low_ocr_confidence_pass_disagreement",
+            "token_agreement": round(agreement, 4),
+            "numeric_exact_match": True,
+        }
+    return {
+        "abstain": False,
+        "reason": None,
+        "token_agreement": round(agreement, 4),
+        "numeric_exact_match": True,
+    }
 
 
 def page_texts(doc: Any, page_range: tuple[int, int] | None = None) -> list[str]:
@@ -349,6 +406,8 @@ def _process_pdf_chunk(
     source_hash: str,
     start_page: int,
     end_page: int,
+    *,
+    secondary_ocr_fn: Callable[[int, str], str] | None = None,
 ) -> dict[str, Any]:
     """Worker routine executed per page range in parallel."""
     chunk_blocks: list[Block] = []
@@ -373,6 +432,21 @@ def _process_pdf_chunk(
             if ocr_verdict["status"] == "abstain":
                 abstained_pages.append(ocr_verdict)
                 continue
+            if secondary_ocr_fn is not None and raw_text.strip():
+                sec_text = secondary_ocr_fn(page_idx, raw_text)
+                dp_check = dual_pass_ocr_verify_text(raw_text, sec_text)
+                if dp_check["abstain"]:
+                    abstained_pages.append(
+                        {
+                            "page_no": page_idx,
+                            "modality": modality,
+                            "status": "abstain",
+                            "reason": dp_check["reason"],
+                            "ocr_confidence": dp_check["token_agreement"],
+                            "numeric_values_suppressed": True,
+                        }
+                    )
+                    continue
             verified_pages.append(page_idx)
             p_blocks, cursor = _extract_single_page_blocks(doc, page_idx, source_hash, cursor)
             chunk_blocks.extend(p_blocks)
@@ -393,6 +467,7 @@ def ingest_pdf_parallel(
     max_workers: int = 4,
     chunk_pages: int = 25,
     heavy_threshold_pages: int = 20,
+    secondary_ocr_fn: Callable[[int, str], str] | None = None,
 ) -> dict[str, Any]:
     """Ingest PDF in parallel worker chunks with dual-pass OCR verification & bbox tracking."""
     t0 = time.perf_counter()
@@ -408,9 +483,11 @@ def ingest_pdf_parallel(
 
     chunk_results: list[dict[str, Any]] = []
     eff_workers = min(max(1, int(max_workers)), len(ranges))
-    if eff_workers <= 1:
+    if eff_workers <= 1 or secondary_ocr_fn is not None:
         for s, e in ranges:
-            chunk_results.append(_process_pdf_chunk(raw, source_hash, s, e))
+            chunk_results.append(
+                _process_pdf_chunk(raw, source_hash, s, e, secondary_ocr_fn=secondary_ocr_fn)
+            )
     else:
         with concurrent.futures.ThreadPoolExecutor(max_workers=eff_workers) as executor:
             futures = [

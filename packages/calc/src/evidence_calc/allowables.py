@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_EVEN, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_EVEN, Decimal, localcontext
 from fractions import Fraction
 from typing import Any
 
@@ -294,6 +294,196 @@ _ALLOWABLES_DB: dict[str, dict[str, Any]] = {
         },
         "env_knockdown": {"CTD": "0.96", "RTD": "1.00", "ETW": "0.84"},
     },
+    "INCONEL-718": {
+        "standard": "MMPDS-16",
+        "form": "Solution Treated & Aged Bar/Forging (AMS 5663)",
+        "grain": "L",
+        "density_kg_m3": "8190",
+        "e_gpa": "200.0",
+        "nu": "0.29",
+        "min_thickness_mm": "1.5",
+        "max_thickness_mm": "127.0",
+        "min_temp_c": "-55",
+        "max_temp_c": "650",
+        "A": {
+            "ftu_mpa": "1241",
+            "fty_mpa": "1034",
+            "fcy_mpa": "1069",
+            "fsu_mpa": "758",
+            "fbru_e15_mpa": "1931",
+            "fbru_e20_mpa": "2482",
+            "fbry_e20_mpa": "1724",
+        },
+        "B": {
+            "ftu_mpa": "1276",
+            "fty_mpa": "1069",
+            "fcy_mpa": "1103",
+            "fsu_mpa": "779",
+            "fbru_e15_mpa": "1986",
+            "fbru_e20_mpa": "2551",
+            "fbry_e20_mpa": "1779",
+        },
+        "env_knockdown": {"CTD": "1.03", "RTD": "1.00", "ETW": "0.92"},
+    },
+    "17-4PH-H1025": {
+        "standard": "MMPDS-16",
+        "form": "Precipitation-Hardened CRES Bar/Plate (AMS 5643)",
+        "grain": "L",
+        "density_kg_m3": "7800",
+        "e_gpa": "196.5",
+        "nu": "0.27",
+        "min_thickness_mm": "2.0",
+        "max_thickness_mm": "152.4",
+        "min_temp_c": "-55",
+        "max_temp_c": "315",
+        "A": {
+            "ftu_mpa": "1069",
+            "fty_mpa": "1000",
+            "fcy_mpa": "1020",
+            "fsu_mpa": "662",
+            "fbru_e15_mpa": "1655",
+            "fbru_e20_mpa": "2137",
+            "fbry_e20_mpa": "1696",
+        },
+        "B": {
+            "ftu_mpa": "1103",
+            "fty_mpa": "1034",
+            "fcy_mpa": "1055",
+            "fsu_mpa": "683",
+            "fbru_e15_mpa": "1710",
+            "fbru_e20_mpa": "2206",
+            "fbry_e20_mpa": "1758",
+        },
+        "env_knockdown": {"CTD": "1.01", "RTD": "1.00", "ETW": "0.89"},
+    },
+    "E-GLASS-8552": {
+        "standard": "CMH-17 Rev H",
+        "form": "S2/E-Glass Epoxy Structural Fabric (Rotor Fairing/Strut)",
+        "grain": "0/90-deg",
+        "density_kg_m3": "1900",
+        "e_gpa": "25.5",
+        "e2_gpa": "25.5",
+        "g12_gpa": "4.2",
+        "nu": "0.14",
+        "min_thickness_mm": "0.20",
+        "max_thickness_mm": "25.0",
+        "min_temp_c": "-55",
+        "max_temp_c": "121",
+        "A": {
+            "ftu_mpa": "440",
+            "fty_mpa": "440",
+            "fcy_mpa": "390",
+            "fsu_mpa": "58",
+            "f2t_mpa": "415",
+            "f2c_mpa": "365",
+            "oht_mpa": "210",
+            "ohc_mpa": "185",
+            "cai_mpa": "175",
+        },
+        "B": {
+            "ftu_mpa": "475",
+            "fty_mpa": "475",
+            "fcy_mpa": "420",
+            "fsu_mpa": "63",
+            "f2t_mpa": "448",
+            "f2c_mpa": "395",
+            "oht_mpa": "228",
+            "ohc_mpa": "198",
+            "cai_mpa": "190",
+        },
+        "env_knockdown": {"CTD": "0.95", "RTD": "1.00", "ETW": "0.80"},
+    },
+    "NOMEX-HRH10-48": {
+        "standard": "CMH-17 Rev H",
+        "form": "Aramid Honeycomb Sandwich Core (48 kg/m3, 3.2 mm Cell)",
+        "grain": "L-ribbon",
+        "density_kg_m3": "48",
+        "e_gpa": "0.14",
+        "nu": "0.30",
+        "min_thickness_mm": "6.35",
+        "max_thickness_mm": "50.8",
+        "min_temp_c": "-55",
+        "max_temp_c": "150",
+        "A": {
+            "ftu_mpa": "2.40",
+            "fty_mpa": "2.20",
+            "fcy_mpa": "2.15",
+            "fsu_mpa": "1.20",
+        },
+        "B": {
+            "ftu_mpa": "2.65",
+            "fty_mpa": "2.40",
+            "fcy_mpa": "2.35",
+            "fsu_mpa": "1.32",
+        },
+        "env_knockdown": {"CTD": "0.98", "RTD": "1.00", "ETW": "0.85"},
+    },
+}
+
+_SN_FATIGUE_PARAMS: dict[str, dict[str, str]] = {
+    "AL-7075-T651": {
+        "sigma_f_prime_mpa": "896",
+        "basquin_b": "-0.095",
+        "endurance_limit_mpa": "159",
+        "k_ic_mpa_sqrt_m": "29",
+        "walker_c": "0.00000000018",
+        "walker_m": "3.10",
+        "walker_gamma": "0.68",
+    },
+    "AL-2024-T3": {
+        "sigma_f_prime_mpa": "745",
+        "basquin_b": "-0.092",
+        "endurance_limit_mpa": "138",
+        "k_ic_mpa_sqrt_m": "36",
+        "walker_c": "0.00000000012",
+        "walker_m": "3.00",
+        "walker_gamma": "0.70",
+    },
+    "AL-LI-2198-T8": {
+        "sigma_f_prime_mpa": "810",
+        "basquin_b": "-0.088",
+        "endurance_limit_mpa": "165",
+        "k_ic_mpa_sqrt_m": "38",
+        "walker_c": "0.00000000009",
+        "walker_m": "3.05",
+        "walker_gamma": "0.67",
+    },
+    "TI-6AL-4V": {
+        "sigma_f_prime_mpa": "1520",
+        "basquin_b": "-0.085",
+        "endurance_limit_mpa": "485",
+        "k_ic_mpa_sqrt_m": "68",
+        "walker_c": "0.000000000035",
+        "walker_m": "3.20",
+        "walker_gamma": "0.65",
+    },
+    "15-5PH-H1025": {
+        "sigma_f_prime_mpa": "1650",
+        "basquin_b": "-0.082",
+        "endurance_limit_mpa": "515",
+        "k_ic_mpa_sqrt_m": "72",
+        "walker_c": "0.000000000028",
+        "walker_m": "3.00",
+        "walker_gamma": "0.70",
+    },
+    "INCONEL-718": {
+        "sigma_f_prime_mpa": "1950",
+        "basquin_b": "-0.078",
+        "endurance_limit_mpa": "565",
+        "k_ic_mpa_sqrt_m": "85",
+        "walker_c": "0.000000000019",
+        "walker_m": "3.15",
+        "walker_gamma": "0.66",
+    },
+    "17-4PH-H1025": {
+        "sigma_f_prime_mpa": "1620",
+        "basquin_b": "-0.084",
+        "endurance_limit_mpa": "495",
+        "k_ic_mpa_sqrt_m": "70",
+        "walker_c": "0.000000000030",
+        "walker_m": "3.02",
+        "walker_gamma": "0.69",
+    },
 }
 
 
@@ -463,3 +653,69 @@ def lookup_allowable(
         }
 
     return out
+
+
+def lookup_sn_fatigue_allowable(
+    material_id: str,
+    *,
+    stress_ratio_r: str = "0.1",
+    target_cycles: str = "1000000",
+) -> dict[str, Any]:
+    """Resolve Basquin log-log S-N fatigue strength at N cycles with Walker/Goodman R adjustment."""
+    norm_mat = material_id.strip().upper()
+    entry = _ALLOWABLES_DB.get(norm_mat)
+    sn = _SN_FATIGUE_PARAMS.get(norm_mat)
+    if entry is None or sn is None:
+        raise AbstainError("unknown_sn_fatigue_material")
+
+    r_val = Decimal(str(stress_ratio_r))
+    n_cyc = Decimal(str(target_cycles))
+    if n_cyc < Decimal("100") or n_cyc > Decimal("100000000"):
+        raise AbstainError("sn_cycles_outside_validity")
+    if r_val <= Decimal("-1") or r_val >= Decimal("0.9"):
+        raise AbstainError("sn_stress_ratio_outside_validity")
+
+    sf_p = Decimal(sn["sigma_f_prime_mpa"])
+    b_exp = Decimal(sn["basquin_b"])
+    se_lim = Decimal(sn["endurance_limit_mpa"])
+    ftu = Decimal(entry["A"]["ftu_mpa"])
+
+    with localcontext() as dctx:
+        dctx.prec = 50
+        revs = Decimal("2") * n_cyc
+        s_amp_rev = sf_p * (b_exp * revs.ln()).exp()
+        if s_amp_rev < se_lim:
+            s_amp_rev = se_lim
+        # Convert completely-reversed amplitude (R=-1) to max cyclic stress at stress_ratio_r
+        # Goodman: sigma_a / Se_rev + sigma_m / Ftu = 1, with sigma_m = ((1+R)/(1-R))*sigma_a
+        one = Decimal("1")
+        r_ratio_mean = (one + r_val) / (one - r_val)
+        s_amp_r = one / ((one / s_amp_rev) + (r_ratio_mean / ftu))
+        sigma_max = (Decimal("2") * s_amp_r) / (one - r_val)
+
+    return {
+        "material_id": norm_mat,
+        "standard": entry["standard"],
+        "stress_ratio_r": format_quantum(r_val, Decimal("0.01")),
+        "target_cycles": format_quantum(n_cyc, Decimal("1")),
+        "reversed_fatigue_amp_mpa": format_quantum(s_amp_rev, Decimal("0.01")),
+        "allowable_stress_amp_mpa": format_quantum(s_amp_r, Decimal("0.01")),
+        "allowable_max_stress_mpa": format_quantum(sigma_max, Decimal("0.01")),
+        "catalog_sha256": allowable_catalog_sha256(),
+    }
+
+
+def lookup_nasgro_paris_params(material_id: str) -> dict[str, Any]:
+    """Return pinned Walker/Paris da/dN and fracture toughness K_Ic parameters."""
+    norm_mat = material_id.strip().upper()
+    sn = _SN_FATIGUE_PARAMS.get(norm_mat)
+    if sn is None:
+        raise AbstainError("unknown_nasgro_material")
+    return {
+        "material_id": norm_mat,
+        "k_ic_mpa_sqrt_m": sn["k_ic_mpa_sqrt_m"],
+        "walker_c": sn["walker_c"],
+        "walker_m": sn["walker_m"],
+        "walker_gamma": sn["walker_gamma"],
+        "catalog_sha256": allowable_catalog_sha256(),
+    }

@@ -13,6 +13,7 @@ services:
       EVIDENCE_PRODUCTION: ${EVIDENCE_PRODUCTION:-0}
       EVIDENCE_SESSION_SECRET: ${EVIDENCE_SESSION_SECRET:?Set EVIDENCE_SESSION_SECRET to a random string of at least 24 characters}
       EVIDENCE_COOKIE_SECURE: ${EVIDENCE_COOKIE_SECURE:-1}
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-2}
       MODEL_BASE_URL: ${MODEL_BASE_URL:-}
       MODEL_NAME: ${MODEL_NAME:-}
       EDGE_MODEL_URL: ${EDGE_MODEL_URL:-}
@@ -26,5 +27,39 @@ services:
       timeout: 5s
       retries: 3
 
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["enterprise"]
+    environment:
+      POSTGRES_DB: aeroregu
+      POSTGRES_USER: aeroregu
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aeroregu-local-dev}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./postgres/init-rls-worm.sql:/docker-entrypoint-initdb.d/01-init-rls-worm.sql:ro
+    security_opt:
+      - no-new-privileges:true
+
+  minio:
+    image: minio/minio:RELEASE.2025-02-18T16-25-55Z
+    profiles: ["enterprise"]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aeroregu-s3}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-aeroregu-worm-secret}
+    volumes:
+      - minio_data:/data
+    security_opt:
+      - no-new-privileges:true
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["enterprise"]
+    command: redis-server --appendonly yes
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   evidence_data:
+  pg_data:
+  minio_data:

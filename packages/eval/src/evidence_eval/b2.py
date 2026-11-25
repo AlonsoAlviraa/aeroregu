@@ -806,3 +806,49 @@ def _ratio(hits: int, total: int) -> str | None:
     from decimal import Decimal
 
     return str((Decimal(hits) / Decimal(total)).quantize(Decimal("0.001")))
+
+
+def predict_generic_traces(
+    source_id: str,
+    source_text: str,
+    targets: list[tuple[str, str]],
+    *,
+    min_score: float = 0.25,
+) -> list[dict[str, Any]]:
+    """Recover requirement-to-artifact trace links using ID mentions & IDF token overlap."""
+    import math
+
+    _tok_re = re.compile(r"[a-z0-9]{3,}")
+    src_tokens = set(_tok_re.findall(source_text.lower()))
+    if not targets:
+        return []
+
+    target_tokens_list = [(tid, ttxt, set(_tok_re.findall(ttxt.lower()))) for tid, ttxt in targets]
+    df: dict[str, int] = {}
+    for _, _, toks in target_tokens_list:
+        for tok in toks:
+            df[tok] = df.get(tok, 0) + 1
+    n_docs = max(1, len(targets))
+
+    def _idf(tok: str) -> float:
+        return math.log((n_docs + 1.0) / (df.get(tok, 0) + 1.0)) + 1.0
+
+    src_norm = math.sqrt(sum(_idf(t) ** 2 for t in src_tokens)) or 1.0
+    out: list[dict[str, Any]] = []
+    for tid, ttxt, t_toks in target_tokens_list:
+        explicit_id_hit = tid.lower() in source_text.lower() or source_id.lower() in ttxt.lower()
+        shared = src_tokens & t_toks
+        t_norm = math.sqrt(sum(_idf(t) ** 2 for t in t_toks)) or 1.0
+        cos_sim = sum(_idf(t) ** 2 for t in shared) / (src_norm * t_norm) if shared else 0.0
+        score = max(1.0 if explicit_id_hit else 0.0, cos_sim)
+        if score >= min_score:
+            out.append(
+                {
+                    "source_id": source_id,
+                    "target_id": tid,
+                    "score": round(score, 4),
+                    "method": "explicit_id" if explicit_id_hit else "idf_cosine",
+                }
+            )
+    out.sort(key=lambda item: (-item["score"], item["target_id"]))
+    return out

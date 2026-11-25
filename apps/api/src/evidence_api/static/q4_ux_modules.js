@@ -9,7 +9,8 @@
     composites_cmh17: "04. Composites (CMH-17 / Hashin / Puck)",
     fatigue_fracture: "05. Fatiga, Grietas y Fractura (NASGRO)",
     thin_walled_stability: "06. Estabilidad Paredes Delgadas y Pandeo",
-    plugins: "07. Tarjetas Declarativas de Usuario",
+    rotorcraft_dynamics: "07. Dinámica de Rotor, Impacto y Aterrizaje",
+    plugins: "08. Tarjetas Declarativas de Usuario",
   };
 
   const state = {

@@ -2044,6 +2044,104 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Envelope"
+  /calc/batch-stress-dossier/export-xlsx:
+    post:
+      operationId: exportBatchStressDossierXlsx
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Download native live-formula Excel (.xlsx) batch stress summary matrix.
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+  /calc/batch-stress-dossier/export-pdf:
+    post:
+      operationId: exportBatchStressDossierPdf
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Download Ed25519 DSSE and ISO QR signed batch stress summary PDF.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  /ingest/heavy-pdf:
+    post:
+      operationId: ingestHeavyPdfParallel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Parallel multi-worker heavy/scanned PDF ingestion with dual-pass OCR abstention.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /auth/webauthn/reauth/options:
+    post:
+      operationId: webauthnStepUpReauthOptions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Issue active-user constrained FIDO2 WebAuthn step-up reauthentication options.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /auth/webauthn/reauth/verify:
+    post:
+      operationId: webauthnStepUpReauthVerify
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Verify WebAuthn step-up reauthentication assertion bound strictly to active user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /security/sbom-airgap-audit:
+    post:
+      operationId: runSecuritySbomAndAirgapAudit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Generate CycloneDX 1.5 SBOM, verify offline CVEs, Postgres RLS DDL, and Helm/Compose airgap manifests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
 components:
   schemas:
     Envelope:

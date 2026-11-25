@@ -1041,6 +1041,21 @@ MCP_TOOLS: tuple[dict[str, Any], ...] = (
             },
         },
     },
+    {
+        "name": "audit_airgap_sbom_and_cluster_readiness",
+        "description": (
+            "Generate a CycloneDX 1.5 SBOM from uv.lock with offline CVE checks and verify "
+            "PostgreSQL 16 RLS/WORM DDL, Compose enterprise services, Helm HA/NetworkPolicy "
+            "templates, and air-gapped pinned OCI digests."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "offline_cve_advisories": {"type": "object"},
+                "sign_with_hsm": {"type": "boolean", "default": True},
+            },
+        },
+    },
 )
 
 MCP_RESOURCES: tuple[dict[str, Any], ...] = (
@@ -2851,6 +2866,34 @@ def _call_tool(
             out["pdf_sha256"] = pr["pdf_sha256"]
             out["pdf_output_path"] = pr["output_path"]
         return False, out
+
+    if name == "audit_airgap_sbom_and_cluster_readiness":
+        from evidence_coverage.cluster_readiness import verify_cluster_infra_manifests
+        from evidence_coverage.enterprise_kms_airgap import (
+            PKCS11HSMBridge,
+            generate_cyclonedx_sbom_from_uv_lock,
+        )
+        from evidence_kernel.paths import repo_root as _repo_root
+
+        root = _repo_root()
+        signer = PKCS11HSMBridge() if bool(arguments.get("sign_with_hsm", True)) else None
+        sbom_res = generate_cyclonedx_sbom_from_uv_lock(
+            root,
+            offline_cve_advisories=arguments.get("offline_cve_advisories"),
+            sign_backend=signer,
+        )
+        cluster_res = verify_cluster_infra_manifests(root)
+        return False, {
+            "bom_format": sbom_res["bom_format"],
+            "spec_version": sbom_res["spec_version"],
+            "component_count": sbom_res["component_count"],
+            "cve_finding_count": sbom_res["cve_finding_count"],
+            "airgap_clean": sbom_res["airgap_clean"],
+            "sbom_sha256": sbom_res["sbom_sha256"],
+            "dsse_signed": sbom_res["dsse_envelope"] is not None,
+            "cluster_verified": cluster_res["verified"],
+            "cluster_checks": cluster_res["checks"],
+        }
 
     return True, {"error": f"unknown_tool: {name}"}
 

@@ -564,3 +564,56 @@ class MockPLMServerTransport(httpx.BaseTransport):
             }
             self.request_history.append((method, path, 200))
             return httpx.Response(200, json=bom)
+
+
+def run_plm_ecn_resilience_probe(
+    system: PLMSystemType = "3dexperience",
+    *,
+    inject_503_count: int = 2,
+    expire_token_once: bool = True,
+) -> dict[str, Any]:
+    """Execute deterministic Rev A -> Rev B ECN drill under 503 storms & OAuth token expiry."""
+    transport = MockPLMServerTransport(
+        transient_503_budget=inject_503_count,
+        expire_first_token_once=expire_token_once,
+    )
+    conn = build_plm_connector(
+        system,
+        base_url="https://plm.aeroregu.local",
+        token_url="https://plm.aeroregu.local/oauth/token",
+        client_id="aeroregu-sync",
+        client_secret="mock-secret",
+        transport=transport,
+    )
+    bom_rev_b = conn.fetch_ebom("WING-SPAR-ASM-01", revision="Rev B", msn=16)
+    ecn_diff = conn.fetch_ecn_diff("ECN-2026-019")
+    plan = compute_selective_pid_invalidation(
+        ecn_diff=ecn_diff,
+        all_cells=[
+            {"cell_id": "cell-spar", "pids": [2001]},
+            {"cell_id": "cell-rib-revb", "pids": [2002]},
+            {"cell_id": "cell-lug-untouched", "pids": [3001]},
+        ],
+    )
+    wb_res = conn.writeback_merkle_attestation(
+        change_action_id="ECN-2026-019",
+        merkle_root="a" * 64,
+        head_hash="b" * 64,
+        chain_verified=True,
+        revision="Rev B",
+        msn=16,
+    )
+    return {
+        "system": system,
+        "active_part_count": bom_rev_b["active_part_count"],
+        "invalidated_cells": plan["invalidated_cells"],
+        "unaffected_cells": plan["unaffected_cells"],
+        "token_refreshes": conn.auth._refresh_count,
+        "http_503_retries_observed": sum(
+            1 for _, _, code in transport.request_history if code == 503
+        ),
+        "http_401_refreshes_observed": sum(
+            1 for _, _, code in transport.request_history if code == 401
+        ),
+        "writeback_status": wb_res.get("status"),
+    }

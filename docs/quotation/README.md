@@ -9,7 +9,7 @@
 ## Core Capabilities
 
 1. **Zero LLM Math (`Decimal` + 50-Digit `FLINT/Arb` Intervals + Rotorcraft Stress & Financial Cards):**
-   - `56` total deterministic calculation cards (`5` quotation costing cards + `51` aerospace & rotorcraft stress sizing cards; `8` MMPDS-16 / CMH-17 Rev H materials with 50-digit `FLINT/Arb` interval-bounded thermal/thickness interpolation & synchronized STEP B-Rep densities; commercial outputs labeled `ASSUMPTION` / `ESTIMATE`, `not_a_certification_method: true`) compute every price, labor cost, overhead, contingency, PERT percentile (`P50 / P80 / P90`), learning curve, country inflation, monthly working-capital cash flow, and margin with zero floating-point arithmetic:
+   - `56` total deterministic calculation cards (`5` quotation costing cards + `51` aerospace & rotorcraft stress sizing cards; `12` MMPDS-16 / CMH-17 Rev H materials with S-N/NASGRO fatigue constants, 50-digit `FLINT/Arb` interval-bounded thermal/thickness interpolation & synchronized STEP B-Rep densities; commercial outputs labeled `ASSUMPTION` / `ESTIMATE`, `not_a_certification_method: true`) compute every price, labor cost, overhead, contingency, PERT percentile (`P50 / P80 / P90`), learning curve, country inflation, monthly working-capital cash flow, and margin with zero floating-point arithmetic:
      - [`aerospace_quotation_costing.json`](../../packages/calc/cards/aerospace_quotation_costing.json)
      - [`engineering_workpackage_quote.json`](../../packages/calc/cards/engineering_workpackage_quote.json)
      - [`rotorcraft_archetype_quote.json`](../../packages/calc/cards/rotorcraft_archetype_quote.json)
@@ -131,13 +131,16 @@ uv run python -m evidence_api.cli quote fem-vv-audit --f06-file sol105.f06 --aba
 - `POST /quotations/rotorcraft/advanced-calibration` & `GET /quotations/rotorcraft/erp-template`
 - `POST /quotations/rotorcraft/change-order` & `POST /quotations/rotorcraft/change-order/export-xlsx` & `POST /quotations/rotorcraft/change-order/export-pdf`
 - `POST /quotations/rotorcraft/portfolio-capacity` & `/export-xlsx` & `/export-pdf`
-- `POST /calc/allowables` (50-digit Arb interval-bounded) & `POST /calc/batch-stress-dossier`
+- `POST /calc/allowables` (12 MMPDS/CMH-17 materials, 50-digit Arb interval-bounded + S-N/NASGRO) & `POST /calc/batch-stress-dossier` & `/export-xlsx` & `/export-pdf`
+- `POST /ingest/heavy-pdf` (parallel multi-worker & Dual-Pass OCR)
+- `POST /auth/webauthn/reauth/options` & `/verify` (active-user FIDO2 Passkey step-up)
+- `POST /security/sbom-airgap-audit` (CycloneDX 1.5 SBOM + PG RLS DDL + Helm/Compose airgap verification)
 - `POST /quotations/rotorcraft/fx-hedging` & `POST /quotations/rotorcraft/evm-postmortem`
 - `POST /quotations/rotorcraft/evm-postmortem/export-xlsx` & `POST /quotations/rotorcraft/evm-postmortem/export-pdf`
 - `POST /nafems/audit-sol105-gpforce`
-- `GET /demo` (`#tab-quote` / `Alt+7`, Web Cockpit v3 with Abaqus `.inp`, FX Z3, and EVM panel) & `GET /static/quotation_cockpit.js`
+- `GET /demo` (`#tab-quote` / `Alt+7`, Web Cockpit v4 with Stress Dossier, Allowables Arb, Portfolio exports & Passkey step-up) & `GET /static/quotation_cockpit.js`
 
-### MCP Tools ([`mcp_server.py`](../../apps/api/src/evidence_api/mcp_server.py) — 17 Quotation/FEM Tools / 49 Total)
+### MCP Tools ([`mcp_server.py`](../../apps/api/src/evidence_api/mcp_server.py) — 18 Quotation/FEM/Security Tools / 50 Total)
 
 - `generate_multiagent_quotation`
 - `scrape_global_quotation_repos`
@@ -153,6 +156,7 @@ uv run python -m evidence_api.cli quote fem-vv-audit --f06-file sol105.f06 --aba
 - `evaluate_quotation_fx_hedging`
 - `run_bid_actual_evm_postmortem` & `export_evm_postmortem_oem_artifacts`
 - `audit_fem_sol105_gpforce_abaqus` & `run_batch_stress_summary_dossier`
+- `audit_airgap_sbom_and_cluster_readiness`
 
 ### Test Suites
 
@@ -164,3 +168,5 @@ uv run python -m evidence_api.cli quote fem-vv-audit --f06-file sol105.f06 --aba
 - [`test_sprint3_larc04_fem_fx_evm_security.py`](../../tests/test_sprint3_larc04_fem_fx_evm_security.py)
 - [`test_sprint4_stress52_nafems_evm_exports_cockpit_v3.py`](../../tests/test_sprint4_stress52_nafems_evm_exports_cockpit_v3.py)
 - [`test_sprint5_allowables_arb_stress56_portfolio_exports_dossier.py`](../../tests/test_sprint5_allowables_arb_stress56_portfolio_exports_dossier.py)
+- [`test_sprint6_literature_200_benchmarks.py`](../../tests/test_sprint6_literature_200_benchmarks.py)
+- [`test_sprint6_cockpit_v4_infra_cad_ocr_kms_benchmarks.py`](../../tests/test_sprint6_cockpit_v4_infra_cad_ocr_kms_benchmarks.py)
