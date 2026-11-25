@@ -1,0 +1,57 @@
+{
+  "method_id": "skin_stringer_crippling_interaction",
+  "method_version": "skin_stringer_crippling_interaction@1.0.0",
+  "title": "Stiffened Skin-Stringer Panel Local-Global Crippling & Euler-Johnson Screen",
+  "label": "ASSUMPTION",
+  "equation": "w_eff = min(b, 1.9*t*sqrt(E/F_y)); A_eff = A_str + w_eff*t; sigma_cc = weighted(F_cc, F_y); sigma_cr = EulerJohnson(L, rho, sigma_cc); MS = sigma_cr/(SF*sigma_app) - 1",
+  "note": "Stiffened fuselage/tailboom compression panel coupling Von Karman post-buckling effective skin width with Euler-Johnson column stability.",
+  "quantum": "0.0001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "applied_compression_n": "newton",
+    "panel_length_mm": "millimeter",
+    "stringer_pitch_mm": "millimeter",
+    "skin_thickness_mm": "millimeter",
+    "stringer_area_mm2": "millimeter ** 2",
+    "stringer_crippling_mpa": "megapascal",
+    "panel_inertia_mm4": "millimeter ** 4",
+    "end_fixity_c": "dimensionless",
+    "modulus_mpa": "megapascal",
+    "skin_yield_mpa": "megapascal",
+    "safety_factor": "dimensionless"
+  },
+  "required": [
+    "applied_compression_n",
+    "panel_length_mm",
+    "stringer_pitch_mm",
+    "skin_thickness_mm",
+    "stringer_area_mm2",
+    "stringer_crippling_mpa",
+    "panel_inertia_mm4",
+    "end_fixity_c",
+    "modulus_mpa",
+    "skin_yield_mpa",
+    "safety_factor"
+  ],
+  "limits": {
+    "applied_compression_n": { "min_exclusive": "0", "max": "50000000" },
+    "panel_length_mm": { "min_exclusive": "0", "max": "50000" },
+    "stringer_pitch_mm": { "min_exclusive": "0", "max": "5000" },
+    "skin_thickness_mm": { "min_exclusive": "0", "max": "100" },
+    "stringer_area_mm2": { "min_exclusive": "0", "max": "100000" },
+    "stringer_crippling_mpa": { "min_exclusive": "0", "max": "5000" },
+    "panel_inertia_mm4": { "min_exclusive": "0", "max": "10000000000" },
+    "end_fixity_c": { "min_exclusive": "0", "max": "10" },
+    "modulus_mpa": { "min_exclusive": "0", "max": "1000000" },
+    "skin_yield_mpa": { "min_exclusive": "0", "max": "5000" },
+    "safety_factor": { "min": "1", "max": "10" }
+  },
+  "sources": [
+    {
+      "source_id": "bruhn-skin-stringer",
+      "uri": "https://aeroregu.local/cards/skin_stringer_crippling_interaction",
+      "content_hash": "4a61e80b2a5fc4c26cf29a97f902d73de4c30de22c3c03a18ef13a6c59d40904",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

@@ -100,6 +100,9 @@ from evidence_coverage.gate import evaluate_traceability_gate
 from evidence_coverage.grid import calc_inputs_for, generate_cells
 from evidence_coverage.ma_readiness import evaluate_ma_technical_readiness
 from evidence_coverage.nafems_audit import (
+    audit_abaqus_composite_layup_vs_report,
+    audit_gpforce_freebody_equilibrium,
+    audit_sol105_buckling_margins,
     diff_bdf_revisions_and_invalidate,
     run_full_nafems_audit,
 )
@@ -4812,6 +4815,182 @@ def create_app() -> FastAPI:
                 status_code=400,
             )
         return JSONResponse(_ok("bid_actual_postmortem@1.0.0", {}, res))
+
+    def _resolve_evm_and_fx(
+        body: dict[str, Any], request: Request, method_tag: str
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, JSONResponse | None]:
+        from evidence_coverage.bid_actual_postmortem import run_bid_actual_evm_postmortem
+        from evidence_coverage.composite_dag_quotation import run_composite_rotorcraft_quotation
+        from evidence_coverage.quotation_fx_hedging import evaluate_quotation_fx_hedging
+
+        fx_rep = body.get("fx_report") if isinstance(body.get("fx_report"), dict) else None
+        if isinstance(body.get("postmortem_report"), dict):
+            return body["postmortem_report"], fx_rep, None
+
+        tenant_id = _validate_tenant(body.get("tenant_id"))
+        if tenant_id is None:
+            return (
+                None,
+                None,
+                JSONResponse(_abstain(method_tag, {}, "invalid_tenant"), status_code=400),
+            )
+        actor_id, auth_err = _check_endpoint_access(
+            request, tenant_id=tenant_id, requested_actor=body.get("actor_id")
+        )
+        if auth_err is not None:
+            return None, None, auth_err
+        ledger = open_ledger(tenant_id)
+        baseline = body.get("baseline_dossier")
+        if not isinstance(baseline, dict) or not baseline.get("composite_wbs_dag"):
+            b_spec = dict(body.get("baseline_spec") or {})
+            if not b_spec:
+                b_spec = {
+                    "rfq_id": body.get("rfq_id") or "RFQ-BASE-001",
+                    "rfq_text": str(body.get("baseline_rfq_text") or "CS-29 frame static Net 60."),
+                    "archetype_ids": body.get("baseline_archetypes")
+                    or ["Q-DES-02", "Q-STR-03", "Q-DOA-02"],
+                    "country_code": str(body.get("country_code") or "EU_DEFAULT"),
+                }
+            spec = _build_composite_spec(
+                b_spec,
+                tenant_id=tenant_id,
+                actor_id=actor_id or str(body.get("actor_id") or "stress-office-controller"),
+            )
+            baseline = run_composite_rotorcraft_quotation(ledger, spec)
+        pm = run_bid_actual_evm_postmortem(
+            ledger,
+            baseline,
+            body.get("actuals"),
+            actuals_csv=body.get("actuals_csv"),
+            project_id=body.get("project_id"),
+            actual_ecn_iterations=int(body.get("actual_ecn_iterations") or 0),
+            idp_rework_hours=str(body.get("idp_rework_hours") or "0"),
+            unbilled_scope_hours=str(body.get("unbilled_scope_hours") or "0"),
+            cve_rework_hours=str(body.get("cve_rework_hours") or "0"),
+            actor_id=actor_id or str(body.get("actor_id") or "stress-office-controller"),
+            created_at=body.get("created_at") or _now(),
+        )
+        if fx_rep is None and body.get("billing_currency"):
+            evm_sum = pm.get("evm_summary") or {}
+            fx_rep = evaluate_quotation_fx_hedging(
+                quoted_price_eur=evm_sum.get("quoted_selling_price_eur") or "500000",
+                cost_eur=evm_sum.get("bac_cost_eur") or "380000",
+                billing_currency=str(body.get("billing_currency") or "USD"),
+                hedge_ratio_pct=str(body.get("hedge_ratio_pct") or "85.000"),
+            )
+        return pm, fx_rep, None
+
+    @app.post("/quotations/rotorcraft/evm-postmortem/export-xlsx")
+    def rotorcraft_evm_export_xlsx_endpoint(body: dict[str, Any], request: Request) -> Response:
+        from evidence_coverage.quotation_exporter import export_evm_postmortem_xlsx
+
+        pm, fx_rep, err = _resolve_evm_and_fx(body, request, "evm_export_xlsx@1.0.0")
+        if err is not None:
+            return err
+        assert pm is not None
+        exported = export_evm_postmortem_xlsx(pm, fx_report=fx_rep)
+        pid = str(pm.get("project_id") or "POST-001").replace('"', "")
+        return Response(
+            content=exported["xlsx_bytes"],
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f'attachment; filename="{pid}_evm_postmortem.xlsx"',
+                "X-AeroRegu-SHA256": exported["xlsx_sha256"],
+                "X-AeroRegu-Formula-Count": str(exported["formula_count"]),
+            },
+        )
+
+    @app.post("/quotations/rotorcraft/evm-postmortem/export-pdf")
+    def rotorcraft_evm_export_pdf_endpoint(body: dict[str, Any], request: Request) -> Response:
+        from evidence_coverage.quotation_exporter import export_evm_postmortem_signed_pdf
+
+        pm, fx_rep, err = _resolve_evm_and_fx(body, request, "evm_export_pdf@1.0.0")
+        if err is not None:
+            return err
+        assert pm is not None
+        priv_pem, pub_pem = _attestation_keypair()
+        exported = export_evm_postmortem_signed_pdf(
+            pm, fx_report=fx_rep, private_key_pem=priv_pem, public_key_pem=pub_pem
+        )
+        pid = str(pm.get("project_id") or "POST-001").replace('"', "")
+        return Response(
+            content=exported["pdf_bytes"],
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{pid}_signed_evm.pdf"',
+                "X-AeroRegu-SHA256": exported["pdf_sha256"],
+                "X-AeroRegu-Merkle-Root": exported["merkle_root"],
+            },
+        )
+
+    @app.post("/nafems/audit-sol105-gpforce")
+    def nafems_sol105_gpforce_audit_endpoint(body: dict[str, Any]) -> JSONResponse:
+        from evidence_ingest.fem_parsers import parse_abaqus_inp
+
+        f06_text = str(body.get("f06_text") or "")
+        abq_text = str(body.get("abaqus_text") or "")
+        if not f06_text.strip() and not abq_text.strip():
+            return JSONResponse(
+                _abstain("nafems_sol105_gpforce@1.0.0", {}, "missing_f06_or_abaqus_text"),
+                status_code=400,
+            )
+
+        sol105_res = None
+        gpforce_res = None
+        if f06_text.strip():
+            f06_bytes = f06_text.encode("utf-8")
+            f06_hash = hashlib.sha256(f06_bytes).hexdigest()
+            try:
+                f06_parsed = parse_nastran_f06(f06_bytes, f06_hash)
+            except IngestAbstain as exc:
+                return JSONResponse(
+                    _abstain("nafems_sol105_gpforce@1.0.0", {}, exc.reason), status_code=422
+                )
+            sol105_res = audit_sol105_buckling_margins(
+                f06_parsed,
+                min_buckling_factor=str(body.get("min_buckling_factor") or "1.000"),
+            )
+            gpforce_res = audit_gpforce_freebody_equilibrium(
+                f06_parsed,
+                max_nodal_residual_n=str(body.get("max_nodal_residual_n") or "0.010"),
+            )
+
+        abaqus_res = None
+        if abq_text.strip():
+            abq_bytes = abq_text.encode("utf-8")
+            abq_hash = hashlib.sha256(abq_bytes).hexdigest()
+            try:
+                abq_parsed = parse_abaqus_inp(abq_bytes, abq_hash)
+            except IngestAbstain as exc:
+                return JSONResponse(
+                    _abstain("nafems_sol105_gpforce@1.0.0", {}, exc.reason), status_code=422
+                )
+            abaqus_res = audit_abaqus_composite_layup_vs_report(
+                abq_parsed,
+                report_claims=body.get("abaqus_report_claims"),
+            )
+
+        f06_has_data = (sol105_res is not None and not sol105_res["abstain"]) or (
+            gpforce_res is not None and not gpforce_res["abstain"]
+        )
+        overall = (
+            (not f06_text.strip() or f06_has_data)
+            and (sol105_res is None or sol105_res["abstain"] or sol105_res["clear"])
+            and (gpforce_res is None or gpforce_res["abstain"] or gpforce_res["balanced"])
+            and (abaqus_res is None or abaqus_res["consistent"])
+        )
+        return JSONResponse(
+            _ok(
+                "nafems_sol105_gpforce@1.0.0",
+                {},
+                {
+                    "overall_pass": overall,
+                    "sol105_buckling": sol105_res,
+                    "gpforce_equilibrium": gpforce_res,
+                    "abaqus_composite_drift": abaqus_res,
+                },
+            )
+        )
 
     @app.get("/mcp/catalog")
     def get_mcp_catalog_endpoint() -> JSONResponse:

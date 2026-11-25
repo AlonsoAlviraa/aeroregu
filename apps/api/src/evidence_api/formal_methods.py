@@ -63,6 +63,12 @@ METHOD_FAMILIES: dict[str, str] = {
     "campbell_rotor_harmonic_clearance": "rotorcraft_dynamics",
     "tailboom_boxbeam_combined_stress": "thin_walled_stability",
     "statistical_ab_basis_tolerance_bound": "composites_cmh17",
+    # Stress Manual Extensions (Sprint 4 — complete 52-card catalog)
+    "bolt_prying_combined_tension_shear": "fasteners_joints",
+    "goland_reissner_adhesive_peel_shear": "fasteners_joints",
+    "orthotropic_composite_plate_buckling": "composites_cmh17",
+    "skin_stringer_crippling_interaction": "thin_walled_stability",
+    "walker_mean_stress_crack_growth": "fatigue_fracture",
 }
 
 METHOD_DEFAULT_INPUTS: dict[str, dict[str, Any]] = {
@@ -441,6 +447,67 @@ METHOD_DEFAULT_INPUTS: dict[str, dict[str, Any]] = {
         "sample_mean_mpa": "620",
         "sample_std_mpa": "24",
         "design_stress_mpa": "420",
+    },
+    "bolt_prying_combined_tension_shear": {
+        "applied_tension_n": "8500",
+        "applied_shear_n": "6200",
+        "applied_bending_n_mm": "12000",
+        "prying_lever_a_mm": "22",
+        "prying_lever_b_mm": "14",
+        "flange_thickness_mm": "8.0",
+        "bolt_tensile_allowable_n": "32000",
+        "bolt_shear_allowable_n": "21000",
+        "bolt_bending_allowable_n_mm": "85000",
+        "safety_factor": "1.5",
+    },
+    "goland_reissner_adhesive_peel_shear": {
+        "tensile_load_per_width_n_mm": "75",
+        "overlap_length_mm": "30",
+        "adherend_thickness_mm": "2.5",
+        "adherend_modulus_mpa": "72000",
+        "adhesive_thickness_mm": "0.2",
+        "adhesive_modulus_mpa": "2600",
+        "adhesive_shear_modulus_mpa": "950",
+        "peel_allowable_mpa": "32",
+        "shear_allowable_mpa": "36",
+        "safety_factor": "1.5",
+    },
+    "orthotropic_composite_plate_buckling": {
+        "nx_comp_n_per_mm": "45",
+        "ny_comp_n_per_mm": "12",
+        "nxy_shear_n_per_mm": "18",
+        "plate_length_a_mm": "350",
+        "plate_width_b_mm": "180",
+        "d11_n_mm": "185000",
+        "d22_n_mm": "95000",
+        "d12_n_mm": "42000",
+        "d66_n_mm": "46000",
+        "safety_factor": "1.5",
+    },
+    "skin_stringer_crippling_interaction": {
+        "applied_compression_n": "68000",
+        "panel_length_mm": "420",
+        "stringer_pitch_mm": "150",
+        "skin_thickness_mm": "2.0",
+        "stringer_area_mm2": "240",
+        "stringer_crippling_mpa": "380",
+        "panel_inertia_mm4": "145000",
+        "end_fixity_c": "1.5",
+        "modulus_mpa": "71700",
+        "skin_yield_mpa": "410",
+        "safety_factor": "1.5",
+    },
+    "walker_mean_stress_crack_growth": {
+        "initial_crack_a0_mm": "1.27",
+        "sigma_max_mpa": "135",
+        "stress_ratio_r": "0.1",
+        "geometry_factor_beta": "1.12",
+        "fracture_toughness_kic_mpa_sqrt_m": "32",
+        "walker_c": "2.5e-11",
+        "walker_m": "3.1",
+        "walker_gamma": "0.7",
+        "required_cycles": "20000",
+        "scatter_factor": "2.0",
     },
 }
 
@@ -2236,6 +2303,320 @@ def _prove_builtin_method(
             build_violation=_v_ab,
             proved_reason="CMH-17 A-basis lower tolerance bound exceeds design stress",
             cex_reason="Statistical A-basis allowable falls below design stress or <= 0",
+        ).to_dict()
+
+    if method_id == "bolt_prying_combined_tension_shear":
+        keys = [
+            "applied_tension_n",
+            "applied_shear_n",
+            "applied_bending_n_mm",
+            "bolt_tensile_allowable_n",
+            "bolt_shear_allowable_n",
+            "bolt_bending_allowable_n_mm",
+            "safety_factor",
+        ]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+        a_lo = float(
+            Decimal(
+                str(
+                    _pair_bounds(
+                        formal_bounds.get("prying_lever_a_mm", merged["prying_lever_a_mm"]),
+                        (str(merged["prying_lever_a_mm"]), str(merged["prying_lever_a_mm"])),
+                    )[0]
+                )
+            )
+        )
+        b_hi = float(
+            Decimal(
+                str(
+                    _pair_bounds(
+                        formal_bounds.get("prying_lever_b_mm", merged["prying_lever_b_mm"]),
+                        (str(merged["prying_lever_b_mm"]), str(merged["prying_lever_b_mm"])),
+                    )[1]
+                )
+            )
+        )
+        t_lo = float(
+            Decimal(
+                str(
+                    _pair_bounds(
+                        formal_bounds.get("flange_thickness_mm", merged["flange_thickness_mm"]),
+                        (str(merged["flange_thickness_mm"]), str(merged["flange_thickness_mm"])),
+                    )[0]
+                )
+            )
+        )
+        q_hi = min(0.65, (b_hi / (2.0 * a_lo)) * (10.0 / (t_lo + 10.0)))
+        z_1pq = z3.RealVal(_dec_str(1.0 + q_hi))
+
+        def _v_pry(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            rt = (p["applied_tension_n"] * z_1pq) / p["bolt_tensile_allowable_n"]
+            ab_m = z3.If(
+                p["applied_bending_n_mm"] >= 0,
+                p["applied_bending_n_mm"],
+                -p["applied_bending_n_mm"],
+            )
+            av_s = z3.If(p["applied_shear_n"] >= 0, p["applied_shear_n"], -p["applied_shear_n"])
+            rb = ab_m / p["bolt_bending_allowable_n_mm"]
+            rs = av_s / p["bolt_shear_allowable_n"]
+            s.add((p["safety_factor"] ** 2) * ((rt + rb) ** 2 + (rs**2)) > 1)
+
+        return engine.prove_z3_property(
+            property_name="bolt_prying_combined_safety",
+            bounds=b,
+            constants=c,
+            assertion="SF * sqrt((P_tot/P_allow + M/M_allow)^2 + (V/V_allow)^2) <= 1",
+            build_violation=_v_pry,
+            proved_reason="Bolt satisfies NASA-STD-5020 tension+prying+bending+shear envelope",
+            cex_reason="Prying-amplified combined bolt load exceeds interaction envelope",
+        ).to_dict()
+
+    if method_id == "goland_reissner_adhesive_peel_shear":
+        keys = [
+            "tensile_load_per_width_n_mm",
+            "peel_allowable_mpa",
+            "shear_allowable_mpa",
+            "safety_factor",
+        ]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+        load_lo = _bound_extrema(b, c, "tensile_load_per_width_n_mm")[0]
+        lov_lo = float(Decimal(str(merged["overlap_length_mm"])))
+        t_adh = float(Decimal(str(merged["adherend_thickness_mm"])))
+        e_adh = float(Decimal(str(merged["adherend_modulus_mpa"])))
+        t_gl = float(Decimal(str(merged["adhesive_thickness_mm"])))
+        e_gl = float(Decimal(str(merged["adhesive_modulus_mpa"])))
+        g_gl = float(Decimal(str(merged["adhesive_shear_modulus_mpa"])))
+        c_half = lov_lo / 2.0
+        u2c_lo = (c_half / t_adh) * math.sqrt((3.0 * load_lo) / (2.0 * e_adh * t_adh))
+        k_hi = 1.0 / (1.0 + 2.0 * math.sqrt(2.0) * math.tanh(u2c_lo))
+        beta_s = math.sqrt((8.0 * g_gl * t_adh) / (e_adh * t_gl)) * (c_half / t_adh)
+        gamma_p = math.sqrt((6.0 * e_gl * t_adh) / (e_adh * t_gl))
+        z_ks = z3.RealVal(
+            _dec_str((1.0 + 0.25 * (1.0 + 3.0 * k_hi) * (1.0 + beta_s / 4.0)) / lov_lo)
+        )
+        z_kp = z3.RealVal(_dec_str((k_hi * 0.5 * gamma_p) / t_adh))
+
+        def _v_gr_adh(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            ld = p["tensile_load_per_width_n_mm"]
+            pk_peel = ld * z_kp
+            pk_shear = ld * z_ks
+            idx_sq = (pk_peel / p["peel_allowable_mpa"]) ** 2 + (
+                pk_shear / p["shear_allowable_mpa"]
+            ) ** 2
+            s.add((p["safety_factor"] ** 2) * idx_sq > 1)
+
+        return engine.prove_z3_property(
+            property_name="goland_reissner_lap_joint_safety",
+            bounds=b,
+            constants=c,
+            assertion="SF * sqrt((sigma_peel/F_peel)^2 + (tau_peak/F_shear)^2) <= 1",
+            build_violation=_v_gr_adh,
+            proved_reason="Goland-Reissner adhesive peel & shear interaction stays <= 1/SF",
+            cex_reason="Adhesive lap-joint peel/shear peak stress violates margin",
+        ).to_dict()
+
+    if method_id == "orthotropic_composite_plate_buckling":
+        keys = ["nx_comp_n_per_mm", "ny_comp_n_per_mm", "nxy_shear_n_per_mm", "safety_factor"]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+        la = float(Decimal(str(merged["plate_length_a_mm"])))
+        wb = float(Decimal(str(merged["plate_width_b_mm"])))
+        d11 = float(Decimal(str(merged["d11_n_mm"])))
+        d22 = float(Decimal(str(merged["d22_n_mm"])))
+        d12 = float(Decimal(str(merged["d12_n_mm"])))
+        d66 = float(Decimal(str(merged["d66_n_mm"])))
+        h_eff = d12 + 2.0 * d66
+        d_sqrt = math.sqrt(d11 * d22)
+        pi_sq = math.pi * math.pi
+        nx_cr = (2.0 * pi_sq / (wb * wb)) * (d_sqrt + h_eff)
+        ny_cr = (2.0 * pi_sq / (la * la)) * (d_sqrt + h_eff)
+        theta_s = d_sqrt / h_eff
+        k_s = 3.2 + 2.1 / (theta_s + 0.5)
+        d_fourth = (d11 * (d22**3)) ** 0.25
+        nxy_cr = (4.0 * k_s / (wb * wb)) * d_fourth
+        z_nxcr = z3.RealVal(_dec_str(nx_cr))
+        z_nycr = z3.RealVal(_dec_str(ny_cr))
+        z_nxycr = z3.RealVal(_dec_str(nxy_cr))
+
+        def _v_ortho(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            nx_p = z3.If(p["nx_comp_n_per_mm"] > 0, p["nx_comp_n_per_mm"], 0)
+            ny_p = z3.If(p["ny_comp_n_per_mm"] > 0, p["ny_comp_n_per_mm"], 0)
+            nxy_a = z3.If(
+                p["nxy_shear_n_per_mm"] >= 0, p["nxy_shear_n_per_mm"], -p["nxy_shear_n_per_mm"]
+            )
+            rx = nx_p / z_nxcr
+            ry = ny_p / z_nycr
+            rxy = nxy_a / z_nxycr
+            s.add(p["safety_factor"] * (rx + ry + rxy * rxy) > 1)
+
+        return engine.prove_z3_property(
+            property_name="orthotropic_plate_buckling_safety",
+            bounds=b,
+            constants=c,
+            assertion="SF * (R_x + R_y + R_xy^2) <= 1",
+            build_violation=_v_ortho,
+            proved_reason="Orthotropic composite panel buckling interaction stays <= 1/SF",
+            cex_reason="Orthotropic composite panel exceeds buckling interaction limit",
+        ).to_dict()
+
+    if method_id == "skin_stringer_crippling_interaction":
+        keys = ["applied_compression_n", "safety_factor"]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+        l_pan = float(Decimal(str(merged["panel_length_mm"])))
+        pitch = float(Decimal(str(merged["stringer_pitch_mm"])))
+        t_sk = float(Decimal(str(merged["skin_thickness_mm"])))
+        a_str = float(Decimal(str(merged["stringer_area_mm2"])))
+        f_cc = float(Decimal(str(merged["stringer_crippling_mpa"])))
+        i_pan = float(Decimal(str(merged["panel_inertia_mm4"])))
+        c_fix = float(Decimal(str(merged["end_fixity_c"])))
+        em = float(Decimal(str(merged["modulus_mpa"])))
+        f_y = float(Decimal(str(merged["skin_yield_mpa"])))
+        w_eff = min(pitch, 1.9 * t_sk * math.sqrt(em / f_y))
+        a_eff = a_str + w_eff * t_sk
+        sig_cc = (a_str * f_cc + w_eff * t_sk * f_y) / a_eff
+        rho_g = math.sqrt(i_pan / a_eff)
+        slend = l_pan / (rho_g * math.sqrt(c_fix))
+        pi_sq = math.pi * math.pi
+        lam_c = math.sqrt(2.0 * pi_sq * em / sig_cc)
+        if slend <= lam_c:
+            sig_cr = sig_cc * (1.0 - (sig_cc * slend * slend) / (4.0 * pi_sq * em))
+        else:
+            sig_cr = (pi_sq * em) / (slend * slend)
+        z_cap = z3.RealVal(_dec_str(sig_cr * a_eff))
+
+        def _v_ss(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            s.add(p["applied_compression_n"] * p["safety_factor"] > z_cap)
+
+        return engine.prove_z3_property(
+            property_name="skin_stringer_crippling_safety",
+            bounds=b,
+            constants=c,
+            assertion="applied_compression_n * SF <= sigma_cr_euler_johnson * A_eff",
+            build_violation=_v_ss,
+            proved_reason=(
+                "Skin-stringer panel compressive capacity satisfies crippling + Euler-Johnson"
+            ),
+            cex_reason="Skin-stringer compression load exceeds crippling/column capacity",
+        ).to_dict()
+
+    if method_id == "walker_mean_stress_crack_growth":
+        keys = ["required_cycles", "scatter_factor"]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+        a0_hi = float(
+            Decimal(
+                str(
+                    _pair_bounds(
+                        formal_bounds.get("initial_crack_a0_mm", merged["initial_crack_a0_mm"]),
+                        (
+                            str(merged["initial_crack_a0_mm"]),
+                            str(merged["initial_crack_a0_mm"]),
+                        ),
+                    )[1]
+                )
+            )
+        )
+        sig_hi = float(
+            Decimal(
+                str(
+                    _pair_bounds(
+                        formal_bounds.get("sigma_max_mpa", merged["sigma_max_mpa"]),
+                        (str(merged["sigma_max_mpa"]), str(merged["sigma_max_mpa"])),
+                    )[1]
+                )
+            )
+        )
+        r_lo = float(
+            Decimal(
+                str(
+                    _pair_bounds(
+                        formal_bounds.get("stress_ratio_r", merged["stress_ratio_r"]),
+                        (str(merged["stress_ratio_r"]), str(merged["stress_ratio_r"])),
+                    )[0]
+                )
+            )
+        )
+        beta_hi = float(
+            Decimal(
+                str(
+                    _pair_bounds(
+                        formal_bounds.get("geometry_factor_beta", merged["geometry_factor_beta"]),
+                        (
+                            str(merged["geometry_factor_beta"]),
+                            str(merged["geometry_factor_beta"]),
+                        ),
+                    )[1]
+                )
+            )
+        )
+        kic_lo = float(
+            Decimal(
+                str(
+                    _pair_bounds(
+                        formal_bounds.get(
+                            "fracture_toughness_kic_mpa_sqrt_m",
+                            merged["fracture_toughness_kic_mpa_sqrt_m"],
+                        ),
+                        (
+                            str(merged["fracture_toughness_kic_mpa_sqrt_m"]),
+                            str(merged["fracture_toughness_kic_mpa_sqrt_m"]),
+                        ),
+                    )[0]
+                )
+            )
+        )
+        wc_hi = float(
+            Decimal(
+                str(
+                    _pair_bounds(
+                        formal_bounds.get("walker_c", merged["walker_c"]),
+                        (str(merged["walker_c"]), str(merged["walker_c"])),
+                    )[1]
+                )
+            )
+        )
+        wm_hi = float(
+            Decimal(
+                str(
+                    _pair_bounds(
+                        formal_bounds.get("walker_m", merged["walker_m"]),
+                        (str(merged["walker_m"]), str(merged["walker_m"])),
+                    )[1]
+                )
+            )
+        )
+        g_bounds = _pair_bounds(
+            formal_bounds.get("walker_gamma", merged["walker_gamma"]),
+            (str(merged["walker_gamma"]), str(merged["walker_gamma"])),
+        )
+        g_lo = float(Decimal(str(g_bounds[0])))
+        g_hi = float(Decimal(str(g_bounds[1])))
+        base_1mr = max(0.05, 1.0 - r_lo)
+        ds_eff = sig_hi * max(base_1mr**g_lo, base_1mr**g_hi)
+        a0_m = a0_hi / 1000.0
+        ac_m = ((kic_lo / (beta_hi * sig_hi)) ** 2) / math.pi
+        if ac_m <= a0_m:
+            life_lo = 0.0
+        else:
+            p_exp = 1.0 - (wm_hi / 2.0)
+            denom_c = wc_hi * ((beta_hi * ds_eff * math.sqrt(math.pi)) ** wm_hi)
+            life_lo = ((ac_m**p_exp) - (a0_m**p_exp)) / (p_exp * denom_c)
+        z_life = z3.RealVal(_dec_str(life_lo))
+
+        def _v_wlk(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            s.add(z_life < p["required_cycles"] * p["scatter_factor"])
+
+        return engine.prove_z3_property(
+            property_name="walker_damage_tolerance_life_safety",
+            bounds=b,
+            constants=c,
+            assertion="N_f_walker / scatter_factor >= required_cycles",
+            build_violation=_v_wlk,
+            proved_reason="Walker R-ratio safe inspection life exceeds required cycles",
+            cex_reason="Walker factored crack growth life falls below required cycles",
         ).to_dict()
 
     return {

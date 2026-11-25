@@ -1450,7 +1450,11 @@ def _extract_eigenvalue_tables(
 
     for idx, line in enumerate(lines):
         compact = re.sub(r"\s+", "", line.upper())
-        if "BUCKLINGEIGENVALUES" in compact or "REALEIGENVALUES" in compact:
+        if (
+            "BUCKLINGEIGENVALUES" in compact
+            or "REALEIGENVALUES" in compact
+            or "BUCKLINGLOADFACTOR" in compact
+        ):
             ctx_window = " ".join(lines[max(0, idx - 6) : idx + 3]).upper()
             is_buckling = (
                 "BUCKLING" in ctx_window

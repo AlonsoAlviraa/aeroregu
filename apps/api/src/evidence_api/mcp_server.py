@@ -963,6 +963,44 @@ MCP_TOOLS: tuple[dict[str, Any], ...] = (
             },
         },
     },
+    {
+        "name": "export_evm_postmortem_oem_artifacts",
+        "description": (
+            "Export native live-formula Excel (.xlsx) and Ed25519 DSSE + ISO QR signed PDF "
+            "files for a Bid-to-Actual EVM Post-Mortem & optional FX Hedging report."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string", "default": "POST-001"},
+                "baseline_rfq_text": {"type": "string"},
+                "baseline_archetypes": {"type": "array", "items": {"type": "string"}},
+                "actuals": {"type": "array", "items": {"type": "object"}},
+                "billing_currency": {"type": "string", "default": "USD"},
+                "hedge_ratio_pct": {"type": "string", "default": "85.000"},
+                "tenant_id": {"type": "string", "default": "demo"},
+                "xlsx_output_path": {"type": "string"},
+                "pdf_output_path": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "audit_fem_sol105_gpforce_abaqus",
+        "description": (
+            "Audit Nastran .f06 SOL 105 linear buckling eigenvalues, GRID POINT FORCE BALANCE "
+            "freebody equilibrium, and Abaqus .inp composite shell layups vs report claims."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "f06_text": {"type": "string"},
+                "abaqus_text": {"type": "string"},
+                "min_buckling_factor": {"type": "string", "default": "1.000"},
+                "max_nodal_residual_n": {"type": "string", "default": "0.010"},
+                "abaqus_report_claims": {"type": "object"},
+            },
+        },
+    },
 )
 
 MCP_RESOURCES: tuple[dict[str, Any], ...] = (
@@ -1189,6 +1227,7 @@ def _call_tool(
                 "generate_composite_rotorcraft_quotation",
                 "compute_quotation_change_order",
                 "run_bid_actual_evm_postmortem",
+                "export_evm_postmortem_oem_artifacts",
             }
             or (
                 name in {"evidence_calc_run", "evidence_ingest_document"}
@@ -2513,6 +2552,113 @@ def _call_tool(
             unbilled_scope_hours=str(arguments.get("unbilled_scope_hours") or "0"),
             cve_rework_hours=str(arguments.get("cve_rework_hours") or "0"),
         )
+
+    if name == "export_evm_postmortem_oem_artifacts":
+        from evidence_coverage.bid_actual_postmortem import run_bid_actual_evm_postmortem
+        from evidence_coverage.composite_dag_quotation import (
+            CompositeRotorcraftQuotationSpec,
+            run_composite_rotorcraft_quotation,
+        )
+        from evidence_coverage.quotation_exporter import (
+            export_evm_postmortem_signed_pdf,
+            export_evm_postmortem_xlsx,
+        )
+        from evidence_coverage.quotation_fx_hedging import evaluate_quotation_fx_hedging
+
+        from evidence_api.app import _attestation_keypair
+
+        tenant = _validate_tenant(str(arguments.get("tenant_id") or "demo"))
+        if tenant is None:
+            return True, {"error": "invalid_tenant"}
+        ledger = open_ledger(tenant)
+        b_archs = tuple(
+            str(a)
+            for a in (arguments.get("baseline_archetypes") or ("Q-DES-02", "Q-STR-03", "Q-DOA-02"))
+        )
+        baseline = run_composite_rotorcraft_quotation(
+            ledger,
+            CompositeRotorcraftQuotationSpec(
+                rfq_id=str(arguments.get("project_id") or "POST-001"),
+                rfq_text=str(
+                    arguments.get("baseline_rfq_text") or "CS-29 frame static analysis Net 60."
+                ),
+                archetype_ids=b_archs,
+                country_code=str(arguments.get("country_code") or "EU_DEFAULT"),
+                tenant_id=tenant,
+            ),
+        )
+        pm = run_bid_actual_evm_postmortem(
+            ledger,
+            baseline,
+            arguments.get("actuals"),
+            actuals_csv=arguments.get("actuals_csv"),
+            project_id=str(arguments.get("project_id") or "POST-001"),
+            actual_ecn_iterations=int(arguments.get("actual_ecn_iterations") or 0),
+        )
+        evm_s = pm.get("evm_summary") or {}
+        fx_rep = evaluate_quotation_fx_hedging(
+            quoted_price_eur=evm_s.get("quoted_selling_price_eur") or "500000",
+            cost_eur=evm_s.get("bac_cost_eur") or "380000",
+            billing_currency=str(arguments.get("billing_currency") or "USD"),
+            hedge_ratio_pct=str(arguments.get("hedge_ratio_pct") or "85.000"),
+        )
+        x_res = export_evm_postmortem_xlsx(
+            pm, fx_report=fx_rep, output_path=arguments.get("xlsx_output_path")
+        )
+        priv_pem, pub_pem = _attestation_keypair()
+        p_res = export_evm_postmortem_signed_pdf(
+            pm,
+            fx_report=fx_rep,
+            private_key_pem=priv_pem,
+            public_key_pem=pub_pem,
+            output_path=arguments.get("pdf_output_path"),
+        )
+        return False, {
+            "project_id": pm["project_id"],
+            "xlsx_sha256": x_res["xlsx_sha256"],
+            "xlsx_sheet_names": x_res["sheet_names"],
+            "xlsx_formula_count": x_res["formula_count"],
+            "xlsx_output_path": x_res["output_path"],
+            "pdf_sha256": p_res["pdf_sha256"],
+            "merkle_root": p_res["merkle_root"],
+            "pdf_output_path": p_res["output_path"],
+        }
+
+    if name == "audit_fem_sol105_gpforce_abaqus":
+        import hashlib as _hs
+
+        from evidence_coverage.nafems_audit import (
+            audit_abaqus_composite_layup_vs_report,
+            audit_gpforce_freebody_equilibrium,
+            audit_sol105_buckling_margins,
+        )
+        from evidence_ingest.fem_parsers import parse_abaqus_inp, parse_nastran_f06
+
+        f06_txt = str(arguments.get("f06_text") or "")
+        abq_txt = str(arguments.get("abaqus_text") or "")
+        sol105_res = None
+        gpforce_res = None
+        abaqus_res = None
+        if f06_txt.strip():
+            f06_b = f06_txt.encode("utf-8")
+            f06_p = parse_nastran_f06(f06_b, _hs.sha256(f06_b).hexdigest())
+            sol105_res = audit_sol105_buckling_margins(
+                f06_p, min_buckling_factor=str(arguments.get("min_buckling_factor") or "1.000")
+            )
+            gpforce_res = audit_gpforce_freebody_equilibrium(
+                f06_p, max_nodal_residual_n=str(arguments.get("max_nodal_residual_n") or "0.010")
+            )
+        if abq_txt.strip():
+            abq_b = abq_txt.encode("utf-8")
+            abq_p = parse_abaqus_inp(abq_b, _hs.sha256(abq_b).hexdigest())
+            abaqus_res = audit_abaqus_composite_layup_vs_report(
+                abq_p, report_claims=arguments.get("abaqus_report_claims")
+            )
+        return False, {
+            "sol105_buckling": sol105_res,
+            "gpforce_equilibrium": gpforce_res,
+            "abaqus_composite_drift": abaqus_res,
+        }
 
     return True, {"error": f"unknown_tool: {name}"}
 

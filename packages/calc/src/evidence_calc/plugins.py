@@ -68,6 +68,11 @@ _RESERVED_BUILTIN_IDS = frozenset(
         "campbell_rotor_harmonic_clearance",
         "tailboom_boxbeam_combined_stress",
         "statistical_ab_basis_tolerance_bound",
+        "bolt_prying_combined_tension_shear",
+        "goland_reissner_adhesive_peel_shear",
+        "orthotropic_composite_plate_buckling",
+        "skin_stringer_crippling_interaction",
+        "walker_mean_stress_crack_growth",
     }
 )
 

@@ -41,9 +41,10 @@ _FAMILY_LABELS: dict[str, str] = {
     "flight_envelope": "Flight Envelope & Mass",
     "structural_sizing": "Structural Sizing & Margins",
     "fasteners_joints": "Fasteners, Lugs & Joints",
-    "composites_cmh17": "Composites (CMH-17 / Hashin / Puck)",
+    "composites_cmh17": "Composites (CMH-17 / Hashin / Puck / LaRC04 / CLT)",
     "fatigue_fracture": "Fatigue, Crack Growth & Fracture",
     "thin_walled_stability": "Thin-Walled Stability & Crippling",
+    "rotorcraft_dynamics": "Rotorcraft Dynamics, Crash & Bird-Strike",
     "plugins": "User Declarative Plugins",
 }
 

@@ -1,0 +1,54 @@
+{
+  "method_id": "goland_reissner_adhesive_peel_shear",
+  "method_version": "goland_reissner_adhesive_peel_shear@1.0.0",
+  "title": "Goland-Reissner Bonded Single-Lap Joint Peel & Shear Peak Screen",
+  "label": "ASSUMPTION",
+  "equation": "k = 1/(1 + 2*sqrt(2)*tanh(u2c)); peak_peel = (T/t)*k*0.5*gamma_p; FI = sqrt((peak_peel/F_peel)^2 + (peak_shear/F_shear)^2); MS = 1/(SF*FI) - 1",
+  "note": "Eccentric single-lap bonded overlap joint analytical screening per Goland-Reissner finite-stiffness bending factor k and peel/shear interaction.",
+  "quantum": "0.0001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "tensile_load_per_width_n_mm": "newton / millimeter",
+    "overlap_length_mm": "millimeter",
+    "adherend_thickness_mm": "millimeter",
+    "adherend_modulus_mpa": "megapascal",
+    "adhesive_thickness_mm": "millimeter",
+    "adhesive_modulus_mpa": "megapascal",
+    "adhesive_shear_modulus_mpa": "megapascal",
+    "peel_allowable_mpa": "megapascal",
+    "shear_allowable_mpa": "megapascal",
+    "safety_factor": "dimensionless"
+  },
+  "required": [
+    "tensile_load_per_width_n_mm",
+    "overlap_length_mm",
+    "adherend_thickness_mm",
+    "adherend_modulus_mpa",
+    "adhesive_thickness_mm",
+    "adhesive_modulus_mpa",
+    "adhesive_shear_modulus_mpa",
+    "peel_allowable_mpa",
+    "shear_allowable_mpa",
+    "safety_factor"
+  ],
+  "limits": {
+    "tensile_load_per_width_n_mm": { "min_exclusive": "0", "max": "100000" },
+    "overlap_length_mm": { "min_exclusive": "0", "max": "1000" },
+    "adherend_thickness_mm": { "min_exclusive": "0", "max": "100" },
+    "adherend_modulus_mpa": { "min_exclusive": "0", "max": "1000000" },
+    "adhesive_thickness_mm": { "min_exclusive": "0", "max": "20" },
+    "adhesive_modulus_mpa": { "min_exclusive": "0", "max": "50000" },
+    "adhesive_shear_modulus_mpa": { "min_exclusive": "0", "max": "50000" },
+    "peel_allowable_mpa": { "min_exclusive": "0", "max": "500" },
+    "shear_allowable_mpa": { "min_exclusive": "0", "max": "500" },
+    "safety_factor": { "min": "1", "max": "10" }
+  },
+  "sources": [
+    {
+      "source_id": "goland-reissner-lap",
+      "uri": "https://aeroregu.local/cards/goland_reissner_adhesive_peel_shear",
+      "content_hash": "2b8f55e99a27739a19ef9a0c8d8b7b416695716bb0f859dfcf7c445d44eb2012",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "method_id": "walker_mean_stress_crack_growth",
+  "method_version": "walker_mean_stress_crack_growth@1.0.0",
+  "title": "Walker Mean-Stress R-Ratio Damage-Tolerant Crack Propagation Integration",
+  "label": "ASSUMPTION",
+  "equation": "delta_sigma_eff = sigma_max*(1-R)^gamma; a_c = (K_Ic/(beta*sigma_max))^2/pi; N_f = int_{a0}^{ac} da/(C*(beta*delta_sigma_eff*sqrt(pi*a))^m); MS = (N_f/SF)/N_req - 1",
+  "note": "Closed-form Walker F&DT crack propagation life integrating positive and negative mean-stress R-ratio sensitivity and scatter factor.",
+  "quantum": "0.0001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "initial_crack_a0_mm": "millimeter",
+    "sigma_max_mpa": "megapascal",
+    "stress_ratio_r": "dimensionless",
+    "geometry_factor_beta": "dimensionless",
+    "fracture_toughness_kic_mpa_sqrt_m": "megapascal * meter ** 0.5",
+    "walker_c": "dimensionless",
+    "walker_m": "dimensionless",
+    "walker_gamma": "dimensionless",
+    "required_cycles": "dimensionless",
+    "scatter_factor": "dimensionless"
+  },
+  "required": [
+    "initial_crack_a0_mm",
+    "sigma_max_mpa",
+    "stress_ratio_r",
+    "geometry_factor_beta",
+    "fracture_toughness_kic_mpa_sqrt_m",
+    "walker_c",
+    "walker_m",
+    "walker_gamma",
+    "required_cycles",
+    "scatter_factor"
+  ],
+  "limits": {
+    "initial_crack_a0_mm": { "min_exclusive": "0", "max": "1000" },
+    "sigma_max_mpa": { "min_exclusive": "0", "max": "5000" },
+    "stress_ratio_r": { "min": "-0.5", "max": "0.9" },
+    "geometry_factor_beta": { "min_exclusive": "0", "max": "20" },
+    "fracture_toughness_kic_mpa_sqrt_m": { "min_exclusive": "0", "max": "500" },
+    "walker_c": { "min_exclusive": "0", "max": "1" },
+    "walker_m": { "min": "2.05", "max": "8" },
+    "walker_gamma": { "min": "0.2", "max": "1" },
+    "required_cycles": { "min_exclusive": "0", "max": "10000000000" },
+    "scatter_factor": { "min": "1", "max": "20" }
+  },
+  "sources": [
+    {
+      "source_id": "walker-fdt-life",
+      "uri": "https://aeroregu.local/cards/walker_mean_stress_crack_growth",
+      "content_hash": "b839df9b0aaecbd66f89f8be80f1fb9dc4c1aa7a7e0e251df86f4c13fb6fd805",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

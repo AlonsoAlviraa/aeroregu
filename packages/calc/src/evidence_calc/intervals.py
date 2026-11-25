@@ -972,6 +972,16 @@ def evaluate_method_intervals(
         return evaluate_tailboom_boxbeam_intervals(inputs, staged_outputs)
     if method_id == "statistical_ab_basis_tolerance_bound":
         return evaluate_statistical_ab_basis_intervals(inputs, staged_outputs)
+    if method_id == "bolt_prying_combined_tension_shear":
+        return evaluate_bolt_prying_intervals(inputs, staged_outputs)
+    if method_id == "goland_reissner_adhesive_peel_shear":
+        return evaluate_goland_reissner_intervals(inputs, staged_outputs)
+    if method_id == "orthotropic_composite_plate_buckling":
+        return evaluate_orthotropic_plate_buckling_intervals(inputs, staged_outputs)
+    if method_id == "skin_stringer_crippling_interaction":
+        return evaluate_skin_stringer_intervals(inputs, staged_outputs)
+    if method_id == "walker_mean_stress_crack_growth":
+        return evaluate_walker_crack_intervals(inputs, staged_outputs)
     if method_id in STRESS_MANUAL_RUNNERS:
         return evaluate_stress_manual_intervals(method_id, inputs, staged_outputs)
     if card is not None and card.get("plugin") and card.get("formulas"):
@@ -1591,6 +1601,244 @@ def evaluate_statistical_ab_basis_intervals(
         "a_basis_mpa": _drift_entry(a_basis, str(staged_outputs["a_basis_mpa"])),
         "coeff_variation_pct": _drift_entry(cv_pct, str(staged_outputs["coeff_variation_pct"])),
         "margin_vs_a_basis": _drift_entry(ms_a, str(staged_outputs["margin_vs_a_basis"])),
+    }
+
+
+def evaluate_bolt_prying_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    p_t = _arb_from_decimal_text(str(inputs["applied_tension_n"]))
+    v_s = abs(_arb_from_decimal_text(str(inputs["applied_shear_n"])))
+    m_b = abs(_arb_from_decimal_text(str(inputs["applied_bending_n_mm"])))
+    a_mm = _arb_from_decimal_text(str(inputs["prying_lever_a_mm"]))
+    b_mm = _arb_from_decimal_text(str(inputs["prying_lever_b_mm"]))
+    t_fl = _arb_from_decimal_text(str(inputs["flange_thickness_mm"]))
+    allow_t = _arb_from_decimal_text(str(inputs["bolt_tensile_allowable_n"]))
+    allow_s = _arb_from_decimal_text(str(inputs["bolt_shear_allowable_n"]))
+    allow_b = _arb_from_decimal_text(str(inputs["bolt_bending_allowable_n_mm"]))
+    sf = _arb_from_decimal_text(str(inputs["safety_factor"]))
+
+    q_cand = (b_mm / (arb(2) * a_mm)) * (arb(10) / (t_fl + arb(10)))
+    q_pry = min([_arb_from_decimal_text("0.65"), q_cand], key=_arb_mid_dec)
+    pry_force = p_t * q_pry
+    tot_t = p_t + pry_force
+    r_t = tot_t / allow_t
+    r_b = m_b / allow_b
+    r_s = v_s / allow_s
+    idx = ((r_t + r_b) ** 2 + (r_s * r_s)).sqrt()
+    ms = arb(99) if _arb_mid_dec(idx) <= Decimal("1e-12") else ((arb(1) / (sf * idx)) - arb(1))
+
+    return {
+        "prying_factor_q": _drift_entry(q_pry, str(staged_outputs["prying_factor_q"])),
+        "prying_force_n": _drift_entry(pry_force, str(staged_outputs["prying_force_n"])),
+        "total_bolt_tension_n": _drift_entry(tot_t, str(staged_outputs["total_bolt_tension_n"])),
+        "tension_ratio": _drift_entry(r_t, str(staged_outputs["tension_ratio"])),
+        "shear_ratio": _drift_entry(r_s, str(staged_outputs["shear_ratio"])),
+        "combined_interaction_index": _drift_entry(
+            idx, str(staged_outputs["combined_interaction_index"])
+        ),
+        "margin_of_safety": _drift_entry(ms, str(staged_outputs["margin_of_safety"])),
+    }
+
+
+def evaluate_goland_reissner_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    load_w = _arb_from_decimal_text(str(inputs["tensile_load_per_width_n_mm"]))
+    l_ov = _arb_from_decimal_text(str(inputs["overlap_length_mm"]))
+    t_adh = _arb_from_decimal_text(str(inputs["adherend_thickness_mm"]))
+    e_adh = _arb_from_decimal_text(str(inputs["adherend_modulus_mpa"]))
+    t_glue = _arb_from_decimal_text(str(inputs["adhesive_thickness_mm"]))
+    e_glue = _arb_from_decimal_text(str(inputs["adhesive_modulus_mpa"]))
+    g_glue = _arb_from_decimal_text(str(inputs["adhesive_shear_modulus_mpa"]))
+    peel_allow = _arb_from_decimal_text(str(inputs["peel_allowable_mpa"]))
+    shear_allow = _arb_from_decimal_text(str(inputs["shear_allowable_mpa"]))
+    sf = _arb_from_decimal_text(str(inputs["safety_factor"]))
+
+    c_half = l_ov / arb(2)
+    u2c = (c_half / t_adh) * ((arb(3) * load_w) / (arb(2) * e_adh * t_adh)).sqrt()
+    tanh_u = arb(1) if _arb_mid_dec(u2c) >= Decimal("20") else u2c.tanh()
+    k_gr = arb(1) / (arb(1) + arb(2) * arb(2).sqrt() * tanh_u)
+    tau_avg = load_w / l_ov
+    beta_s = ((arb(8) * g_glue * t_adh) / (e_adh * t_glue)).sqrt() * (c_half / t_adh)
+    peak_shear = tau_avg * (
+        arb(1)
+        + _arb_from_decimal_text("0.25") * (arb(1) + arb(3) * k_gr) * (arb(1) + beta_s / arb(4))
+    )
+    gamma_p = ((arb(6) * e_glue * t_adh) / (e_adh * t_glue)).sqrt()
+    peak_peel = (load_w / t_adh) * k_gr * _arb_from_decimal_text("0.5") * gamma_p
+    idx = ((peak_peel / peel_allow) ** 2 + (peak_shear / shear_allow) ** 2).sqrt()
+    ms = (arb(1) / (sf * idx)) - arb(1)
+
+    return {
+        "gr_bending_factor_k": _drift_entry(k_gr, str(staged_outputs["gr_bending_factor_k"])),
+        "average_shear_mpa": _drift_entry(tau_avg, str(staged_outputs["average_shear_mpa"])),
+        "peak_shear_mpa": _drift_entry(peak_shear, str(staged_outputs["peak_shear_mpa"])),
+        "peak_peel_mpa": _drift_entry(peak_peel, str(staged_outputs["peak_peel_mpa"])),
+        "combined_interaction_index": _drift_entry(
+            idx, str(staged_outputs["combined_interaction_index"])
+        ),
+        "margin_of_safety": _drift_entry(ms, str(staged_outputs["margin_of_safety"])),
+    }
+
+
+def evaluate_orthotropic_plate_buckling_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    nx = _arb_from_decimal_text(str(inputs["nx_comp_n_per_mm"]))
+    ny = _arb_from_decimal_text(str(inputs["ny_comp_n_per_mm"]))
+    nxy = abs(_arb_from_decimal_text(str(inputs["nxy_shear_n_per_mm"])))
+    len_a = _arb_from_decimal_text(str(inputs["plate_length_a_mm"]))
+    wid_b = _arb_from_decimal_text(str(inputs["plate_width_b_mm"]))
+    d11 = _arb_from_decimal_text(str(inputs["d11_n_mm"]))
+    d22 = _arb_from_decimal_text(str(inputs["d22_n_mm"]))
+    d12 = _arb_from_decimal_text(str(inputs["d12_n_mm"]))
+    d66 = _arb_from_decimal_text(str(inputs["d66_n_mm"]))
+    sf = _arb_from_decimal_text(str(inputs["safety_factor"]))
+
+    h_eff = d12 + arb(2) * d66
+    d_sqrt = (d11 * d22).sqrt()
+    pi_sq = arb.pi() ** 2
+    nx_cr = (arb(2) * pi_sq / (wid_b * wid_b)) * (d_sqrt + h_eff)
+    ny_cr = (arb(2) * pi_sq / (len_a * len_a)) * (d_sqrt + h_eff)
+    theta_s = d_sqrt / h_eff
+    k_s = _arb_from_decimal_text("3.2") + _arb_from_decimal_text("2.1") / (
+        theta_s + _arb_from_decimal_text("0.5")
+    )
+    d_fourth = (d11 * (d22**3)).sqrt().sqrt()
+    nxy_cr = (arb(4) * k_s / (wid_b * wid_b)) * d_fourth
+
+    nx_pos = nx if _arb_mid_dec(nx) > Decimal("0") else arb(0)
+    ny_pos = ny if _arb_mid_dec(ny) > Decimal("0") else arb(0)
+    r_x = nx_pos / nx_cr
+    r_y = ny_pos / ny_cr
+    r_xy = nxy / nxy_cr
+    idx = r_x + r_y + (r_xy * r_xy)
+    ms = arb(99) if _arb_mid_dec(idx) <= Decimal("1e-12") else ((arb(1) / (sf * idx)) - arb(1))
+
+    return {
+        "nx_critical_n_per_mm": _drift_entry(nx_cr, str(staged_outputs["nx_critical_n_per_mm"])),
+        "ny_critical_n_per_mm": _drift_entry(ny_cr, str(staged_outputs["ny_critical_n_per_mm"])),
+        "nxy_critical_n_per_mm": _drift_entry(nxy_cr, str(staged_outputs["nxy_critical_n_per_mm"])),
+        "orthotropy_param_theta": _drift_entry(
+            theta_s, str(staged_outputs["orthotropy_param_theta"])
+        ),
+        "combined_interaction_index": _drift_entry(
+            idx, str(staged_outputs["combined_interaction_index"])
+        ),
+        "margin_of_safety": _drift_entry(ms, str(staged_outputs["margin_of_safety"])),
+    }
+
+
+def evaluate_skin_stringer_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    p_app = _arb_from_decimal_text(str(inputs["applied_compression_n"]))
+    l_pan = _arb_from_decimal_text(str(inputs["panel_length_mm"]))
+    pitch = _arb_from_decimal_text(str(inputs["stringer_pitch_mm"]))
+    t_sk = _arb_from_decimal_text(str(inputs["skin_thickness_mm"]))
+    a_str = _arb_from_decimal_text(str(inputs["stringer_area_mm2"]))
+    f_cc = _arb_from_decimal_text(str(inputs["stringer_crippling_mpa"]))
+    i_pan = _arb_from_decimal_text(str(inputs["panel_inertia_mm4"]))
+    c_fix = _arb_from_decimal_text(str(inputs["end_fixity_c"]))
+    em = _arb_from_decimal_text(str(inputs["modulus_mpa"]))
+    f_y = _arb_from_decimal_text(str(inputs["skin_yield_mpa"]))
+    sf = _arb_from_decimal_text(str(inputs["safety_factor"]))
+
+    w_vk = _arb_from_decimal_text("1.9") * t_sk * (em / f_y).sqrt()
+    w_eff = min([pitch, w_vk], key=_arb_mid_dec)
+    a_eff = a_str + w_eff * t_sk
+    sig_cc = (a_str * f_cc + w_eff * t_sk * f_y) / a_eff
+    rho_g = (i_pan / a_eff).sqrt()
+    slend = l_pan / (rho_g * c_fix.sqrt())
+    pi_sq = arb.pi() ** 2
+    lam_c = (arb(2) * pi_sq * em / sig_cc).sqrt()
+    if _arb_mid_dec(slend) <= _arb_mid_dec(lam_c):
+        sig_cr = sig_cc * (arb(1) - (sig_cc * slend * slend) / (arb(4) * pi_sq * em))
+        regime = arb(1)
+    else:
+        sig_cr = (pi_sq * em) / (slend * slend)
+        regime = arb(2)
+    sig_app = p_app / a_eff
+    ms = (sig_cr / (sf * sig_app)) - arb(1)
+
+    return {
+        "effective_skin_width_mm": _drift_entry(
+            w_eff, str(staged_outputs["effective_skin_width_mm"])
+        ),
+        "effective_panel_area_mm2": _drift_entry(
+            a_eff, str(staged_outputs["effective_panel_area_mm2"])
+        ),
+        "weighted_crippling_cutoff_mpa": _drift_entry(
+            sig_cc, str(staged_outputs["weighted_crippling_cutoff_mpa"])
+        ),
+        "effective_slenderness": _drift_entry(slend, str(staged_outputs["effective_slenderness"])),
+        "column_regime_code": _drift_entry(regime, str(staged_outputs["column_regime_code"])),
+        "critical_panel_stress_mpa": _drift_entry(
+            sig_cr, str(staged_outputs["critical_panel_stress_mpa"])
+        ),
+        "applied_panel_stress_mpa": _drift_entry(
+            sig_app, str(staged_outputs["applied_panel_stress_mpa"])
+        ),
+        "margin_of_safety": _drift_entry(ms, str(staged_outputs["margin_of_safety"])),
+    }
+
+
+def evaluate_walker_crack_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    a0_mm = _arb_from_decimal_text(str(inputs["initial_crack_a0_mm"]))
+    sig_max = _arb_from_decimal_text(str(inputs["sigma_max_mpa"]))
+    r_rat = _arb_from_decimal_text(str(inputs["stress_ratio_r"]))
+    beta = _arb_from_decimal_text(str(inputs["geometry_factor_beta"]))
+    k_ic = _arb_from_decimal_text(str(inputs["fracture_toughness_kic_mpa_sqrt_m"]))
+    w_c = _arb_from_decimal_text(str(inputs["walker_c"]))
+    w_m = _arb_from_decimal_text(str(inputs["walker_m"]))
+    w_gamma = _arb_from_decimal_text(str(inputs["walker_gamma"]))
+    req_cyc = _arb_from_decimal_text(str(inputs["required_cycles"]))
+    sf = _arb_from_decimal_text(str(inputs["scatter_factor"]))
+
+    pi_val = arb.pi()
+    a0_m = a0_mm / arb(1000)
+    ac_m = ((k_ic / (beta * sig_max)) ** 2) / pi_val
+    ac_mm = ac_m * arb(1000)
+    ds_eff = sig_max * ((arb(1) - r_rat).log() * w_gamma).exp()
+    dk_eff_0 = beta * ds_eff * (pi_val * a0_m).sqrt()
+    p_exp = arb(1) - (w_m / arb(2))
+    denom_const = w_c * (((beta * ds_eff * pi_val.sqrt()).log()) * w_m).exp()
+    life_cycles = (((ac_m.log() * p_exp).exp()) - ((a0_m.log() * p_exp).exp())) / (
+        p_exp * denom_const
+    )
+    insp_cyc = life_cycles / sf
+    ms_life = (insp_cyc / req_cyc) - arb(1)
+
+    return {
+        "critical_crack_ac_mm": _drift_entry(ac_mm, str(staged_outputs["critical_crack_ac_mm"])),
+        "walker_effective_stress_mpa": _drift_entry(
+            ds_eff, str(staged_outputs["walker_effective_stress_mpa"])
+        ),
+        "initial_delta_k_eff_mpa_sqrt_m": _drift_entry(
+            dk_eff_0, str(staged_outputs["initial_delta_k_eff_mpa_sqrt_m"])
+        ),
+        "unfactored_life_cycles": _drift_entry(
+            life_cycles, str(staged_outputs["unfactored_life_cycles"])
+        ),
+        "safe_inspection_interval_cycles": _drift_entry(
+            insp_cyc, str(staged_outputs["safe_inspection_interval_cycles"])
+        ),
+        "life_margin_of_safety": _drift_entry(
+            ms_life, str(staged_outputs["life_margin_of_safety"])
+        ),
     }
 
 

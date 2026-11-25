@@ -1427,3 +1427,388 @@ def export_change_order_signed_pdf(
         "public_key_pem": pub_pem.decode("ascii"),
         "output_path": out_str,
     }
+
+
+def export_evm_postmortem_xlsx(
+    postmortem_report: dict[str, Any],
+    *,
+    fx_report: dict[str, Any] | None = None,
+    output_path: Path | str | None = None,
+) -> dict[str, Any]:
+    """Generate native live-formula Excel (.xlsx) workbook for Bid-to-Actual EVM & FX hedging."""
+    wb = Workbook()
+    ws_sum = wb.active
+    ws_sum.title = "1_EVM_Summary"
+    ws_wbs = wb.create_sheet("2_WBS_Earned_Value")
+    ws_asm = wb.create_sheet("3_Broken_Assumptions")
+    ws_fx = wb.create_sheet("4_FX_Hedging_Z3")
+
+    formula_count = 0
+    evm = postmortem_report.get("evm_summary") or {}
+    nodes = list(postmortem_report.get("per_node_evm") or [])
+    attributions = list(postmortem_report.get("broken_assumptions_attributed") or [])
+
+    # TAB 2: Per-Node Earned Value
+    wbs_hdr = [
+        "Archetype ID",
+        "Quoted Hours",
+        "Actual Hours",
+        "Hours Variance",
+        "BAC Cost (EUR)",
+        "PV (EUR)",
+        "EV (EUR)",
+        "AC (EUR)",
+        "CV (EUR)",
+        "SV (EUR)",
+        "CPI",
+        "SPI",
+        "EAC (EUR)",
+        "Outcome",
+    ]
+    ws_wbs.append(wbs_hdr)
+    _style_header_row(ws_wbs, 1, len(wbs_hdr))
+    ws_wbs.freeze_panes = "A2"
+
+    for idx, nd in enumerate(nodes, start=2):
+        ws_wbs.append(
+            [
+                _sanitize_excel_text(nd.get("archetype_id", "")),
+                _num_val(nd.get("quoted_hours")),
+                _num_val(nd.get("actual_hours")),
+                f"=C{idx}-B{idx}",
+                _num_val(nd.get("bac_cost_eur")),
+                _num_val(nd.get("pv_eur")),
+                _num_val(nd.get("ev_eur")),
+                _num_val(nd.get("ac_eur")),
+                f"=G{idx}-H{idx}",
+                f"=G{idx}-F{idx}",
+                f"=IF(H{idx}>0,G{idx}/H{idx},1)",
+                f"=IF(F{idx}>0,G{idx}/F{idx},1)",
+                f"=IF(K{idx}>0,E{idx}/K{idx},E{idx})",
+                _sanitize_excel_text(nd.get("outcome", "")),
+            ]
+        )
+        formula_count += 6
+        for c_i in (2, 3, 4, 5, 6, 7, 8, 9, 10, 13):
+            ws_wbs.cell(row=idx, column=c_i).number_format = "#,##0.00"
+        for c_i in (11, 12):
+            ws_wbs.cell(row=idx, column=c_i).number_format = "0.000"
+
+    if not nodes:
+        ws_wbs.append(["NONE", 0, 0, "=C2-B2", 0, 0, 0, 0, "=G2-H2", "=G2-F2", 1, 1, 0, "N/A"])
+        formula_count += 3
+        last_wbs = 2
+    else:
+        last_wbs = 1 + len(nodes)
+    tot_wbs = last_wbs + 1
+    ws_wbs.append(
+        [
+            "PROGRAM TOTAL",
+            f"=SUM(B2:B{last_wbs})",
+            f"=SUM(C2:C{last_wbs})",
+            f"=C{tot_wbs}-B{tot_wbs}",
+            f"=SUM(E2:E{last_wbs})",
+            f"=SUM(F2:F{last_wbs})",
+            f"=SUM(G2:G{last_wbs})",
+            f"=SUM(H2:H{last_wbs})",
+            f"=G{tot_wbs}-H{tot_wbs}",
+            f"=G{tot_wbs}-F{tot_wbs}",
+            f"=IF(H{tot_wbs}>0,G{tot_wbs}/H{tot_wbs},1)",
+            f"=IF(F{tot_wbs}>0,G{tot_wbs}/F{tot_wbs},1)",
+            f"=IF(K{tot_wbs}>0,E{tot_wbs}/K{tot_wbs},E{tot_wbs})",
+            f'=COUNTIF(N2:N{last_wbs},"WON_OVERRUN")',
+        ]
+    )
+    formula_count += 13
+    for c_i in range(1, len(wbs_hdr) + 1):
+        ws_wbs.cell(row=tot_wbs, column=c_i).font = _BOLD_FONT
+        ws_wbs.cell(row=tot_wbs, column=c_i).fill = _ACCENT_FILL
+    _autofit_columns(ws_wbs)
+
+    # TAB 3: Broken Assumptions Attribution
+    asm_hdr = [
+        "Assumption ID",
+        "Dimension",
+        "Title",
+        "Attributed Overrun (h)",
+        "Root-Cause Diagnosis",
+    ]
+    ws_asm.append(asm_hdr)
+    _style_header_row(ws_asm, 1, len(asm_hdr))
+    for at in attributions:
+        ws_asm.append(
+            [
+                _sanitize_excel_text(at.get("assumption_id", "")),
+                _sanitize_excel_text(at.get("dimension", "")),
+                _sanitize_excel_text(at.get("title", "")),
+                _num_val(at.get("attributed_overrun_hours")),
+                _sanitize_excel_text(at.get("cause", "")),
+            ]
+        )
+    asm_last = max(2, 1 + len(attributions))
+    if attributions:
+        ws_asm.append(
+            ["TOTAL ATTRIBUTED", "", f"=COUNTA(A2:A{asm_last})", f"=SUM(D2:D{asm_last})", ""]
+        )
+        formula_count += 2
+    _autofit_columns(ws_asm)
+
+    # TAB 4: FX Hedging & Z3 Shock Sensitivity
+    fx_hdr = [
+        "FX Shock (%)",
+        "Unhedged Revenue (EUR)",
+        "Hedged Revenue (EUR)",
+        "Hedge Gain / Delta (EUR)",
+        "Unhedged Margin (%)",
+        "Hedged Margin (%)",
+    ]
+    ws_fx.append(["AeroRegu Multi-Currency FX Hedging & Z3 SMT Margin Gate", "", "", "", "", ""])
+    ws_fx["A1"].font = _TITLE_FONT
+    fx_z3 = (fx_report or {}).get("formal_fx_margin_proof") or {}
+    ws_fx.append(
+        [
+            "Billing / Cost Currency",
+            _sanitize_excel_text(
+                f"{(fx_report or {}).get('billing_currency', 'EUR')} / "
+                f"{(fx_report or {}).get('cost_currency', 'EUR')}"
+            ),
+            "Hedge Ratio (%)",
+            _num_val((fx_report or {}).get("hedge_ratio_pct")),
+            "Z3 SMT Status",
+            _sanitize_excel_text(fx_z3.get("status") or "NOT_RUN"),
+        ]
+    )
+    ws_fx.append(fx_hdr)
+    _style_header_row(ws_fx, 3, len(fx_hdr))
+    scenarios = list((fx_report or {}).get("sensitivity_scenarios") or [])
+    for row_i, sc in enumerate(scenarios, start=4):
+        ws_fx.append(
+            [
+                _num_val(sc.get("fx_shock_pct")),
+                _num_val(sc.get("unhedged_revenue_eur")),
+                _num_val(sc.get("hedged_revenue_eur")),
+                f"=C{row_i}-B{row_i}",
+                _num_val(sc.get("unhedged_margin_pct")),
+                _num_val(sc.get("hedged_margin_pct")),
+            ]
+        )
+        formula_count += 1
+        for c_i in (2, 3, 4):
+            ws_fx.cell(row=row_i, column=c_i).number_format = "#,##0.00"
+    _autofit_columns(ws_fx)
+
+    # TAB 1: EVM Executive Summary (Cross-Sheet Live Formulas)
+    ws_sum.append(["AeroRegu — Bid-to-Actual EVM Post-Mortem Dashboard", "", ""])
+    ws_sum["A1"].font = _TITLE_FONT
+    ws_sum.append(
+        [
+            "ADVISORY NOTICE",
+            "ASSUMPTION / ESTIMATE closed-loop EVM feedback; requires human controller sign-off.",
+            "",
+        ]
+    )
+    ws_sum.append(["KPI / Gate", "Live Value / Formula", "Reference"])
+    _style_header_row(ws_sum, 3, 3)
+
+    sell_price = _num_val(evm.get("quoted_selling_price_eur"))
+    summary_rows = [
+        ("Project ID", _sanitize_excel_text(postmortem_report.get("project_id", "")), "Metadata"),
+        (
+            "Baseline RFQ ID",
+            _sanitize_excel_text(postmortem_report.get("baseline_rfq_id", "")),
+            "Baseline",
+        ),
+        (
+            "Health Status",
+            _sanitize_excel_text(postmortem_report.get("health_status", "")),
+            "EVM Gate",
+        ),
+        ("Quoted Hours (h)", f"='2_WBS_Earned_Value'!B{tot_wbs}", "Live WBS"),
+        ("Actual Burned Hours (h)", f"='2_WBS_Earned_Value'!C{tot_wbs}", "Live WBS"),
+        ("Hours Variance (h)", "=B8-B7", "Live Delta"),
+        ("Budget at Completion BAC (EUR)", f"='2_WBS_Earned_Value'!E{tot_wbs}", "Live WBS"),
+        ("Earned Value EV (EUR)", f"='2_WBS_Earned_Value'!G{tot_wbs}", "Live WBS"),
+        ("Actual Cost AC (EUR)", f"='2_WBS_Earned_Value'!H{tot_wbs}", "Live WBS"),
+        ("Cost Performance Index CPI", f"='2_WBS_Earned_Value'!K{tot_wbs}", "Live EVM"),
+        ("Schedule Performance Index SPI", f"='2_WBS_Earned_Value'!L{tot_wbs}", "Live EVM"),
+        ("Estimate at Completion EAC (EUR)", f"='2_WBS_Earned_Value'!M{tot_wbs}", "Live EVM"),
+        ("Variance at Completion VAC (EUR)", "=B10-B15", "Live EVM"),
+        ("Quoted Selling Price (EUR)", sell_price, "Contract"),
+        ("Realized Gross Margin (EUR)", "=B17-B12", "Live Margin"),
+        ("Realized Gross Margin (%)", "=IF(B17>0,(B18/B17)*100,0)", "Live Margin"),
+        (
+            "Ledger Merkle Root",
+            _sanitize_excel_text(postmortem_report.get("merkle_root", "")),
+            "Audit Trail",
+        ),
+    ]
+    for idx, (lbl, val, src) in enumerate(summary_rows, start=4):
+        ws_sum.append([lbl, val, src])
+        if isinstance(val, str) and val.startswith("="):
+            formula_count += 1
+            ws_sum.cell(row=idx, column=2).number_format = (
+                "0.000" if ("CPI" in lbl or "SPI" in lbl) else "#,##0.00"
+            )
+    _autofit_columns(ws_sum)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    xlsx_bytes = buf.getvalue()
+    out_str: str | None = None
+    if output_path is not None:
+        out_p = Path(output_path)
+        out_p.parent.mkdir(parents=True, exist_ok=True)
+        out_p.write_bytes(xlsx_bytes)
+        out_str = str(out_p)
+    return {
+        "xlsx_bytes": xlsx_bytes,
+        "xlsx_sha256": hashlib.sha256(xlsx_bytes).hexdigest(),
+        "sheet_names": wb.sheetnames,
+        "formula_count": formula_count,
+        "output_path": out_str,
+    }
+
+
+def export_evm_postmortem_signed_pdf(
+    postmortem_report: dict[str, Any],
+    *,
+    fx_report: dict[str, Any] | None = None,
+    private_key_pem: bytes | None = None,
+    public_key_pem: bytes | None = None,
+    output_path: Path | str | None = None,
+) -> dict[str, Any]:
+    """Generate an Ed25519 DSSE + ISO QR signed PDF for Bid-to-Actual EVM & FX post-mortem."""
+    priv_pem, pub_pem = _resolve_signing_keypair(private_key_pem, public_key_pem)
+    evm = postmortem_report.get("evm_summary") or {}
+    merkle = str(postmortem_report.get("merkle_root") or ("0" * 64))
+    proj_id = str(postmortem_report.get("project_id") or "POST-001")
+    fx_z3 = (fx_report or {}).get("formal_fx_margin_proof") or {}
+
+    attestation_payload = {
+        "schema": "evidence-layer/quotation-evm-pdf@1.0.0",
+        "project_id": proj_id,
+        "baseline_rfq_id": str(postmortem_report.get("baseline_rfq_id") or ""),
+        "health_status": str(postmortem_report.get("health_status") or ""),
+        "cpi": str(evm.get("cpi") or "1.000"),
+        "spi": str(evm.get("spi") or "1.000"),
+        "eac_eur": str(evm.get("eac_eur") or "0.000"),
+        "vac_eur": str(evm.get("vac_eur") or "0.000"),
+        "fx_proof_status": str(fx_z3.get("status") or "NONE"),
+        "merkle_root": merkle,
+    }
+    dsse_envelope = sign_attestation_dsse(attestation_payload, priv_pem)
+    dsse_bytes = json.dumps(dsse_envelope, sort_keys=True, indent=2).encode("utf-8")
+    sig_raw = base64.b64decode(dsse_envelope["signatures"][0]["sig"])
+    sig_sha256 = hashlib.sha256(sig_raw).hexdigest()
+
+    qr_payload = "aeroregu-evm:" + json.dumps(
+        {
+            "v": 1,
+            "p": proj_id[:16],
+            "m": merkle[:16],
+            "s": sig_sha256[:16],
+            "c": str(evm.get("cpi") or "")[:8],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    qr_png = render_qr_png(qr_payload, scale=8, border=6)
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    banner_rgb = (15 / 255, 23 / 255, 42 / 255)
+    page.draw_rect(pymupdf.Rect(32, 28, 563, 92), color=banner_rgb, fill=banner_rgb)
+    page.insert_text(
+        (44, 54),
+        f"AeroRegu - Signed Bid-to-Actual EVM Post-Mortem ({proj_id})",
+        fontsize=13.0,
+        color=(1, 1, 1),
+    )
+    page.insert_text(
+        (44, 74),
+        "ASSUMPTION / ESTIMATE closed-loop ERP EVM & FX dossier. Requires human approval.",
+        fontsize=8.2,
+        color=(0.82, 0.88, 0.96),
+    )
+    page.insert_image(pymupdf.Rect(452, 108, 556, 212), stream=qr_png)
+
+    lines = [
+        f"Project ID: {proj_id}  |  Baseline RFQ: {postmortem_report.get('baseline_rfq_id')}",
+        f"Health Status: {postmortem_report.get('health_status')}",
+        f"Quoted vs Actual Hours: {evm.get('quoted_hours')} h -> {evm.get('actual_hours')} h "
+        f"(Var {evm.get('hours_variance')} h / {evm.get('hours_variance_pct')}%)",
+        f"EVM Indexes: CPI={evm.get('cpi')} | SPI={evm.get('spi')} | TCPI={evm.get('tcpi_bac')}",
+        f"BAC={evm.get('bac_cost_eur')} EUR | AC={evm.get('ac_eur')} EUR "
+        f"| EAC={evm.get('eac_eur')} EUR",
+        f"VAC={evm.get('vac_eur')} EUR | Realized Margin={evm.get('realized_margin_pct')}%",
+        f"FX Hedging Z3 Gate: {fx_z3.get('status') or 'NOT_INCLUDED'} "
+        f"({(fx_report or {}).get('billing_currency', 'EUR')})",
+        f"Ledger Merkle Root: {merkle[:48]}...",
+    ]
+    y = 124
+    for ln in lines:
+        page.insert_text((38, y), ln[:90], fontsize=9.0, color=(0.1, 0.14, 0.22))
+        y += 16
+
+    y += 10
+    page.insert_text((38, y), "Per-Node Earned Value & Broken Assumptions", fontsize=11.0)
+    y += 16
+    for at in (postmortem_report.get("broken_assumptions_attributed") or [])[:8]:
+        page.insert_text(
+            (42, y),
+            f"- {at['assumption_id']} ({at['attributed_overrun_hours']}h): {at['cause'][:72]}",
+            fontsize=8.3,
+            color=(0.18, 0.22, 0.30),
+        )
+        y += 14
+    y += 8
+    for nd in (postmortem_report.get("per_node_evm") or [])[:14]:
+        if y > 790:
+            break
+        page.insert_text(
+            (42, y),
+            f"{nd['archetype_id']} [{nd['outcome']}] Q={nd['quoted_hours']}h "
+            f"A={nd['actual_hours']}h CPI={nd['cpi']} EAC={nd['eac_eur']} EUR",
+            fontsize=8.2,
+            color=(0.12, 0.18, 0.28),
+        )
+        y += 13
+
+    doc.embfile_add(
+        _DSSE_ATTACHMENT_NAME,
+        dsse_bytes,
+        filename=_DSSE_ATTACHMENT_NAME,
+        desc="DSSE v1 Ed25519 EVM Post-Mortem Attestation Envelope",
+    )
+    doc.embfile_add(
+        _PUBKEY_ATTACHMENT_NAME,
+        pub_pem,
+        filename=_PUBKEY_ATTACHMENT_NAME,
+        desc="Ed25519 Verification Public Key (PEM)",
+    )
+    doc.set_metadata(
+        {
+            "title": f"AeroRegu Signed EVM Post-Mortem ({proj_id})",
+            "subject": f"merkle={merkle}",
+            "keywords": qr_payload,
+            "creator": "aeroregu-evm-exporter",
+        }
+    )
+    pdf_bytes = doc.tobytes(deflate=True)
+    doc.close()
+
+    out_str: str | None = None
+    if output_path is not None:
+        out_p = Path(output_path)
+        out_p.parent.mkdir(parents=True, exist_ok=True)
+        out_p.write_bytes(pdf_bytes)
+        out_str = str(out_p)
+    return {
+        "pdf_bytes": pdf_bytes,
+        "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
+        "merkle_root": merkle,
+        "qr_payload": qr_payload,
+        "dsse_envelope": dsse_envelope,
+        "public_key_pem": pub_pem.decode("ascii"),
+        "output_path": out_str,
+    }

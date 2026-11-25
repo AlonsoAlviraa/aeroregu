@@ -37,6 +37,8 @@
   let latestDossier = null;
   let baselineDossier = null;
   let latestCcn = null;
+  let latestFxReport = null;
+  let latestEvmReport = null;
 
   function tenantOf() {
     if (typeof window.currentTenant === "function") return window.currentTenant();
@@ -112,11 +114,13 @@
     const h5File = document.getElementById("quote-h5-file")?.files?.[0];
     const stepFile = document.getElementById("quote-step-file")?.files?.[0];
     const bomFile = document.getElementById("quote-bom-file")?.files?.[0];
+    const abqFile = document.getElementById("quote-abaqus-file")?.files?.[0];
     if (bdfFile) att.bdf_text = await bdfFile.text();
     if (f06File) att.f06_text = await f06File.text();
     if (op2File) att.op2_base64 = await fileToBase64(op2File);
     if (h5File) att.h5_base64 = await fileToBase64(h5File);
     if (stepFile) att.step_text = await stepFile.text();
+    if (abqFile) att.abaqus_text = await abqFile.text();
     if (bomFile) {
       const b64 = await fileToBase64(bomFile);
       const low = bomFile.name.toLowerCase();
@@ -666,6 +670,142 @@
     }
   }
 
+  async function runFxHedging() {
+    const statusEl = document.getElementById("quote-fx-evm-status");
+    const fxBody = document.querySelector("#quote-fx-table tbody");
+    const myOut = latestDossier?.multiyear_cashflow_learning?.outputs || {};
+    const quotedPrice = myOut.quoted_price_eur || "500000";
+    const costEur = myOut.escalated_total_cost_eur || "375000";
+    const body = {
+      quoted_price_eur: quotedPrice,
+      cost_eur: costEur,
+      billing_currency: document.getElementById("quote-fx-billing-ccy")?.value || "USD",
+      hedge_ratio_pct: document.getElementById("quote-fx-hedge-pct")?.value || "85",
+      fx_shock_band_pct: document.getElementById("quote-fx-band-pct")?.value || "10",
+      min_acceptable_margin_pct: document.getElementById("quote-min-margin")?.value || "10.000",
+    };
+    try {
+      const resp = await fetch("/quotations/rotorcraft/fx-hedging", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(body),
+      });
+      const json = await resp.json();
+      latestFxReport = json?.result || {};
+      const z3fx = latestFxReport.formal_fx_margin_proof || {};
+      if (statusEl) {
+        statusEl.innerHTML = `FX (${escapeHtml(latestFxReport.billing_currency)}): Factura <strong>${escapeHtml(latestFxReport.invoice_amount_billing_ccy)}</strong> | Coste Carry <strong>${escapeHtml(latestFxReport.hedge_carry_cost_eur)} EUR</strong> | Z3: <strong>${escapeHtml(z3fx.status)}</strong> | Cobertura Min Rec: ${escapeHtml(latestFxReport.recommended_min_hedge_ratio_pct || "N/A")}%`;
+      }
+      if (fxBody) {
+        fxBody.innerHTML = (latestFxReport.sensitivity_scenarios || [])
+          .map(
+            (s) => `
+            <tr>
+              <th scope="row">${escapeHtml(s.fx_shock_pct)}%</th>
+              <td>${escapeHtml(s.unhedged_revenue_eur)}</td>
+              <td>${escapeHtml(s.hedged_revenue_eur)}</td>
+              <td>${escapeHtml(s.hedged_margin_pct)}%</td>
+            </tr>`
+          )
+          .join("");
+      }
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Error FX hedging: ${err?.message || err}`;
+    }
+  }
+
+  async function runEvmPostmortem() {
+    const statusEl = document.getElementById("quote-fx-evm-status");
+    const evmBody = document.querySelector("#quote-evm-table tbody");
+    const base = baselineDossier || latestDossier;
+    const overrunPct = Number(document.getElementById("quote-evm-overrun-pct")?.value || 25);
+    const ecnActual = Number(document.getElementById("quote-evm-ecn-actual")?.value || 4);
+    const projId = document.getElementById("quote-evm-proj-id")?.value || "POST-H145-HOIST";
+    const factor = 1 + overrunPct / 100;
+    const baseNodes = base?.composite_wbs_dag?.nodes || [];
+    const actuals = baseNodes.length
+      ? baseNodes.map((n, idx) => ({
+          archetype_id: n.archetype_id,
+          actual_hours: (Number(n.net_hours || 0) * (idx === 0 ? factor : 1)).toFixed(2),
+          earned_pct: "100",
+        }))
+      : [{ archetype_id: "Q-STR-03", actual_hours: "280.00", earned_pct: "100" }];
+
+    const body = {
+      tenant_id: tenantOf(),
+      project_id: projId,
+      baseline_dossier: base || undefined,
+      actual_ecn_iterations: ecnActual,
+      actuals,
+    };
+    try {
+      const resp = await fetch("/quotations/rotorcraft/evm-postmortem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(body),
+      });
+      const json = await resp.json();
+      latestEvmReport = json?.result || {};
+      const evm = latestEvmReport.evm_summary || {};
+      if (statusEl) {
+        statusEl.innerHTML = `EVM <strong>${escapeHtml(latestEvmReport.project_id)}</strong> (${escapeHtml(latestEvmReport.health_status)}): CPI=<strong>${escapeHtml(evm.cpi)}</strong> | SPI=<strong>${escapeHtml(evm.spi)}</strong> | EAC=<strong>${escapeHtml(evm.eac_eur)} EUR</strong> | Margen Real: ${escapeHtml(evm.realized_margin_pct)}%`;
+      }
+      if (evmBody) {
+        evmBody.innerHTML = (latestEvmReport.per_node_evm || [])
+          .map(
+            (nd) => `
+            <tr>
+              <th scope="row">${escapeHtml(nd.archetype_id)}</th>
+              <td>${escapeHtml(nd.quoted_hours)} / ${escapeHtml(nd.actual_hours)}</td>
+              <td>${escapeHtml(nd.cpi)}</td>
+              <td>${escapeHtml(nd.eac_eur)}</td>
+            </tr>`
+          )
+          .join("");
+      }
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Error EVM postmortem: ${err?.message || err}`;
+    }
+  }
+
+  async function downloadEvmBinary(url, filename) {
+    const statusEl = document.getElementById("quote-fx-evm-status");
+    try {
+      const body = latestEvmReport
+        ? { postmortem_report: latestEvmReport, fx_report: latestFxReport }
+        : {
+            tenant_id: tenantOf(),
+            project_id: document.getElementById("quote-evm-proj-id")?.value || "POST-H145-HOIST",
+            billing_currency: document.getElementById("quote-fx-billing-ccy")?.value || "USD",
+            hedge_ratio_pct: document.getElementById("quote-fx-hedge-pct")?.value || "85",
+          };
+      const resp = await fetch(url, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        if (statusEl) statusEl.textContent = `Error descargando ${filename} (${resp.status})`;
+        return;
+      }
+      const blob = await resp.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objUrl);
+      if (statusEl) statusEl.textContent = `Descargado EVM: ${filename}`;
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Error descargando ${filename}: ${err?.message || err}`;
+    }
+  }
+
   function bindCockpit() {
     hydrateCatalog();
 
@@ -710,6 +850,14 @@
       downloadCcnBinary("/quotations/rotorcraft/change-order/export-pdf", "aeroregu_signed_ccn.pdf");
     });
     document.getElementById("quote-portfolio-btn")?.addEventListener("click", runPortfolioCapacity);
+    document.getElementById("quote-fx-run-btn")?.addEventListener("click", runFxHedging);
+    document.getElementById("quote-evm-run-btn")?.addEventListener("click", runEvmPostmortem);
+    document.getElementById("quote-evm-xlsx-btn")?.addEventListener("click", () => {
+      downloadEvmBinary("/quotations/rotorcraft/evm-postmortem/export-xlsx", "aeroregu_evm_postmortem.xlsx");
+    });
+    document.getElementById("quote-evm-pdf-btn")?.addEventListener("click", () => {
+      downloadEvmBinary("/quotations/rotorcraft/evm-postmortem/export-pdf", "aeroregu_signed_evm.pdf");
+    });
 
     document.addEventListener("keydown", (e) => {
       if (e.altKey && e.key === "7") {

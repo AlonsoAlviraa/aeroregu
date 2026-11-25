@@ -2769,6 +2769,10 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
                     <label for="quote-bom-file">Tabla BOM / Planos (.pdf / .xlsx / .docx)</label>
                     <input type="file" id="quote-bom-file" name="bom_file" accept=".pdf,.xlsx,.docx">
                   </div>
+                  <div class="field">
+                    <label for="quote-abaqus-file">Modelo FEM Abaqus (.inp)</label>
+                    <input type="file" id="quote-abaqus-file" name="abaqus_file" accept=".inp">
+                  </div>
                 </div>
               </fieldset>
 
@@ -2966,6 +2970,85 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
                           <th scope="col">FTE</th>
                           <th scope="col">Pico Sin Nivelar</th>
                           <th scope="col">Pico Nivelado</th>
+                        </tr>
+                      </thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            <details id="quote-fx-evm-details" style="margin-top:0.95rem;border:1px solid var(--border);border-radius:10px;padding:0.75rem;background:var(--surface-alt);">
+              <summary style="cursor:pointer;font-weight:700;">Cobertura FX Multi-Divisa (Z3) y Post-Mortem EVM Bid-to-Actual (v3)</summary>
+              <div class="sub-grid" style="margin-top:0.75rem;">
+                <div class="field">
+                  <label for="quote-fx-billing-ccy">Divisa Facturación</label>
+                  <select id="quote-fx-billing-ccy">
+                    <option value="USD">USD (Dólar EE.UU.)</option>
+                    <option value="GBP">GBP (Libra Esterlina)</option>
+                    <option value="EUR">EUR (Euro)</option>
+                    <option value="PLN">PLN (Zloty Polonia)</option>
+                    <option value="INR">INR (Rupia India)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="quote-fx-hedge-pct">Cobertura Forward (%)</label>
+                  <input type="number" id="quote-fx-hedge-pct" min="0" max="95" step="5" value="85">
+                </div>
+                <div class="field">
+                  <label for="quote-fx-band-pct">Banda Choque FX (+/- %)</label>
+                  <input type="number" id="quote-fx-band-pct" min="2" max="35" step="1" value="10">
+                </div>
+                <div class="field">
+                  <label for="quote-evm-proj-id">ID Proyecto Cerrado (EVM)</label>
+                  <input type="text" id="quote-evm-proj-id" value="POST-H145-HOIST">
+                </div>
+                <div class="field">
+                  <label for="quote-evm-overrun-pct">Desvío Horas Reales (%)</label>
+                  <input type="number" id="quote-evm-overrun-pct" min="-20" max="80" step="5" value="25">
+                </div>
+                <div class="field">
+                  <label for="quote-evm-ecn-actual">Iteraciones ECN Reales</label>
+                  <input type="number" id="quote-evm-ecn-actual" min="0" max="20" step="1" value="4">
+                </div>
+              </div>
+              <div class="row" style="flex-wrap:wrap;gap:0.5rem;margin-top:0.65rem;">
+                <button type="button" id="quote-fx-run-btn" class="primary">💱 Simular FX + Prueba Z3</button>
+                <button type="button" id="quote-evm-run-btn" class="primary">📈 Ejecutar Post-Mortem EVM</button>
+                <button type="button" id="quote-evm-xlsx-btn" class="subtle">📊 Descargar EVM .xlsx</button>
+                <button type="button" id="quote-evm-pdf-btn" class="subtle">📜 Descargar EVM PDF DSSE+QR</button>
+              </div>
+              <div id="quote-fx-evm-status" role="status" aria-live="polite" style="margin-top:0.65rem;padding:0.55rem 0.75rem;border-radius:8px;border:1px solid var(--border);background:var(--surface);">
+                Simula sensibilidad cambiaria con prueba formal Z3 SMT o cierra el bucle Bid-to-Actual EVM con exportación Excel/PDF firmada.
+              </div>
+              <div class="sub-grid" style="margin-top:0.75rem;">
+                <div>
+                  <h3 id="quote-fx-caption">Sensibilidad Cambiaria (FX Forward vs Spot)</h3>
+                  <div tabindex="0" role="region" aria-labelledby="quote-fx-caption" class="table-wrapper">
+                    <table id="quote-fx-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Choque FX</th>
+                          <th scope="col">Sin Cobertura (EUR)</th>
+                          <th scope="col">Cubierto (EUR)</th>
+                          <th scope="col">Margen Cubierto</th>
+                        </tr>
+                      </thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
+                </div>
+                <div>
+                  <h3 id="quote-evm-caption">Earned Value por Nodo WBS (EVM)</h3>
+                  <div tabindex="0" role="region" aria-labelledby="quote-evm-caption" class="table-wrapper">
+                    <table id="quote-evm-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Arquetipo</th>
+                          <th scope="col">Ofertado / Real (h)</th>
+                          <th scope="col">CPI</th>
+                          <th scope="col">EAC (EUR)</th>
                         </tr>
                       </thead>
                       <tbody></tbody>

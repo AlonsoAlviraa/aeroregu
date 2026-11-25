@@ -1,0 +1,54 @@
+{
+  "method_id": "bolt_prying_combined_tension_shear",
+  "method_version": "bolt_prying_combined_tension_shear@1.0.0",
+  "title": "Bolted T-Flange Prying Amplification & Combined Tension-Bending-Shear Screen",
+  "label": "ASSUMPTION",
+  "equation": "q = min(0.65, (b/(2*a))*(10/(t+10))); P_tot = P_t*(1+q); FI = sqrt((P_tot/P_allow + M/M_allow)^2 + (V/V_allow)^2); MS = 1/(SF*FI) - 1",
+  "note": "Conservative aerospace fitting T-flange prying amplification paired with NASA-STD-5020 bolt tension+bending+shear interaction.",
+  "quantum": "0.0001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "applied_tension_n": "newton",
+    "applied_shear_n": "newton",
+    "applied_bending_n_mm": "newton * millimeter",
+    "prying_lever_a_mm": "millimeter",
+    "prying_lever_b_mm": "millimeter",
+    "flange_thickness_mm": "millimeter",
+    "bolt_tensile_allowable_n": "newton",
+    "bolt_shear_allowable_n": "newton",
+    "bolt_bending_allowable_n_mm": "newton * millimeter",
+    "safety_factor": "dimensionless"
+  },
+  "required": [
+    "applied_tension_n",
+    "applied_shear_n",
+    "applied_bending_n_mm",
+    "prying_lever_a_mm",
+    "prying_lever_b_mm",
+    "flange_thickness_mm",
+    "bolt_tensile_allowable_n",
+    "bolt_shear_allowable_n",
+    "bolt_bending_allowable_n_mm",
+    "safety_factor"
+  ],
+  "limits": {
+    "applied_tension_n": { "min": "0", "max": "10000000" },
+    "applied_shear_n": { "min": "-10000000", "max": "10000000" },
+    "applied_bending_n_mm": { "min": "-100000000", "max": "100000000" },
+    "prying_lever_a_mm": { "min_exclusive": "0", "max": "1000" },
+    "prying_lever_b_mm": { "min_exclusive": "0", "max": "1000" },
+    "flange_thickness_mm": { "min_exclusive": "0", "max": "500" },
+    "bolt_tensile_allowable_n": { "min_exclusive": "0", "max": "10000000" },
+    "bolt_shear_allowable_n": { "min_exclusive": "0", "max": "10000000" },
+    "bolt_bending_allowable_n_mm": { "min_exclusive": "0", "max": "100000000" },
+    "safety_factor": { "min": "1", "max": "10" }
+  },
+  "sources": [
+    {
+      "source_id": "nasa5020-bolt-prying",
+      "uri": "https://aeroregu.local/cards/bolt_prying_combined_tension_shear",
+      "content_hash": "8c5d0b4f21275df7c832f37d75c9fbeb0d3be7d167a8a3509be2e7c3e2cf9901",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

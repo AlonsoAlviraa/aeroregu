@@ -3400,6 +3400,8 @@ def quote_evm_postmortem_cmd(
         help="Realized ECN iterations.",
     ),
     project_id: str = typer.Option("POST-001", "--project-id", help="Closed project ID."),
+    xlsx_out: Path | None = typer.Option(None, "--xlsx-out", help="EVM .xlsx output path."),
+    pdf_out: Path | None = typer.Option(None, "--pdf-out", help="EVM signed .pdf output path."),
     tenant: str = typer.Option("demo", "--tenant", help="Tenant ID."),
     json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
 ) -> None:
@@ -3409,8 +3411,12 @@ def quote_evm_postmortem_cmd(
         CompositeRotorcraftQuotationSpec,
         run_composite_rotorcraft_quotation,
     )
+    from evidence_coverage.quotation_exporter import (
+        export_evm_postmortem_signed_pdf,
+        export_evm_postmortem_xlsx,
+    )
 
-    from evidence_api.app import _now, open_ledger
+    from evidence_api.app import _attestation_keypair, _now, open_ledger
 
     checked = _tenant_or_exit(tenant)
     ledger = open_ledger(checked)
@@ -3433,6 +3439,13 @@ def quote_evm_postmortem_cmd(
         actual_ecn_iterations=actual_ecn_iterations,
         created_at=_now(),
     )
+    if xlsx_out is not None:
+        export_evm_postmortem_xlsx(res, output_path=xlsx_out)
+    if pdf_out is not None:
+        priv_pem, pub_pem = _attestation_keypair()
+        export_evm_postmortem_signed_pdf(
+            res, private_key_pem=priv_pem, public_key_pem=pub_pem, output_path=pdf_out
+        )
     if _wants_json(json_out):
         _emit_json(res)
         return
@@ -3441,6 +3454,58 @@ def quote_evm_postmortem_cmd(
         f"[green]EVM Post-Mortem {res['project_id']}[/green] | "
         f"Health={res['health_status']} | CPI={evm['cpi']} | SPI={evm['spi']} | "
         f"VAC={evm['vac_eur']} EUR | Margin={evm['realized_margin_pct']}%"
+    )
+
+
+@quote_app.command("fem-vv-audit")
+def quote_fem_vv_audit_cmd(
+    f06_file: Path | None = typer.Option(
+        None, "--f06-file", exists=True, help="NASTRAN .f06 file (SOL 105 / GPFORCE)."
+    ),
+    abaqus_file: Path | None = typer.Option(
+        None, "--abaqus-file", exists=True, help="ABAQUS .inp file (*INCLUDE / COMPOSITE)."
+    ),
+    min_buckling: str = typer.Option(
+        "1.000", "--min-buckling-factor", help="Minimum SOL 105 eigenvalue."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Audit Nastran SOL 105 buckling, GPFORCE freebody equilibrium, and Abaqus composites."""
+    import hashlib as _hs
+
+    from evidence_coverage.nafems_audit import (
+        audit_abaqus_composite_layup_vs_report,
+        audit_gpforce_freebody_equilibrium,
+        audit_sol105_buckling_margins,
+    )
+    from evidence_ingest.fem_parsers import parse_abaqus_inp, parse_nastran_f06
+
+    sol105_res = None
+    gpforce_res = None
+    if f06_file is not None:
+        raw_f06 = f06_file.read_bytes()
+        f06_p = parse_nastran_f06(raw_f06, _hs.sha256(raw_f06).hexdigest())
+        sol105_res = audit_sol105_buckling_margins(f06_p, min_buckling_factor=min_buckling)
+        gpforce_res = audit_gpforce_freebody_equilibrium(f06_p)
+
+    abaqus_res = None
+    if abaqus_file is not None:
+        raw_abq = abaqus_file.read_bytes()
+        abq_p = parse_abaqus_inp(
+            raw_abq, _hs.sha256(raw_abq).hexdigest(), base_dir=abaqus_file.parent
+        )
+        abaqus_res = audit_abaqus_composite_layup_vs_report(abq_p)
+
+    out = {
+        "sol105_buckling": sol105_res,
+        "gpforce_equilibrium": gpforce_res,
+        "abaqus_composite_drift": abaqus_res,
+    }
+    if _wants_json(json_out):
+        _emit_json(out)
+        return
+    console.print(
+        Panel(json.dumps(out, indent=2), title="FEM V&V Audit (SOL105 / GPFORCE / Abaqus)")
     )
 
 

@@ -514,6 +514,176 @@ def diff_bdf_revisions_and_invalidate(
     }
 
 
+def audit_sol105_buckling_margins(
+    f06_parsed: dict[str, Any] | None,
+    *,
+    min_buckling_factor: str = "1.000",
+    require_positive_eigenvalues: bool = True,
+) -> dict[str, Any]:
+    """Audit NASTRAN SOL 105 linear buckling eigenvalues against minimum stability factor."""
+    if not f06_parsed:
+        return {
+            "abstain": True,
+            "abstain_reason": "missing_f06_results",
+            "clear": False,
+            "mode_count": 0,
+            "critical_buckling_factor": None,
+            "buckling_ms_min": None,
+            "min_buckling_factor": min_buckling_factor,
+            "violation_count": 0,
+            "violations": [],
+        }
+    modes = list(f06_parsed.get("buckling_eigenvalues") or [])
+    if not modes:
+        return {
+            "abstain": True,
+            "abstain_reason": "no_sol105_buckling_eigenvalues_in_f06",
+            "clear": False,
+            "mode_count": 0,
+            "critical_buckling_factor": None,
+            "buckling_ms_min": None,
+            "min_buckling_factor": min_buckling_factor,
+            "violation_count": 0,
+            "violations": [],
+        }
+
+    min_bf = _dec(min_buckling_factor) or Decimal("1.000")
+    violations: list[dict[str, Any]] = []
+    pos_eigs: list[Decimal] = []
+    all_eigs: list[Decimal] = []
+    for mode in modes:
+        eig = _dec(mode.get("eigenvalue"))
+        if eig is None:
+            continue
+        all_eigs.append(eig)
+        if eig > Decimal("0"):
+            pos_eigs.append(eig)
+        if eig <= Decimal("0") and require_positive_eigenvalues:
+            violations.append(
+                {
+                    "mode_no": str(mode.get("mode_no") or ""),
+                    "eigenvalue": str(eig),
+                    "reason": "NON_POSITIVE_BUCKLING_EIGENVALUE",
+                }
+            )
+        elif eig > Decimal("0") and eig < min_bf:
+            violations.append(
+                {
+                    "mode_no": str(mode.get("mode_no") or ""),
+                    "eigenvalue": str(eig),
+                    "buckling_ms": str((eig - Decimal("1")).quantize(Decimal("0.001"))),
+                    "reason": "BELOW_MIN_BUCKLING_FACTOR",
+                }
+            )
+
+    crit = min(pos_eigs) if pos_eigs else min(all_eigs)
+    ms_min = crit - Decimal("1")
+    return {
+        "abstain": False,
+        "abstain_reason": None,
+        "clear": len(violations) == 0,
+        "mode_count": len(modes),
+        "critical_buckling_factor": str(crit),
+        "buckling_ms_min": str(ms_min),
+        "min_buckling_factor": str(min_bf),
+        "violation_count": len(violations),
+        "violations": violations,
+    }
+
+
+def audit_gpforce_freebody_equilibrium(
+    f06_parsed: dict[str, Any] | None,
+    *,
+    max_nodal_residual_n: str = "0.010",
+) -> dict[str, Any]:
+    """Verify GRID POINT FORCE BALANCE nodal equilibrium within residual force threshold."""
+    if not f06_parsed or f06_parsed.get("gpforce_freebody") is None:
+        return {
+            "abstain": True,
+            "abstain_reason": "no_gpforce_freebody_in_f06",
+            "balanced": False,
+            "grid_count": 0,
+            "totals_rows": 0,
+            "net_resultant_n": None,
+            "max_nodal_residual_n": None,
+            "threshold_n": max_nodal_residual_n,
+        }
+    gpf = f06_parsed["gpforce_freebody"]
+    max_res = _dec(gpf.get("max_nodal_residual_n")) or Decimal("0")
+    thresh = _dec(max_nodal_residual_n) or Decimal("0.010")
+    return {
+        "abstain": False,
+        "abstain_reason": None,
+        "balanced": max_res <= thresh,
+        "grid_count": int(gpf.get("grid_count") or 0),
+        "totals_rows": int(gpf.get("totals_rows") or 0),
+        "net_force_n": list(gpf.get("net_force_n") or []),
+        "net_resultant_n": str(gpf.get("net_resultant_n") or "0"),
+        "max_nodal_residual_n": str(max_res),
+        "threshold_n": str(thresh),
+    }
+
+
+def audit_abaqus_composite_layup_vs_report(
+    abaqus_parsed: dict[str, Any],
+    *,
+    report_claims: dict[str, Any] | None = None,
+    thickness_tolerance_mm: str = "0.050",
+) -> dict[str, Any]:
+    """Cross-check Abaqus *SHELL SECTION, COMPOSITE plies & thicknesses vs Stress Report claims."""
+    comp_sections = list(abaqus_parsed.get("composite_sections") or [])
+    include_tree = list(abaqus_parsed.get("include_tree") or [])
+    tol = _dec(thickness_tolerance_mm) or Decimal("0.050")
+    raw_claims = report_claims or {}
+    claims_map = (
+        raw_claims.get("sections") if isinstance(raw_claims.get("sections"), dict) else raw_claims
+    )
+    norm_claims = {str(k).upper(): v for k, v in claims_map.items() if isinstance(v, dict)}
+
+    by_elset = {str(s.get("elset") or "").upper(): s for s in comp_sections}
+    discrepancies: list[dict[str, Any]] = []
+    for elset, claim in sorted(norm_claims.items()):
+        sec = by_elset.get(elset)
+        if sec is None:
+            discrepancies.append(
+                {
+                    "elset": elset,
+                    "reason": "MISSING_IN_ABAQUS_INP",
+                }
+            )
+            continue
+        if "ply_count" in claim and int(claim["ply_count"]) != int(sec.get("ply_count") or 0):
+            discrepancies.append(
+                {
+                    "elset": elset,
+                    "reason": "PLY_COUNT_MISMATCH",
+                    "abaqus_ply_count": int(sec.get("ply_count") or 0),
+                    "report_ply_count": int(claim["ply_count"]),
+                }
+            )
+        if "total_thickness" in claim:
+            inp_t = _dec(sec.get("total_thickness")) or Decimal("0")
+            rep_t = _dec(claim["total_thickness"])
+            if rep_t is not None and abs(inp_t - rep_t) > tol:
+                discrepancies.append(
+                    {
+                        "elset": elset,
+                        "reason": "LAMINATE_THICKNESS_DRIFT",
+                        "abaqus_thickness": str(inp_t),
+                        "report_thickness": str(rep_t),
+                    }
+                )
+
+    return {
+        "consistent": len(discrepancies) == 0,
+        "sections_checked": len(comp_sections),
+        "include_files_count": len(include_tree),
+        "sections": comp_sections,
+        "discrepancy_count": len(discrepancies),
+        "discrepancies": discrepancies,
+    }
+
+
 def run_full_nafems_audit(
     *,
     bdf_parsed: dict[str, Any],
@@ -529,6 +699,12 @@ def run_full_nafems_audit(
     guard_band_pct: str = "10.0",
     min_effective_mass_frac: str = "0",
     require_unit_system: bool = False,
+    check_buckling: bool = False,
+    min_buckling_factor: str = "1.000",
+    check_gpforce: bool = False,
+    max_gpforce_residual_n: str = "0.010",
+    abaqus_parsed: dict[str, Any] | None = None,
+    abaqus_report_claims: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run all NAFEMS V&V audit checks end-to-end and return a unified compliance-aid verdict."""
     manifest = build_nafems_manifest(
@@ -563,6 +739,30 @@ def run_full_nafems_audit(
         if (f06_parsed is not None and rotor_rpm is not None)
         else None
     )
+    sol105_buckling = (
+        audit_sol105_buckling_margins(
+            f06_parsed,
+            min_buckling_factor=min_buckling_factor,
+        )
+        if check_buckling
+        else None
+    )
+    gpforce_eq = (
+        audit_gpforce_freebody_equilibrium(
+            f06_parsed,
+            max_nodal_residual_n=max_gpforce_residual_n,
+        )
+        if check_gpforce
+        else None
+    )
+    abaqus_drift = (
+        audit_abaqus_composite_layup_vs_report(
+            abaqus_parsed,
+            report_claims=abaqus_report_claims,
+        )
+        if abaqus_parsed is not None
+        else None
+    )
 
     overall_pass = (
         (not manifest["abstain"])
@@ -570,6 +770,11 @@ def run_full_nafems_audit(
         and property_drift["consistent"]
         and (subcase_coverage is None or subcase_coverage["complete"])
         and (rotor_modal is None or (not rotor_modal["abstain"] and rotor_modal["clear"]))
+        and (
+            sol105_buckling is None or (not sol105_buckling["abstain"] and sol105_buckling["clear"])
+        )
+        and (gpforce_eq is None or (not gpforce_eq["abstain"] and gpforce_eq["balanced"]))
+        and (abaqus_drift is None or abaqus_drift["consistent"])
     )
 
     return {
@@ -580,4 +785,7 @@ def run_full_nafems_audit(
         "property_drift": property_drift,
         "subcase_coverage": subcase_coverage,
         "rotor_modal": rotor_modal,
+        "sol105_buckling": sol105_buckling,
+        "gpforce_equilibrium": gpforce_eq,
+        "abaqus_composite_drift": abaqus_drift,
     }

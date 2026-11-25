@@ -1944,6 +1944,56 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Envelope"
+  /quotations/rotorcraft/evm-postmortem/export-xlsx:
+    post:
+      operationId: exportRotorcraftEvmPostmortemXlsx
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Download native live-formula Excel (.xlsx) Bid-to-Actual EVM & FX hedging workbook.
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+  /quotations/rotorcraft/evm-postmortem/export-pdf:
+    post:
+      operationId: exportRotorcraftEvmPostmortemPdf
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Download Ed25519 DSSE and ISO QR signed EVM Post-Mortem PDF report.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  /nafems/audit-sol105-gpforce:
+    post:
+      operationId: auditNafemsSol105GpforceAbaqus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Audit Nastran SOL 105 buckling, GPFORCE freebody equilibrium, and Abaqus composite layup consistency.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
 components:
   schemas:
     Envelope:
