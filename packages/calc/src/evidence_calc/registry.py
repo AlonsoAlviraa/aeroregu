@@ -58,6 +58,8 @@ _RUNNERS = {
     **STRESS_MANUAL_EXT_CARD_RUNNERS,
 }
 _CARDS: dict[str, dict[str, Any]] = {}
+_BUILTIN_METHOD_IDS: tuple[str, ...] | None = None
+_BUILTIN_CARDS_TEMPLATE: tuple[dict[str, Any], ...] | None = None
 
 # Canonical grouping metadata mapping overlapping specialized cards to primary entry points.
 CARD_CONSOLIDATION_MAP: dict[str, str] = {
@@ -78,34 +80,52 @@ def cards_dir() -> Path:
 
 def list_method_ids(*, include_plugins: bool = True) -> list[str]:
     """Return sorted built-in and declarative plugin method IDs."""
-    ids = [p.stem for p in sorted(cards_dir().glob("*.json"))]
+    global _BUILTIN_METHOD_IDS
+    if _BUILTIN_METHOD_IDS is None:
+        _BUILTIN_METHOD_IDS = tuple(p.stem for p in sorted(cards_dir().glob("*.json")))
+    ids = list(_BUILTIN_METHOD_IDS)
     if include_plugins:
         for plugin in list_plugin_cards():
             mid = str(plugin["method_id"])
             if mid not in ids:
                 ids.append(mid)
-    return sorted(ids)
+        return sorted(ids)
+    return ids
 
 
 def list_cards(*, include_plugins: bool = True) -> list[dict[str, Any]]:
     """Return all built-in and declarative plugin calculation cards with canonical aliases."""
-    cards: list[dict[str, Any]] = []
-    for method_id in list_method_ids(include_plugins=include_plugins):
-        card = dict(load_card(method_id))
-        if method_id in CARD_CONSOLIDATION_MAP:
-            card["canonical_card_id"] = CARD_CONSOLIDATION_MAP[method_id]
-        else:
-            card.setdefault("canonical_card_id", method_id)
-        cards.append(card)
+    global _BUILTIN_CARDS_TEMPLATE
+    if _BUILTIN_CARDS_TEMPLATE is None:
+        built: list[dict[str, Any]] = []
+        for method_id in list_method_ids(include_plugins=False):
+            card = dict(load_card(method_id))
+            card["canonical_card_id"] = CARD_CONSOLIDATION_MAP.get(method_id, method_id)
+            built.append(card)
+        _BUILTIN_CARDS_TEMPLATE = tuple(built)
+
+    cards = [dict(c) for c in _BUILTIN_CARDS_TEMPLATE]
+    if include_plugins:
+        seen = {str(c["method_id"]) for c in cards}
+        extras: list[dict[str, Any]] = []
+        for plugin in list_plugin_cards():
+            mid = str(plugin["method_id"])
+            if mid not in seen:
+                pcard = dict(plugin)
+                pcard["canonical_card_id"] = CARD_CONSOLIDATION_MAP.get(mid, mid)
+                extras.append(pcard)
+        if extras:
+            cards.extend(extras)
+            cards.sort(key=lambda c: str(c["method_id"]))
     return cards
 
 
 def load_card(method_id: str) -> dict[str, Any]:
+    cached = _CARDS.get(method_id)
+    if cached is not None:
+        return cached
     path = cards_dir() / f"{method_id}.json"
     if path.is_file():
-        cached = _CARDS.get(method_id)
-        if cached is not None:
-            return cached
         card = json.loads(path.read_text(encoding="utf-8"))
         if card.get("method_id") != method_id:
             raise AbstainError("unknown_method")

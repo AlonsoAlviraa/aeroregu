@@ -7,7 +7,6 @@ dossiers with offline-verifiable ISO QR codes and visual `bbox` evidence thumbna
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import io
 import json
@@ -15,17 +14,13 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-import pymupdf
-from evidence_kernel.attestation import generate_ed25519_keypair, sign_attestation_dsse
-from evidence_kernel.qrcode_iso import render_qr_png
+from evidence_kernel.attestation import generate_ed25519_keypair
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from evidence_coverage.pdf_layout import CorporatePDFBuilder, compute_dsse_sig_prefix
 from evidence_coverage.pdf_report import (
-    _DSSE_ATTACHMENT_NAME,
-    _PUBKEY_ATTACHMENT_NAME,
     _render_bbox_thumbnail,
     verify_signed_pdf_report,
 )
@@ -1231,10 +1226,11 @@ def export_change_order_signed_pdf(
     wbs = ccn_dossier.get("wbs_delta") or {}
     cdelta = ccn_dossier.get("contract_delta") or {}
     merkle = str(ccn_dossier.get("change_order_merkle_root") or ("0" * 64))
+    cr_id = str(ccn_dossier.get("cr_id") or "CCN-001")
 
     attestation_payload = {
         "schema": "evidence-layer/quotation-ccn-pdf@1.0.0",
-        "cr_id": str(ccn_dossier.get("cr_id") or "CCN-001"),
+        "cr_id": cr_id,
         "baseline_merkle_root": str(ccn_dossier.get("baseline_merkle_root") or ""),
         "revised_merkle_root": str(ccn_dossier.get("revised_merkle_root") or ""),
         "merkle_root": merkle,
@@ -1245,15 +1241,11 @@ def export_change_order_signed_pdf(
         "delta_duration_weeks": str(cpm.get("delta_duration_weeks") or "0.00"),
         "contract_transition": str(cdelta.get("gate_transition") or ""),
     }
-    dsse_envelope = sign_attestation_dsse(attestation_payload, priv_pem)
-    dsse_bytes = json.dumps(dsse_envelope, sort_keys=True, indent=2).encode("utf-8")
-    sig_raw = base64.b64decode(dsse_envelope["signatures"][0]["sig"])
-    sig_sha256 = hashlib.sha256(sig_raw).hexdigest()
-
+    sig_sha256 = compute_dsse_sig_prefix(attestation_payload, priv_pem)
     qr_payload = "aeroregu-ccn:" + json.dumps(
         {
             "v": 1,
-            "c": str(ccn_dossier.get("cr_id") or "")[:16],
+            "c": cr_id[:16],
             "m": merkle[:16],
             "s": sig_sha256[:16],
             "d": str(fin.get("delta_multiyear_quoted_price_eur") or "")[:14],
@@ -1261,118 +1253,87 @@ def export_change_order_signed_pdf(
         sort_keys=True,
         separators=(",", ":"),
     )
-    qr_png = render_qr_png(qr_payload, scale=8, border=6)
 
-    doc = pymupdf.open()
-    page = doc.new_page(width=595, height=842)
-    banner_rgb = (15 / 255, 23 / 255, 42 / 255)
-    page.draw_rect(pymupdf.Rect(32, 28, 563, 92), color=banner_rgb, fill=banner_rgb)
-    page.insert_text(
-        (44, 54),
-        f"AeroRegu - Signed Change-Order Addendum ({ccn_dossier.get('cr_id', 'CCN-001')})",
-        fontsize=13.5,
-        color=(1, 1, 1),
+    builder = CorporatePDFBuilder(
+        title=f"AeroRegu - Signed Change-Order Addendum ({cr_id})",
+        subtitle="ASSUMPTION / ESTIMATE closed-loop CCN delta. Requires human & CVE approval.",
+        merkle_root=merkle,
+        qr_payload=qr_payload,
+        meta_kpis=[
+            (
+                "Baseline RFQ / Reason",
+                f"{ccn_dossier.get('baseline_rfq_id')} | {ccn_dossier.get('change_reason', '')}",
+            ),
+            ("Decision Status", str(ccn_dossier.get("decision_status"))),
+            (
+                "Delta Multi-Year Price",
+                f"{fin.get('delta_multiyear_quoted_price_eur')} EUR "
+                f"({fin.get('delta_price_pct')}%)",
+            ),
+            (
+                "Base -> Revised Price",
+                f"{fin.get('base_multiyear_quoted_price_eur')} -> "
+                f"{fin.get('revised_multiyear_quoted_price_eur')} EUR",
+            ),
+            (
+                "Delta NPV / Peak Neg CF",
+                f"{fin.get('delta_multiyear_npv_eur')} EUR | "
+                f"{fin.get('delta_peak_negative_cashflow_eur')} EUR",
+            ),
+            (
+                "CPM Duration",
+                f"{cpm.get('base_duration_weeks')}w -> {cpm.get('revised_duration_weeks')}w "
+                f"(Delta {cpm.get('delta_duration_weeks')}w)",
+            ),
+            ("Contract Gate Transition", str(cdelta.get("gate_transition"))),
+            (
+                "Added / Removed Archetypes",
+                f"+{', '.join(wbs.get('added_archetypes') or []) or 'None'} / "
+                f"-{', '.join(wbs.get('removed_archetypes') or []) or 'None'}",
+            ),
+            ("CCN Merkle Root", f"{merkle[:48]}..."),
+        ],
+        creator="aeroregu-ccn-exporter",
     )
-    page.insert_text(
-        (44, 74),
-        "ASSUMPTION / ESTIMATE closed-loop CCN delta. Requires human commercial & CVE approval.",
-        fontsize=8.2,
-        color=(0.82, 0.88, 0.96),
-    )
-    page.insert_image(pymupdf.Rect(452, 108, 556, 212), stream=qr_png)
-    b_rfq = ccn_dossier.get("baseline_rfq_id")
-    ch_reason = str(ccn_dossier.get("change_reason") or "")[:48]
-    d_price = fin.get("delta_multiyear_quoted_price_eur")
-    d_pct = fin.get("delta_price_pct")
-    b_price = fin.get("base_multiyear_quoted_price_eur")
-    r_price = fin.get("revised_multiyear_quoted_price_eur")
-    d_npv = fin.get("delta_multiyear_npv_eur")
-    d_pk = fin.get("delta_peak_negative_cashflow_eur")
-    b_dur = cpm.get("base_duration_weeks")
-    r_dur = cpm.get("revised_duration_weeks")
-    d_dur = cpm.get("delta_duration_weeks")
-    lines = [
-        f"Baseline RFQ: {b_rfq}  |  Reason: {ch_reason}",
-        f"Decision Status: {ccn_dossier.get('decision_status')}",
-        f"Delta Multi-Year Price: {d_price} EUR ({d_pct}%)",
-        f"Base -> Revised Price: {b_price} -> {r_price} EUR",
-        f"Delta NPV: {d_npv} EUR  |  Delta Peak Neg CF: {d_pk} EUR",
-        f"CPM Duration: {b_dur}w -> {r_dur}w (Delta {d_dur}w)",
-        f"Contract Gate: {cdelta.get('gate_transition')}",
-        f"Added Archetypes: {', '.join(wbs.get('added_archetypes') or []) or 'None'}",
-        f"Removed Archetypes: {', '.join(wbs.get('removed_archetypes') or []) or 'None'}",
-        f"CCN Merkle Root: {merkle[:48]}...",
+
+    asm_rows = [
+        [asm.get("assumption_id", ""), asm.get("trigger_reason", "")]
+        for asm in (ccn_dossier.get("triggered_assumptions") or [])
     ]
-    y = 124
-    for ln in lines:
-        page.insert_text((38, y), ln[:90], fontsize=9.0, color=(0.1, 0.14, 0.22))
-        y += 16
-
-    y += 10
-    page.insert_text((38, y), "Triggered Assumptions & WBS Deltas", fontsize=11.0)
-    y += 16
-    for asm in (ccn_dossier.get("triggered_assumptions") or [])[:10]:
-        page.insert_text(
-            (42, y),
-            f"- {asm['assumption_id']}: {asm['trigger_reason'][:78]}",
-            fontsize=8.3,
-            color=(0.18, 0.22, 0.30),
-        )
-        y += 14
-    y += 8
-    for nd in (wbs.get("node_deltas") or [])[:14]:
-        if y > 790:
-            break
-        row_s = (
-            f"{nd['archetype_id']} [{nd['change_status']}] "
-            f"dHours={nd['delta_hours']} | dPrice={nd['delta_price_eur']} EUR"
-        )
-        page.insert_text(
-            (42, y),
-            row_s,
-            fontsize=8.2,
-            color=(0.12, 0.18, 0.28),
-        )
-        y += 13
-
-    doc.embfile_add(
-        _DSSE_ATTACHMENT_NAME,
-        dsse_bytes,
-        filename=_DSSE_ATTACHMENT_NAME,
-        desc="DSSE v1 Ed25519 Change-Order Attestation Envelope",
+    builder.add_table(
+        "Triggered Assumptions (Rev A -> Rev B)",
+        ["Assumption ID", "Trigger Rationale"],
+        asm_rows,
+        col_widths=[130.0, 393.0],
+        fontsize=7.6,
     )
-    doc.embfile_add(
-        _PUBKEY_ATTACHMENT_NAME,
-        pub_pem,
-        filename=_PUBKEY_ATTACHMENT_NAME,
-        desc="Ed25519 Verification Public Key (PEM)",
-    )
-    doc.set_metadata(
-        {
-            "title": f"AeroRegu Signed Change-Order ({ccn_dossier.get('cr_id', 'CCN-001')})",
-            "subject": f"merkle={merkle}",
-            "keywords": qr_payload,
-            "creator": "aeroregu-ccn-exporter",
-        }
-    )
-    pdf_bytes = doc.tobytes(deflate=True)
-    doc.close()
 
-    out_str: str | None = None
-    if output_path is not None:
-        out_p = Path(output_path)
-        out_p.parent.mkdir(parents=True, exist_ok=True)
-        out_p.write_bytes(pdf_bytes)
-        out_str = str(out_p)
-    return {
-        "pdf_bytes": pdf_bytes,
-        "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
-        "merkle_root": merkle,
-        "qr_payload": qr_payload,
-        "dsse_envelope": dsse_envelope,
-        "public_key_pem": pub_pem.decode("ascii"),
-        "output_path": out_str,
-    }
+    wbs_rows = [
+        [
+            nd.get("archetype_id", ""),
+            nd.get("change_status", ""),
+            nd.get("base_hours", ""),
+            nd.get("revised_hours", ""),
+            nd.get("delta_hours", ""),
+            f"{nd.get('delta_price_eur', '')} EUR",
+        ]
+        for nd in (wbs.get("node_deltas") or [])
+    ]
+    builder.add_table(
+        "WBS Node Deltas & Critical Path Shift",
+        ["Archetype", "Change", "Base h", "Revised h", "Delta h", "Delta Price"],
+        wbs_rows,
+        col_widths=[78.0, 92.0, 72.0, 72.0, 72.0, 137.0],
+        fontsize=7.4,
+    )
+
+    return builder.finalize_signed(
+        attestation_payload=attestation_payload,
+        private_key_pem=priv_pem,
+        public_key_pem=pub_pem,
+        metadata_title=f"AeroRegu Signed Change-Order ({cr_id})",
+        output_path=output_path,
+    )
 
 
 def export_portfolio_capacity_xlsx(
@@ -1681,11 +1642,7 @@ def export_portfolio_capacity_signed_pdf(
         ),
         "merkle_root": merkle,
     }
-    dsse_envelope = sign_attestation_dsse(attestation_payload, priv_pem)
-    dsse_bytes = json.dumps(dsse_envelope, sort_keys=True, indent=2).encode("utf-8")
-    sig_raw = base64.b64decode(dsse_envelope["signatures"][0]["sig"])
-    sig_sha256 = hashlib.sha256(sig_raw).hexdigest()
-
+    sig_sha256 = compute_dsse_sig_prefix(attestation_payload, priv_pem)
     qr_payload = "aeroregu-port:" + json.dumps(
         {
             "v": 1,
@@ -1697,115 +1654,88 @@ def export_portfolio_capacity_signed_pdf(
         sort_keys=True,
         separators=(",", ":"),
     )
-    qr_png = render_qr_png(qr_payload, scale=8, border=6)
-
-    doc = pymupdf.open()
-    page = doc.new_page(width=595, height=842)
-    banner_rgb = (15 / 255, 23 / 255, 42 / 255)
-    page.draw_rect(pymupdf.Rect(32, 28, 563, 92), color=banner_rgb, fill=banner_rgb)
-    page.insert_text(
-        (44, 54),
-        "AeroRegu - Signed Portfolio RCPSP & Multi-Site Plan",
-        fontsize=13.0,
-        color=(1, 1, 1),
-    )
-    page.insert_text(
-        (44, 74),
-        "ESTIMATE / ASSUMPTION capacity leveling plan. Part 21.A.239 CVE remains onshore.",
-        fontsize=8.2,
-        color=(0.82, 0.88, 0.96),
-    )
-    page.insert_image(pymupdf.Rect(452, 108, 556, 212), stream=qr_png)
 
     top_role = (portfolio_result.get("bottleneck_roles") or [{}])[0]
     ov_wks = portfolio_result.get("overloaded_weeks_before_leveling")
     pk_cf = portfolio_result.get("combined_peak_negative_cashflow_eur")
-    lines = [
-        f"Queued RFQs: {portfolio_result.get('portfolio_rfq_count')}  |  "
-        f"Activities: {portfolio_result.get('activity_count')}",
-        f"Overloaded Weeks Before Leveling: {ov_wks}",
-        f"Top Bottleneck: {top_role.get('role', 'N/A')} "
-        f"({top_role.get('unconstrained_peak_utilization_pct', '0')}%)",
-        f"Overflow Hours: {portfolio_result.get('recommended_nearshore_overflow_hours')} h",
-        f"Combined Peak Neg Cash Flow: -{pk_cf} EUR",
-        f"Nearshore Route: {(nearshore_plan or {}).get('onshore_country', 'N/A')} -> "
-        f"{(nearshore_plan or {}).get('nearshore_country', 'N/A')} | "
-        f"Savings={(nearshore_plan or {}).get('net_savings_eur', '0.00')} EUR",
-        f"CVE Onshore Preserved: {(nearshore_plan or {}).get('cve_governance_preserved', True)}",
-        f"Portfolio Digest: {merkle[:48]}...",
+    builder = CorporatePDFBuilder(
+        title="AeroRegu - Signed Portfolio RCPSP & Multi-Site Plan",
+        subtitle="ESTIMATE / ASSUMPTION capacity leveling. Part 21.A.239 CVE remains onshore.",
+        merkle_root=merkle,
+        qr_payload=qr_payload,
+        meta_kpis=[
+            (
+                "Queued RFQs / Activities",
+                f"{portfolio_result.get('portfolio_rfq_count')} RFQs | "
+                f"{portfolio_result.get('activity_count')} activities",
+            ),
+            ("Overloaded Weeks Before Leveling", str(ov_wks)),
+            (
+                "Top Bottleneck Role",
+                f"{top_role.get('role', 'N/A')} "
+                f"({top_role.get('unconstrained_peak_utilization_pct', '0')}%)",
+            ),
+            (
+                "Recommended Overflow Hours",
+                f"{portfolio_result.get('recommended_nearshore_overflow_hours')} h",
+            ),
+            ("Combined Peak Neg Cash Flow", f"-{pk_cf} EUR"),
+            (
+                "Nearshore Route & Savings",
+                f"{(nearshore_plan or {}).get('onshore_country', 'N/A')} -> "
+                f"{(nearshore_plan or {}).get('nearshore_country', 'N/A')} "
+                f"({(nearshore_plan or {}).get('net_savings_eur', '0.00')} EUR)",
+            ),
+            (
+                "CVE Onshore Preserved",
+                str((nearshore_plan or {}).get("cve_governance_preserved", True)),
+            ),
+            ("Portfolio Digest", f"{merkle[:48]}..."),
+        ],
+        creator="aeroregu-portfolio-exporter",
+    )
+
+    role_rows = [
+        [
+            br.get("role", ""),
+            br.get("headcount", ""),
+            f"{br.get('unconstrained_peak_utilization_pct', '')}%",
+            f"{br.get('leveled_peak_utilization_pct', '')}%",
+        ]
+        for br in (portfolio_result.get("bottleneck_roles") or [])
     ]
-    y = 124
-    for ln in lines:
-        page.insert_text((38, y), ln[:90], fontsize=9.0, color=(0.1, 0.14, 0.22))
-        y += 16
-
-    y += 10
-    page.insert_text((38, y), "7-Role Bottleneck & Leveled Utilization", fontsize=11.0)
-    y += 16
-    for br in (portfolio_result.get("bottleneck_roles") or [])[:7]:
-        un_u = br["unconstrained_peak_utilization_pct"]
-        lv_u = br["leveled_peak_utilization_pct"]
-        page.insert_text(
-            (42, y),
-            f"{br['role']}: hc={br['headcount']} unconstr={un_u}% leveled={lv_u}%",
-            fontsize=8.3,
-            color=(0.18, 0.22, 0.30),
-        )
-        y += 14
-
-    y += 8
-    page.insert_text((38, y), "RFQ Leveled Schedule Slip", fontsize=11.0)
-    y += 16
-    for rs in (portfolio_result.get("rfq_schedules") or [])[:10]:
-        if y > 790:
-            break
-        page.insert_text(
-            (42, y),
-            f"{rs['rfq_id']}: {rs['unconstrained_finish_week']}w -> {rs['leveled_finish_week']}w "
-            f"(slip={rs['schedule_slip_weeks']}w)",
-            fontsize=8.2,
-            color=(0.12, 0.18, 0.28),
-        )
-        y += 13
-
-    doc.embfile_add(
-        _DSSE_ATTACHMENT_NAME,
-        dsse_bytes,
-        filename=_DSSE_ATTACHMENT_NAME,
-        desc="DSSE v1 Ed25519 Portfolio Capacity Attestation Envelope",
+    builder.add_table(
+        "7-Role Bottleneck & Leveled Utilization",
+        ["Engineering Role", "Headcount", "Unconstrained Peak %", "Leveled Peak %"],
+        role_rows,
+        col_widths=[175.0, 90.0, 129.0, 129.0],
+        fontsize=7.6,
     )
-    doc.embfile_add(
-        _PUBKEY_ATTACHMENT_NAME,
-        pub_pem,
-        filename=_PUBKEY_ATTACHMENT_NAME,
-        desc="Ed25519 Verification Public Key (PEM)",
-    )
-    doc.set_metadata(
-        {
-            "title": "AeroRegu Signed Portfolio RCPSP Plan",
-            "subject": f"merkle={merkle}",
-            "keywords": qr_payload,
-            "creator": "aeroregu-portfolio-exporter",
-        }
-    )
-    pdf_bytes = doc.tobytes(deflate=True)
-    doc.close()
 
-    out_str: str | None = None
-    if output_path is not None:
-        out_p = Path(output_path)
-        out_p.parent.mkdir(parents=True, exist_ok=True)
-        out_p.write_bytes(pdf_bytes)
-        out_str = str(out_p)
-    return {
-        "pdf_bytes": pdf_bytes,
-        "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
-        "merkle_root": merkle,
-        "qr_payload": qr_payload,
-        "dsse_envelope": dsse_envelope,
-        "public_key_pem": pub_pem.decode("ascii"),
-        "output_path": out_str,
-    }
+    sched_rows = [
+        [
+            rs.get("rfq_id", ""),
+            f"{rs.get('unconstrained_finish_week', '')} w",
+            f"{rs.get('leveled_finish_week', '')} w",
+            f"{rs.get('schedule_slip_weeks', '')} w",
+        ]
+        for rs in (portfolio_result.get("rfq_schedules") or [])
+    ]
+    builder.add_table(
+        "RFQ Leveled Schedule Slip",
+        ["RFQ ID", "Unconstrained Finish", "Leveled Finish", "Schedule Slip"],
+        sched_rows,
+        col_widths=[160.0, 125.0, 125.0, 113.0],
+        fontsize=7.6,
+    )
+
+    return builder.finalize_signed(
+        attestation_payload=attestation_payload,
+        private_key_pem=priv_pem,
+        public_key_pem=pub_pem,
+        metadata_title="AeroRegu Signed Portfolio RCPSP Plan",
+        output_path=output_path,
+    )
 
 
 def export_evm_postmortem_xlsx(
@@ -2075,11 +2005,7 @@ def export_evm_postmortem_signed_pdf(
         "fx_proof_status": str(fx_z3.get("status") or "NONE"),
         "merkle_root": merkle,
     }
-    dsse_envelope = sign_attestation_dsse(attestation_payload, priv_pem)
-    dsse_bytes = json.dumps(dsse_envelope, sort_keys=True, indent=2).encode("utf-8")
-    sig_raw = base64.b64decode(dsse_envelope["signatures"][0]["sig"])
-    sig_sha256 = hashlib.sha256(sig_raw).hexdigest()
-
+    sig_sha256 = compute_dsse_sig_prefix(attestation_payload, priv_pem)
     qr_payload = "aeroregu-evm:" + json.dumps(
         {
             "v": 1,
@@ -2091,103 +2017,81 @@ def export_evm_postmortem_signed_pdf(
         sort_keys=True,
         separators=(",", ":"),
     )
-    qr_png = render_qr_png(qr_payload, scale=8, border=6)
 
-    doc = pymupdf.open()
-    page = doc.new_page(width=595, height=842)
-    banner_rgb = (15 / 255, 23 / 255, 42 / 255)
-    page.draw_rect(pymupdf.Rect(32, 28, 563, 92), color=banner_rgb, fill=banner_rgb)
-    page.insert_text(
-        (44, 54),
-        f"AeroRegu - Signed Bid-to-Actual EVM Post-Mortem ({proj_id})",
-        fontsize=13.0,
-        color=(1, 1, 1),
+    builder = CorporatePDFBuilder(
+        title=f"AeroRegu - Signed Bid-to-Actual EVM Post-Mortem ({proj_id})",
+        subtitle="ASSUMPTION / ESTIMATE closed-loop ERP EVM & FX dossier. Requires human approval.",
+        merkle_root=merkle,
+        qr_payload=qr_payload,
+        meta_kpis=[
+            ("Project / Baseline RFQ", f"{proj_id} | {postmortem_report.get('baseline_rfq_id')}"),
+            ("Health Status", str(postmortem_report.get("health_status"))),
+            (
+                "Quoted vs Actual Hours",
+                f"{evm.get('quoted_hours')} h -> {evm.get('actual_hours')} h "
+                f"(Var {evm.get('hours_variance')} h / {evm.get('hours_variance_pct')}%)",
+            ),
+            (
+                "EVM Indexes",
+                f"CPI={evm.get('cpi')} | SPI={evm.get('spi')} | TCPI={evm.get('tcpi_bac')}",
+            ),
+            (
+                "BAC / AC / EAC",
+                f"{evm.get('bac_cost_eur')} | {evm.get('ac_eur')} | {evm.get('eac_eur')} EUR",
+            ),
+            (
+                "VAC / Realized Margin",
+                f"{evm.get('vac_eur')} EUR | {evm.get('realized_margin_pct')}%",
+            ),
+            (
+                "FX Hedging Z3 Gate",
+                f"{fx_z3.get('status') or 'NOT_INCLUDED'} "
+                f"({(fx_report or {}).get('billing_currency', 'EUR')})",
+            ),
+            ("Ledger Merkle Root", f"{merkle[:48]}..."),
+        ],
+        creator="aeroregu-evm-exporter",
     )
-    page.insert_text(
-        (44, 74),
-        "ASSUMPTION / ESTIMATE closed-loop ERP EVM & FX dossier. Requires human approval.",
-        fontsize=8.2,
-        color=(0.82, 0.88, 0.96),
-    )
-    page.insert_image(pymupdf.Rect(452, 108, 556, 212), stream=qr_png)
 
-    lines = [
-        f"Project ID: {proj_id}  |  Baseline RFQ: {postmortem_report.get('baseline_rfq_id')}",
-        f"Health Status: {postmortem_report.get('health_status')}",
-        f"Quoted vs Actual Hours: {evm.get('quoted_hours')} h -> {evm.get('actual_hours')} h "
-        f"(Var {evm.get('hours_variance')} h / {evm.get('hours_variance_pct')}%)",
-        f"EVM Indexes: CPI={evm.get('cpi')} | SPI={evm.get('spi')} | TCPI={evm.get('tcpi_bac')}",
-        f"BAC={evm.get('bac_cost_eur')} EUR | AC={evm.get('ac_eur')} EUR "
-        f"| EAC={evm.get('eac_eur')} EUR",
-        f"VAC={evm.get('vac_eur')} EUR | Realized Margin={evm.get('realized_margin_pct')}%",
-        f"FX Hedging Z3 Gate: {fx_z3.get('status') or 'NOT_INCLUDED'} "
-        f"({(fx_report or {}).get('billing_currency', 'EUR')})",
-        f"Ledger Merkle Root: {merkle[:48]}...",
+    broken_rows = [
+        [
+            at.get("assumption_id", ""),
+            f"{at.get('attributed_overrun_hours', '')} h",
+            at.get("cause", ""),
+        ]
+        for at in (postmortem_report.get("broken_assumptions_attributed") or [])
     ]
-    y = 124
-    for ln in lines:
-        page.insert_text((38, y), ln[:90], fontsize=9.0, color=(0.1, 0.14, 0.22))
-        y += 16
-
-    y += 10
-    page.insert_text((38, y), "Per-Node Earned Value & Broken Assumptions", fontsize=11.0)
-    y += 16
-    for at in (postmortem_report.get("broken_assumptions_attributed") or [])[:8]:
-        page.insert_text(
-            (42, y),
-            f"- {at['assumption_id']} ({at['attributed_overrun_hours']}h): {at['cause'][:72]}",
-            fontsize=8.3,
-            color=(0.18, 0.22, 0.30),
-        )
-        y += 14
-    y += 8
-    for nd in (postmortem_report.get("per_node_evm") or [])[:14]:
-        if y > 790:
-            break
-        page.insert_text(
-            (42, y),
-            f"{nd['archetype_id']} [{nd['outcome']}] Q={nd['quoted_hours']}h "
-            f"A={nd['actual_hours']}h CPI={nd['cpi']} EAC={nd['eac_eur']} EUR",
-            fontsize=8.2,
-            color=(0.12, 0.18, 0.28),
-        )
-        y += 13
-
-    doc.embfile_add(
-        _DSSE_ATTACHMENT_NAME,
-        dsse_bytes,
-        filename=_DSSE_ATTACHMENT_NAME,
-        desc="DSSE v1 Ed25519 EVM Post-Mortem Attestation Envelope",
+    builder.add_table(
+        "Attributed Broken Assumptions",
+        ["Assumption ID", "Overrun", "Root Cause Attribution"],
+        broken_rows,
+        col_widths=[120.0, 80.0, 323.0],
+        fontsize=7.5,
     )
-    doc.embfile_add(
-        _PUBKEY_ATTACHMENT_NAME,
-        pub_pem,
-        filename=_PUBKEY_ATTACHMENT_NAME,
-        desc="Ed25519 Verification Public Key (PEM)",
-    )
-    doc.set_metadata(
-        {
-            "title": f"AeroRegu Signed EVM Post-Mortem ({proj_id})",
-            "subject": f"merkle={merkle}",
-            "keywords": qr_payload,
-            "creator": "aeroregu-evm-exporter",
-        }
-    )
-    pdf_bytes = doc.tobytes(deflate=True)
-    doc.close()
 
-    out_str: str | None = None
-    if output_path is not None:
-        out_p = Path(output_path)
-        out_p.parent.mkdir(parents=True, exist_ok=True)
-        out_p.write_bytes(pdf_bytes)
-        out_str = str(out_p)
-    return {
-        "pdf_bytes": pdf_bytes,
-        "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
-        "merkle_root": merkle,
-        "qr_payload": qr_payload,
-        "dsse_envelope": dsse_envelope,
-        "public_key_pem": pub_pem.decode("ascii"),
-        "output_path": out_str,
-    }
+    node_rows = [
+        [
+            nd.get("archetype_id", ""),
+            nd.get("outcome", ""),
+            f"{nd.get('quoted_hours', '')} h",
+            f"{nd.get('actual_hours', '')} h",
+            nd.get("cpi", ""),
+            f"{nd.get('eac_eur', '')} EUR",
+        ]
+        for nd in (postmortem_report.get("per_node_evm") or [])
+    ]
+    builder.add_table(
+        "Per-Node Earned Value Summary",
+        ["Archetype", "Outcome", "Quoted h", "Actual h", "CPI", "EAC"],
+        node_rows,
+        col_widths=[78.0, 105.0, 74.0, 74.0, 62.0, 130.0],
+        fontsize=7.4,
+    )
+
+    return builder.finalize_signed(
+        attestation_payload=attestation_payload,
+        private_key_pem=priv_pem,
+        public_key_pem=pub_pem,
+        metadata_title=f"AeroRegu Signed EVM Post-Mortem ({proj_id})",
+        output_path=output_path,
+    )

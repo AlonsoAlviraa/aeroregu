@@ -1154,9 +1154,37 @@ def run_composite_rotorcraft_quotation(
             cve_min_ratio_pct=spec.cve_min_ratio_pct or "10.000",
         )
 
-        # Tornado sensitivity across composite P80 price
+        # Tornado sensitivity across composite P80 price (reusing baseline or identical scenarios)
         tornado: list[dict[str, Any]] = []
         base_p80_d = price_p80
+        base_key = (
+            cls_res["cert_basis"],
+            cls_res["material_family"],
+            idp_profile.derived_cosysmo_complexity,
+            idp_profile.derived_idp_maturity,
+        )
+        scenario_cache: dict[tuple[str, str, str, str], dict[str, Any]] = {base_key: dag}
+
+        def _scenario_dag(cert_b: str, mat_f: str, cos_c: str, idp_m: str) -> dict[str, Any]:
+            key = (cert_b, mat_f, cos_c, idp_m)
+            cached = scenario_cache.get(key)
+            if cached is None:
+                cached = build_composite_wbs_dag(
+                    chosen_ids,
+                    custom_edges=list(spec.custom_edges),
+                    country_code=spec.country_code,
+                    cert_basis=cert_b,
+                    material_family=mat_f,
+                    cosysmo_complexity=cos_c,
+                    idp_maturity=idp_m,
+                    target_margin_pct=spec.target_margin_pct,
+                    cve_min_ratio_pct=spec.cve_min_ratio_pct,
+                    idp_feature_factor=idp_profile.idp_feature_complexity_factor,
+                    extra_solve_postproc_hours=extra_solve_hrs,
+                )
+                scenario_cache[key] = cached
+            return cached
+
         for drv_key, drv_label, lo_kwargs, hi_kwargs in (
             (
                 "cert_basis_factor",
@@ -1183,35 +1211,17 @@ def run_composite_rotorcraft_quotation(
                 {"idp_maturity": "INCOMPLETE"},
             ),
         ):
-            lo_dag = build_composite_wbs_dag(
-                chosen_ids,
-                custom_edges=list(spec.custom_edges),
-                country_code=spec.country_code,
-                cert_basis=lo_kwargs.get("cert_basis", cls_res["cert_basis"]),
-                material_family=lo_kwargs.get("material_family", cls_res["material_family"]),
-                cosysmo_complexity=lo_kwargs.get(
-                    "cosysmo_complexity", idp_profile.derived_cosysmo_complexity
-                ),
-                idp_maturity=lo_kwargs.get("idp_maturity", idp_profile.derived_idp_maturity),
-                target_margin_pct=spec.target_margin_pct,
-                cve_min_ratio_pct=spec.cve_min_ratio_pct,
-                idp_feature_factor=idp_profile.idp_feature_complexity_factor,
-                extra_solve_postproc_hours=extra_solve_hrs,
+            lo_dag = _scenario_dag(
+                lo_kwargs.get("cert_basis", cls_res["cert_basis"]),
+                lo_kwargs.get("material_family", cls_res["material_family"]),
+                lo_kwargs.get("cosysmo_complexity", idp_profile.derived_cosysmo_complexity),
+                lo_kwargs.get("idp_maturity", idp_profile.derived_idp_maturity),
             )
-            hi_dag = build_composite_wbs_dag(
-                chosen_ids,
-                custom_edges=list(spec.custom_edges),
-                country_code=spec.country_code,
-                cert_basis=hi_kwargs.get("cert_basis", cls_res["cert_basis"]),
-                material_family=hi_kwargs.get("material_family", cls_res["material_family"]),
-                cosysmo_complexity=hi_kwargs.get(
-                    "cosysmo_complexity", idp_profile.derived_cosysmo_complexity
-                ),
-                idp_maturity=hi_kwargs.get("idp_maturity", idp_profile.derived_idp_maturity),
-                target_margin_pct=spec.target_margin_pct,
-                cve_min_ratio_pct=spec.cve_min_ratio_pct,
-                idp_feature_factor=idp_profile.idp_feature_complexity_factor,
-                extra_solve_postproc_hours=extra_solve_hrs,
+            hi_dag = _scenario_dag(
+                hi_kwargs.get("cert_basis", cls_res["cert_basis"]),
+                hi_kwargs.get("material_family", cls_res["material_family"]),
+                hi_kwargs.get("cosysmo_complexity", idp_profile.derived_cosysmo_complexity),
+                hi_kwargs.get("idp_maturity", idp_profile.derived_idp_maturity),
             )
             lo_p = Decimal(lo_dag["synergy_net_total_price_eur"]) * r_p80
             hi_p = Decimal(hi_dag["synergy_net_total_price_eur"]) * r_p80

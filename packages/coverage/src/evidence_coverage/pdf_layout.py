@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,26 @@ _CONTENT_W = _PAGE_W - _MARGIN_L - _MARGIN_R  # 523.0 pt
 _SAFE_BOTTOM_Y = 786.0
 _FONT_NAME = "helv"
 _FONT_OBJ = pymupdf.Font(_FONT_NAME)
+_ASCII_CHAR_WIDTHS: dict[str, float] = {
+    chr(code): float(_FONT_OBJ.text_length(chr(code), fontsize=1.0)) for code in range(32, 127)
+}
+_DEFAULT_CHAR_WIDTH: float = _ASCII_CHAR_WIDTHS.get("m", 0.56)
+
+
+@lru_cache(maxsize=4096)
+def _char_unit_width(ch: str) -> float:
+    return float(_ASCII_CHAR_WIDTHS.get(ch) or _FONT_OBJ.text_length(ch, fontsize=1.0))
+
+
+def _measure_width(text: str, fontsize: float) -> float:
+    """Measure rendered width in points using cached Helvetica unit advance table."""
+    if not text:
+        return 0.0
+    if text.isascii():
+        w = _ASCII_CHAR_WIDTHS
+        d = _DEFAULT_CHAR_WIDTH
+        return sum(w.get(ch, d) for ch in text) * fontsize
+    return sum(_char_unit_width(ch) for ch in text) * fontsize
 
 
 def _wrap_text(text: str, max_width: float, fontsize: float) -> list[str]:
@@ -35,6 +56,8 @@ def _wrap_text(text: str, max_width: float, fontsize: float) -> list[str]:
     raw = str(text if text is not None else "")
     if not raw:
         return [""]
+    if _measure_width(raw, fontsize) <= max_width and "\n" not in raw:
+        return [raw]
     paragraphs = raw.replace("\r\n", "\n").split("\n")
     out: list[str] = []
     for para in paragraphs:
@@ -45,19 +68,19 @@ def _wrap_text(text: str, max_width: float, fontsize: float) -> list[str]:
         cur = ""
         for word in words:
             trial = f"{cur} {word}".strip() if cur else word
-            if _FONT_OBJ.text_length(trial, fontsize=fontsize) <= max_width:
+            if _measure_width(trial, fontsize) <= max_width:
                 cur = trial
                 continue
             if cur:
                 out.append(cur)
                 cur = ""
             # Character-wrap unbroken tokens (SHA hashes, long method IDs, URLs)
-            if _FONT_OBJ.text_length(word, fontsize=fontsize) <= max_width:
+            if _measure_width(word, fontsize) <= max_width:
                 cur = word
             else:
                 buf = ""
                 for ch in word:
-                    if _FONT_OBJ.text_length(buf + ch, fontsize=fontsize) <= max_width:
+                    if _measure_width(buf + ch, fontsize) <= max_width:
                         buf += ch
                     else:
                         if buf:

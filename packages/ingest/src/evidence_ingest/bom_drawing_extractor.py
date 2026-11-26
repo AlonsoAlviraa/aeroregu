@@ -13,10 +13,6 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-import pymupdf
-from docx import Document
-from openpyxl import load_workbook
-
 from evidence_ingest.blocks import IngestAbstain
 from evidence_ingest.cad_common import decimal_str
 from evidence_ingest.xlsx import _guard_archive_safety
@@ -130,6 +126,8 @@ def _map_row_fields(headers: list[str], row: list[str], kind: str) -> dict[str, 
 def _extract_pdf_bom_and_drawings(
     raw: bytes, *, filename: str, source_hash: str
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    import pymupdf
+
     bom_items: list[dict[str, Any]] = []
     drawings: list[dict[str, Any]] = []
     citations: list[dict[str, Any]] = []
@@ -258,6 +256,8 @@ def _extract_pdf_bom_and_drawings(
 def _extract_xlsx_bom_and_drawings(
     raw: bytes, *, filename: str, source_hash: str
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    from openpyxl import load_workbook
+
     _guard_archive_safety(raw)
     wb = load_workbook(BytesIO(raw), read_only=True, data_only=True)
     bom_items: list[dict[str, Any]] = []
@@ -305,6 +305,8 @@ def _extract_xlsx_bom_and_drawings(
 def _extract_docx_bom_and_drawings(
     raw: bytes, *, filename: str, source_hash: str
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    from docx import Document
+
     _guard_archive_safety(raw)
     doc = Document(BytesIO(raw))
     bom_items: list[dict[str, Any]] = []
