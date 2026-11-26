@@ -129,10 +129,13 @@ CANONICAL_ARCHETYPE_PRECEDENCE: tuple[tuple[str, str, str], ...] = (
     ("Q-DES-01", "Q-DES-04", "CAD_DMU"),
     ("Q-DES-02", "Q-DES-04", "CAD_DMU"),
     ("Q-DES-03", "Q-DES-04", "CAD_DMU"),
-    ("Q-DES-04", "Q-STR-01", "CAD_DMU"),
+    # Parallel engineering flow: CAD/DMU & W&B run alongside Loads & GFEM
+    ("Q-DES-02", "Q-STR-01", "CAD_DMU"),
+    ("Q-DES-03", "Q-STR-01", "CAD_DMU"),
     ("Q-DES-01", "Q-STR-02", "CAD_DMU"),
     ("Q-DES-02", "Q-STR-03", "CAD_DMU"),
     ("Q-DES-03", "Q-STR-03", "CAD_DMU"),
+    ("Q-DES-04", "Q-DOA-02", "CAD_DMU"),
     ("Q-STR-01", "Q-STR-02", "LOADS_BOOK"),
     ("Q-STR-01", "Q-STR-03", "LOADS_BOOK"),
     ("Q-STR-02", "Q-STR-03", "GFEM_MESH"),
@@ -147,12 +150,13 @@ CANONICAL_ARCHETYPE_PRECEDENCE: tuple[tuple[str, str, str], ...] = (
     ("Q-STR-03", "Q-STR-04", "STRESS_DOSSIER"),
     ("Q-STR-03", "Q-DOA-01", "STRESS_DOSSIER"),
     ("Q-STR-03", "Q-DOA-02", "STRESS_DOSSIER"),
+    # Structural test rig & F&DT run in parallel and converge into DOA/CVE STC sign-off
     ("Q-STR-03", "Q-TST-01", "STRESS_DOSSIER"),
     ("Q-FDT-01", "Q-DOA-02", "STRESS_DOSSIER"),
+    ("Q-TST-01", "Q-DOA-02", "TEST_CORRELATION"),
     ("Q-DYN-01", "Q-DOA-02", "TEST_CORRELATION"),
-    ("Q-DYN-01", "Q-TST-02", "TEST_CORRELATION"),
-    ("Q-DOA-02", "Q-TST-01", "TEST_CORRELATION"),
     ("Q-TST-01", "Q-TST-02", "TEST_CORRELATION"),
+    ("Q-DYN-01", "Q-TST-02", "TEST_CORRELATION"),
 )
 
 _SYNERGY_CHANNEL_RULES: dict[str, tuple[tuple[str, Decimal], ...]] = {

@@ -55,33 +55,46 @@ def run_formal_proof_for_method(
     return _dispatch_formal_proof(method_id, inputs or {}, formal_bounds=formal_bounds)
 
 
-def get_mcp_inventory_counts() -> dict[str, int]:
+def get_mcp_inventory_counts(*, profile: str = "full") -> dict[str, int]:
     """Return live counts of exposed MCP tools, resources, prompts, and formal methods."""
     from evidence_api.formal_methods import METHOD_DEFAULT_INPUTS
 
+    tools = _select_tools_for_profile(profile)
     return {
-        "tools": len(MCP_TOOLS),
+        "tools": len(tools),
+        "full_tools": len(MCP_TOOLS),
+        "compact_tools": len(MCP_COMPACT_TOOLS),
         "resources": len(MCP_RESOURCES),
         "prompts": len(MCP_PROMPTS),
         "formal_methods": len(METHOD_DEFAULT_INPUTS),
     }
 
 
-def get_mcp_catalog() -> dict[str, Any]:
-    """Return the full live MCP catalog alongside certified method defaults and families."""
+def _select_tools_for_profile(profile: str | None = None) -> tuple[dict[str, Any], ...]:
+    eff = (profile or os.environ.get("EVIDENCE_MCP_PROFILE") or "full").strip().lower()
+    if eff == "compact":
+        return MCP_COMPACT_TOOLS
+    return MCP_TOOLS
+
+
+def get_mcp_catalog(*, profile: str = "full") -> dict[str, Any]:
+    """Return the live MCP catalog alongside certified method defaults and families."""
     from evidence_api.formal_methods import METHOD_DEFAULT_INPUTS, METHOD_FAMILIES
 
+    eff = (profile or os.environ.get("EVIDENCE_MCP_PROFILE") or "full").strip().lower()
+    selected = _select_tools_for_profile(eff)
     return {
         "server": SERVER_INFO,
+        "profile": eff if eff == "compact" else "full",
         "protocol_versions": list(SUPPORTED_PROTOCOL_VERSIONS),
-        "counts": get_mcp_inventory_counts(),
+        "counts": get_mcp_inventory_counts(profile=eff),
         "tools": [
             {
                 "name": t["name"],
                 "description": t.get("description", ""),
                 "inputSchema": t.get("inputSchema", {}),
             }
-            for t in MCP_TOOLS
+            for t in selected
         ],
         "resources": list(MCP_RESOURCES),
         "prompts": list(MCP_PROMPTS),
@@ -1115,6 +1128,201 @@ MCP_TOOLS: tuple[dict[str, Any], ...] = (
     },
 )
 
+MCP_COMPACT_TOOLS: tuple[dict[str, Any], ...] = (
+    {
+        "name": "aeroregu_calc_dispatch",
+        "description": (
+            "Domain hub for deterministic calculations & allowables: list_cards, run_method, "
+            "allowables_lookup, run_batch_stress_dossier, combine_load_envelopes."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["action"],
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "list_cards",
+                        "run_method",
+                        "allowables_lookup",
+                        "stress_dossier",
+                        "load_envelope",
+                    ],
+                },
+                "payload": {"type": "object"},
+            },
+        },
+    },
+    {
+        "name": "aeroregu_ingest_cad_fem",
+        "description": (
+            "Domain hub for document/PDF/CAD/FEM ingestion: ingest_document, inspect_deep_idp, "
+            "nafems_bdf_diff, audit_fem_sol105, inspect_step_cad."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["action"],
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "ingest_document",
+                        "deep_idp",
+                        "bdf_diff",
+                        "fem_sol105",
+                        "verify_case",
+                    ],
+                },
+                "payload": {"type": "object"},
+            },
+        },
+    },
+    {
+        "name": "aeroregu_certification_moc",
+        "description": (
+            "Domain hub for flight-envelope coverage, Z3/cvc5 formal proofs, "
+            "and Part 21J MoC 0..9 readiness."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["action"],
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["coverage_status", "coverage_sweep", "formal_prove", "moc_matrix"],
+                },
+                "payload": {"type": "object"},
+            },
+        },
+    },
+    {
+        "name": "aeroregu_quotation_commercial",
+        "description": (
+            "Domain hub for ESTIMATE/ASSUMPTION quotations: composite DAG, change order, "
+            "FX hedging, EVM postmortem, RCPSP portfolio, calibration, and risk frontier."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["action"],
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "composite_quote",
+                        "single_quote",
+                        "multiagent_quote",
+                        "change_order",
+                        "fx_hedge",
+                        "evm_postmortem",
+                        "portfolio_level",
+                        "risk_frontier",
+                        "audit_contract",
+                        "calibrate",
+                    ],
+                },
+                "payload": {"type": "object"},
+            },
+        },
+    },
+    {
+        "name": "aeroregu_ledger_attestation",
+        "description": (
+            "Domain hub for hash-chained SQLite ledger queries, human signoff, "
+            "and DSSE Ed25519 ZIP/PDF bundles."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["action"],
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "ledger_query",
+                        "bundle_export",
+                        "bundle_verify",
+                        "dossier_export",
+                        "batch_signoff",
+                    ],
+                },
+                "payload": {"type": "object"},
+            },
+        },
+    },
+    {
+        "name": "aeroregu_security_ops",
+        "description": (
+            "Domain hub for safety guardrails, 46-probe Red-Team benchmark, "
+            "SBOM/air-gap audit, and runtime health."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["action"],
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "safety_scan",
+                        "redteam",
+                        "airgap_sbom",
+                        "agents_runtime",
+                        "morning_briefing",
+                    ],
+                },
+                "payload": {"type": "object"},
+            },
+        },
+    },
+)
+
+_COMPACT_ACTION_MAP: dict[str, dict[str, str]] = {
+    "aeroregu_calc_dispatch": {
+        "list_cards": "evidence_calc_list",
+        "run_method": "evidence_calc_run",
+        "allowables_lookup": "evidence_calc_run",
+        "stress_dossier": "run_batch_stress_summary_dossier",
+        "load_envelope": "combine_structural_load_envelopes",
+    },
+    "aeroregu_ingest_cad_fem": {
+        "ingest_document": "evidence_ingest_document",
+        "deep_idp": "inspect_deep_idp_package",
+        "bdf_diff": "evidence_nafems_bdf_diff",
+        "fem_sol105": "audit_fem_sol105_gpforce_abaqus",
+        "verify_case": "evidence_verify_case",
+    },
+    "aeroregu_certification_moc": {
+        "coverage_status": "evidence_coverage_status",
+        "coverage_sweep": "evidence_coverage_sweep",
+        "formal_prove": "evidence_formal_prove",
+        "moc_matrix": "build_part21j_moc_compliance_matrix",
+    },
+    "aeroregu_quotation_commercial": {
+        "composite_quote": "generate_composite_rotorcraft_quotation",
+        "single_quote": "generate_rotorcraft_archetype_quotation",
+        "multiagent_quote": "generate_multiagent_quotation",
+        "change_order": "compute_quotation_change_order",
+        "fx_hedge": "evaluate_quotation_fx_hedging",
+        "evm_postmortem": "run_bid_actual_evm_postmortem",
+        "portfolio_level": "level_rotorcraft_portfolio_capacity",
+        "risk_frontier": "optimize_quotation_risk_frontier",
+        "audit_contract": "audit_rfq_contract_clauses",
+        "calibrate": "run_advanced_quotation_calibration",
+    },
+    "aeroregu_ledger_attestation": {
+        "ledger_query": "evidence_ledger_query",
+        "bundle_export": "evidence_bundle_export",
+        "bundle_verify": "evidence_bundle_verify",
+        "dossier_export": "evidence_dossier_export",
+        "batch_signoff": "evidence_batch_signoff",
+    },
+    "aeroregu_security_ops": {
+        "safety_scan": "evidence_safety_scan",
+        "redteam": "evidence_redteam_benchmark",
+        "airgap_sbom": "audit_airgap_sbom_and_cluster_readiness",
+        "agents_runtime": "evidence_agents_runtime",
+        "morning_briefing": "evidence_morning_briefing",
+    },
+}
+
 MCP_RESOURCES: tuple[dict[str, Any], ...] = (
     {
         "uri": "aeroregu://runtime/status",
@@ -1316,6 +1524,32 @@ def _call_tool(
         evidence_home,
         open_ledger,
     )
+
+    if (
+        name == "aeroregu_calc_dispatch"
+        and str(arguments.get("action") or "") == "allowables_lookup"
+    ):
+        from evidence_calc.allowables import lookup_allowable
+
+        inner_args = dict(arguments.get("payload") or {})
+        if not inner_args:
+            inner_args = {k: v for k, v in arguments.items() if k != "action"}
+        return False, lookup_allowable(**inner_args)
+
+    if name in _COMPACT_ACTION_MAP:
+        action = str(arguments.get("action") or "")
+        mapped = _COMPACT_ACTION_MAP[name].get(action)
+        if not mapped:
+            return True, {"error": f"unsupported compact action '{action}' for '{name}'"}
+        inner_args = dict(arguments.get("payload") or {})
+        if not inner_args:
+            inner_args = {k: v for k, v in arguments.items() if k != "action"}
+        return _call_tool(
+            mapped,
+            inner_args,
+            require_auth_for_writes=require_auth_for_writes,
+            is_authenticated=is_authenticated,
+        )
 
     if require_auth_for_writes and not is_authenticated:
         mutating = (
@@ -3108,6 +3342,7 @@ def handle_mcp_message(
     *,
     require_auth_for_writes: bool = False,
     is_authenticated: bool = True,
+    profile: str | None = None,
 ) -> dict[str, Any] | list[dict[str, Any]] | None:
     """Dispatch an MCP JSON-RPC 2.0 request, batch, or notification."""
     if isinstance(message, list):
@@ -3119,6 +3354,7 @@ def handle_mcp_message(
                     item,
                     require_auth_for_writes=require_auth_for_writes,
                     is_authenticated=is_authenticated,
+                    profile=profile,
                 )
             )
             is not None
@@ -3167,7 +3403,11 @@ def handle_mcp_message(
     if method == "ping":
         return _ok({})
     if method == "tools/list":
-        return _ok({"tools": list(MCP_TOOLS)})
+        req_profile = params.get("profile") if isinstance(params, dict) else None
+        selected = _select_tools_for_profile(
+            str(req_profile) if req_profile is not None else profile
+        )
+        return _ok({"tools": list(selected)})
     if method == "tools/call":
         tool_name = str(params.get("name") or "")
         if not tool_name:

@@ -1153,6 +1153,22 @@ def analyze_step_with_ocp_or_polyhedral(
             pass
 
     poly = analyze_step_brep(step_bytes, digest, default_density_kg_m3=rho)
+    step_text = step_bytes.decode("latin-1", errors="ignore")
+    nurbs_matches = re.findall(
+        r"\b(B_SPLINE_SURFACE_WITH_KNOTS|RATIONAL_B_SPLINE_SURFACE|B_SPLINE_SURFACE|"
+        r"B_SPLINE_CURVE_WITH_KNOTS|RATIONAL_B_SPLINE_CURVE)\b",
+        step_text,
+    )
+    if nurbs_matches:
+        return {
+            "status": "ABSTAIN",
+            "abstain_reason": "ocp_required_for_nurbs_brep",
+            "kernel_backend": "abstain_nurbs_without_ocp",
+            "ocp_available": has_ocp,
+            "nurbs_entity_count": len(nurbs_matches),
+            "nurbs_entities_sample": sorted(set(nurbs_matches)),
+            "sha256": digest,
+        }
     return {
         **poly,
         "kernel_backend": "polyhedral_exact",

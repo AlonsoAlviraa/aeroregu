@@ -48,10 +48,13 @@ def _compare_semver(actual: str, floor: str) -> bool:
 
 
 class PKCS11HSMBridge:
-    """DSSE signing bridge delegating to non-exportable PKCS#11 HSM slots."""
+    """Software-emulated DSSE signing bridge matching PKCS#11 HSM slot semantics."""
+
+    backend_mode = "software_hsm_emulator"
 
     def __init__(self, key_uri: str = "pkcs11:token=aeroregu-hsm;object=cve-dsse") -> None:
         self.key_uri = key_uri
+        self.backend_mode = "software_hsm_emulator"
         self._hsm = HSMKMSSigner(key_uri=key_uri, algorithm="Ed25519")
 
     def sign_dsse(
@@ -63,6 +66,7 @@ class PKCS11HSMBridge:
         return {
             "payloadType": payload_type,
             "payload": base64.b64encode(payload_bytes).decode("ascii"),
+            "backend_mode": self.backend_mode,
             "signatures": [
                 {
                     "keyid": f"{self.key_uri}#{signed['key_id']}",
@@ -142,7 +146,7 @@ class VaultTransitSigner:
 
 
 class AWSKMSAdapter:
-    """AWS KMS `Sign`/`Verify` DSSE envelope adapter with injectable KMS signer/verifier."""
+    """AWS KMS `Sign`/`Verify` DSSE adapter (local Ed25519 emulator unless signer_fn set)."""
 
     def __init__(
         self,
@@ -154,6 +158,11 @@ class AWSKMSAdapter:
     ) -> None:
         self.key_arn = key_arn
         self.region = region
+        self.backend_mode = (
+            "software_kms_emulator"
+            if (signer_fn is None or verifier_fn is None)
+            else "external_kms_signer"
+        )
         if signer_fn is None or verifier_fn is None:
             priv = ed25519.Ed25519PrivateKey.generate()
             pub = priv.public_key()
@@ -180,6 +189,7 @@ class AWSKMSAdapter:
         return {
             "payloadType": payload_type,
             "payload": base64.b64encode(payload_bytes).decode("ascii"),
+            "backend_mode": self.backend_mode,
             "signatures": [
                 {"keyid": self.key_arn, "sig": base64.b64encode(sig_bytes).decode("ascii")}
             ],
@@ -275,11 +285,14 @@ class _RegisteredPasskey:
 
 
 class WebAuthnStepUpManager:
-    """Strict FIDO2/Passkey step-up reauthentication bound to the active logged-in user."""
+    """In-memory Ed25519 challenge-response FIDO2/Passkey step-up emulator."""
+
+    verification_mode = "in_memory_ed25519_stepup_emulator"
 
     def __init__(self) -> None:
         self._credentials: dict[str, _RegisteredPasskey] = {}
         self._challenges: dict[str, tuple[str, str]] = {}
+        self.verification_mode = "in_memory_ed25519_stepup_emulator"
 
     def register_user_credential(
         self,
@@ -371,4 +384,5 @@ class WebAuthnStepUpManager:
             "credential_id": credential_id,
             "rpId": rp_id,
             "step_up_token": token,
+            "verification_mode": self.verification_mode,
         }

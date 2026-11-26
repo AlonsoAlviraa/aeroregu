@@ -105,7 +105,11 @@ def test_q1_composite_8_archetype_wbs_dag_cpm_synergy_and_cycle_abstain() -> Non
     assert Decimal(dag["synergy_price_saved_eur"]) > Decimal("0")
     assert Decimal(dag["project_duration_weeks"]) > Decimal("10")
     assert dag["critical_path_archetypes"][0] == "Q-DES-02"
-    assert dag["critical_path_archetypes"][-1] == "Q-TST-01"
+    assert dag["critical_path_archetypes"][-1] == "Q-DOA-02"
+    assert any(
+        not n["is_critical"] and Decimal(n["total_float_weeks"]) > Decimal("0")
+        for n in dag["nodes"]
+    )
     # Verify CPM invariants on every node and CVE floor preservation
     for n in dag["nodes"]:
         es = Decimal(n["early_start_week"])

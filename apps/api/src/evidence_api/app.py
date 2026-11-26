@@ -307,18 +307,53 @@ def create_app() -> FastAPI:
                 return actor, None
         return str(requested_actor or "author"), None
 
+    _PUBLIC_AUTH_PATHS = frozenset(
+        {
+            "/",
+            "/health",
+            "/auth/login",
+            "/auth/logout",
+            "/sso/oidc/callback",
+            "/sso/saml/acs",
+            "/mcp",
+            "/mcp/catalog",
+            "/calc/cards",
+            "/calc/materials",
+            "/calc/allowables",
+            "/docs",
+            "/docs/oauth2-redirect",
+            "/openapi.json",
+            "/redoc",
+        }
+    )
+
     @app.middleware("http")
     async def security_headers(request: Request, call_next: Any) -> Response:
         cl = request.headers.get("content-length")
+        path = request.url.path
         if cl:
             try:
-                if int(cl) > MAX_JSON_BODY_BYTES:
+                size_limit = (
+                    MAX_INGEST_BYTES if path.startswith("/ingest/") else MAX_JSON_BODY_BYTES
+                )
+                if int(cl) > size_limit:
                     return JSONResponse(
                         _abstain("api@1.0.0", {}, "payload_too_large"),
                         status_code=413,
                     )
             except ValueError:
                 pass
+        if _is_production_mode():
+            is_public = (
+                path in _PUBLIC_AUTH_PATHS
+                or path.startswith("/static/")
+                or path.startswith("/demo")
+            )
+            if not is_public and _authenticate_middleware_request(request) is None:
+                return JSONResponse(
+                    _abstain("auth@1.0.0", {"path": path}, "auth_required"),
+                    status_code=401,
+                )
         response: Response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
@@ -5122,487 +5157,36 @@ def create_app() -> FastAPI:
             )
         )
 
-    def _resolve_stress_dossier(
-        body: dict[str, Any], request: Request, version: str
-    ) -> tuple[dict[str, Any] | None, JSONResponse | None]:
-        from evidence_coverage.stress_dossier_packager import build_stress_summary_dossier
+    from evidence_api.routers import (
+        build_security_audit_router,
+        build_sprint7_engineering_router,
+    )
 
-        from evidence_api.formal_methods import METHOD_DEFAULT_INPUTS
-
-        if isinstance(body.get("dossier"), dict) and body["dossier"].get("checks_results"):
-            return dict(body["dossier"]), None
-
-        checks = list(body.get("checks") or [])
-        if not checks:
-            checks = [
-                {
-                    "check_id": "SKID-01",
-                    "component_name": "Skid Cross-Tube Aft",
-                    "method_id": "cs29_skid_landing_gear_drop_energy",
-                    "inputs": dict(METHOD_DEFAULT_INPUTS["cs29_skid_landing_gear_drop_energy"]),
-                },
-                {
-                    "check_id": "TRDS-02",
-                    "component_name": "Tail Rotor Drive Shaft",
-                    "method_id": "shaft_whirl_critical_speed_screen",
-                    "inputs": dict(METHOD_DEFAULT_INPUTS["shaft_whirl_critical_speed_screen"]),
-                },
-                {
-                    "check_id": "FIRE-03",
-                    "component_name": "CS 29.1191 Firewall",
-                    "method_id": "firewall_thermal_buckling_screen",
-                    "inputs": dict(METHOD_DEFAULT_INPUTS["firewall_thermal_buckling_screen"]),
-                },
-            ]
-        ledger_obj = None
-        tenant_id = "demo"
-        actor_id = "stress-office"
-        if bool(body.get("record", False)):
-            checked_t = _validate_tenant(body.get("tenant_id"))
-            if checked_t is None:
-                return None, JSONResponse(_abstain(version, {}, "invalid_tenant"), status_code=400)
-            resolved_actor, auth_err = _check_endpoint_access(
-                request, tenant_id=checked_t, requested_actor=body.get("actor_id")
-            )
-            if auth_err is not None:
-                return None, auth_err
-            tenant_id = checked_t
-            actor_id = resolved_actor
-            ledger_obj = open_ledger(tenant_id)
-        try:
-            dos = build_stress_summary_dossier(
-                str(body.get("dossier_id") or "STRESS-NOTE-001"),
-                checks,
-                ledger=ledger_obj,
-                tenant_id=tenant_id,
-                actor_id=actor_id,
-                include_formal_proofs=bool(body.get("include_formal_proofs", True)),
-            )
-        except (AbstainError, ValueError, KeyError) as exc:
-            reason = exc.reason if isinstance(exc, AbstainError) else str(exc)
-            return None, JSONResponse(_abstain(version, {}, reason), status_code=400)
-        return dos, None
-
-    @app.post("/calc/batch-stress-dossier/export-xlsx")
-    def calc_batch_stress_export_xlsx_endpoint(body: dict[str, Any], request: Request) -> Response:
-        from evidence_coverage.stress_dossier_packager import export_stress_dossier_xlsx
-
-        dos, err = _resolve_stress_dossier(body, request, "stress_dossier_xlsx@1.0.0")
-        if err is not None:
-            return err
-        assert dos is not None
-        exported = export_stress_dossier_xlsx(dos)
-        did = str(dos.get("dossier_id") or "STRESS-NOTE-001").replace('"', "")
-        return Response(
-            content=exported["xlsx_bytes"],
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={
-                "Content-Disposition": f'attachment; filename="{did}_stress_dossier.xlsx"',
-                "X-AeroRegu-SHA256": exported["xlsx_sha256"],
-                "X-AeroRegu-Formula-Count": str(exported["formula_count"]),
-            },
-        )
-
-    @app.post("/calc/batch-stress-dossier/export-pdf")
-    def calc_batch_stress_export_pdf_endpoint(body: dict[str, Any], request: Request) -> Response:
-        from evidence_coverage.stress_dossier_packager import export_stress_dossier_signed_pdf
-
-        dos, err = _resolve_stress_dossier(body, request, "stress_dossier_pdf@1.0.0")
-        if err is not None:
-            return err
-        assert dos is not None
-        priv_pem, pub_pem = _attestation_keypair()
-        exported = export_stress_dossier_signed_pdf(
-            dos, private_key_pem=priv_pem, public_key_pem=pub_pem
-        )
-        did = str(dos.get("dossier_id") or "STRESS-NOTE-001").replace('"', "")
-        return Response(
-            content=exported["pdf_bytes"],
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f'attachment; filename="{did}_signed_stress_dossier.pdf"',
-                "X-AeroRegu-SHA256": exported["pdf_sha256"],
-                "X-AeroRegu-Merkle-Root": exported["merkle_root"],
-            },
-        )
-
-    @app.post("/ingest/heavy-pdf")
-    def ingest_heavy_pdf_endpoint(body: dict[str, Any]) -> JSONResponse:
-        from evidence_ingest.pdf import ingest_pdf_parallel
-
-        fname = str(body.get("filename") or "heavy_spec.pdf").strip() or "heavy_spec.pdf"
-        raw, err = _decode_body_bytes(body, "heavy_pdf@1.0.0", fname)
-        if err is not None:
-            return err
-        assert raw is not None
-        try:
-            res = ingest_pdf_parallel(
-                raw,
-                source_uri=fname,
-                max_workers=int(body.get("max_workers") or 4),
-                chunk_pages=int(body.get("chunk_pages") or 20),
-            )
-        except IngestAbstain as exc:
-            return JSONResponse(
-                _abstain("heavy_pdf@1.0.0", {"filename": fname}, exc.reason), status_code=422
-            )
-        return JSONResponse(
-            _ok(
-                "heavy_pdf@1.0.0",
-                {"filename": fname, "source_hash": res["source_hash"]},
-                {
-                    "source_uri": res["source_uri"],
-                    "source_hash": res["source_hash"],
-                    "total_pages": res["total_pages"],
-                    "worker_count": res["worker_count"],
-                    "pages_per_second": res["pages_per_second"],
-                    "heavy_pdf_async": res["heavy_pdf_async"],
-                    "verified_pages": res["verified_pages"],
-                    "abstained_pages": res["abstained_pages"],
-                    "modalities": res["modalities"],
-                    "block_count": len(res["blocks"]),
-                },
-            )
-        )
-
-    from evidence_coverage.enterprise_kms_airgap import WebAuthnStepUpManager
-
-    webauthn_mgr = WebAuthnStepUpManager()
-
-    @app.post("/auth/webauthn/reauth/options")
-    def webauthn_reauth_options_endpoint(body: dict[str, Any]) -> JSONResponse:
-        user_id = str(body.get("user_id") or "cve-reviewer").strip()
-        reg = body.get("register_credential")
-        if isinstance(reg, dict) and reg.get("credential_id") and reg.get("public_key_pem"):
-            webauthn_mgr.register_user_credential(
-                user_id=str(reg.get("user_id") or user_id),
-                credential_id=str(reg["credential_id"]),
-                public_key_pem=str(reg["public_key_pem"]),
-                transports=tuple(reg.get("transports") or ("internal",)),
-            )
-        try:
-            opts = webauthn_mgr.generate_reauth_options(
-                user_id=user_id, rp_id=str(body.get("rp_id") or "aeroregu.local")
-            )
-        except ValueError as exc:
-            return JSONResponse(
-                _abstain("webauthn_reauth@1.0.0", {"user_id": user_id}, str(exc)), status_code=404
-            )
-        return JSONResponse(_ok("webauthn_reauth@1.0.0", {"user_id": user_id}, opts))
-
-    @app.post("/auth/webauthn/reauth/verify")
-    def webauthn_reauth_verify_endpoint(body: dict[str, Any]) -> JSONResponse:
-        active_user = str(body.get("user_id") or "cve-reviewer").strip()
-        cred_id = str(body.get("id") or body.get("credential_id") or "").strip()
-        challenge = str(body.get("challenge") or "").strip()
-        sig_b64 = str(
-            body.get("signature_b64") or (body.get("response") or {}).get("signature") or ""
-        ).strip()
-        ver = webauthn_mgr.verify_reauth_assertion(
-            active_user_id=active_user,
-            credential_id=cred_id,
-            challenge=challenge,
-            signature_b64=sig_b64,
-        )
-        if not ver.get("verified"):
-            return JSONResponse(
-                _abstain(
-                    "webauthn_reauth@1.0.0",
-                    {"user_id": active_user, "rpId": ver.get("rpId")},
-                    str(ver.get("reason")),
-                ),
-                status_code=int(ver.get("status_code") or 401),
-            )
-        return JSONResponse(_ok("webauthn_reauth@1.0.0", {"user_id": active_user}, ver))
-
-    @app.post("/security/sbom-airgap-audit")
-    def security_sbom_airgap_audit_endpoint(body: dict[str, Any]) -> JSONResponse:
-        from evidence_coverage.cluster_readiness import verify_cluster_infra_manifests
-        from evidence_coverage.enterprise_kms_airgap import (
-            PKCS11HSMBridge,
-            generate_cyclonedx_sbom_from_uv_lock,
-        )
-        from evidence_kernel.paths import repo_root as _repo_root
-
-        root = _repo_root()
-        signer = PKCS11HSMBridge() if bool(body.get("sign_with_hsm", True)) else None
-        sbom_res = generate_cyclonedx_sbom_from_uv_lock(
-            root,
-            offline_cve_advisories=body.get("offline_cve_advisories"),
-            sign_backend=signer,
-        )
-        cluster_res = verify_cluster_infra_manifests(root)
-        return JSONResponse(
-            _ok(
-                "sbom_airgap_audit@1.0.0",
-                {},
-                {
-                    "bom_format": sbom_res["bom_format"],
-                    "spec_version": sbom_res["spec_version"],
-                    "component_count": sbom_res["component_count"],
-                    "cve_finding_count": sbom_res["cve_finding_count"],
-                    "cve_findings": sbom_res["cve_findings"],
-                    "airgap_clean": sbom_res["airgap_clean"],
-                    "sbom_sha256": sbom_res["sbom_sha256"],
-                    "dsse_signed": sbom_res["dsse_envelope"] is not None,
-                    "cluster_verified": cluster_res["verified"],
-                    "cluster_checks": cluster_res["checks"],
-                },
-            )
-        )
-
-    def _resolve_load_envelope(
-        body: dict[str, Any], request: Request, version: str
-    ) -> tuple[dict[str, Any] | None, JSONResponse | None]:
-        from evidence_coverage.load_envelope_combiner import (
-            combine_structural_load_envelopes,
-            default_cs29_load_envelope_payload,
-        )
-
-        if isinstance(body.get("envelope_report"), dict):
-            return body["envelope_report"], None
-        defaults = default_cs29_load_envelope_payload()
-        env_id = str(body.get("envelope_id") or defaults["envelope_id"])
-        subcases = body.get("basic_subcases") or defaults["basic_subcases"]
-        combos = body.get("combinations") or defaults["combinations"]
-        allowables = body.get("component_allowables") or defaults["component_allowables"]
-        record_flag = bool(body.get("record", False))
-        ledger_obj = None
-        tenant_id = _validate_tenant(str(body.get("tenant_id") or DEMO_TENANT)) or DEMO_TENANT
-        actor_id = "stress-office"
-        if record_flag:
-            actor = _session_actor(request, body.get("actor_id"), tenant_id=tenant_id)
-            if actor is None and _is_production_mode():
-                return None, JSONResponse(_abstain(version, {}, "auth_required"), status_code=401)
-            ledger_obj = open_ledger(tenant_id)
-            actor_id = actor or "author"
-        try:
-            rep = combine_structural_load_envelopes(
-                env_id,
-                subcases,
-                combos,
-                allowables,
-                ledger=ledger_obj,
-                tenant_id=tenant_id,
-                actor_id=actor_id,
-            )
-        except (AbstainError, ValueError, KeyError) as exc:
-            reason = exc.reason if isinstance(exc, AbstainError) else str(exc)
-            return None, JSONResponse(_abstain(version, {}, reason), status_code=400)
-        return rep, None
-
-    @app.post("/calc/load-envelope/combine")
-    def calc_load_envelope_combine_endpoint(body: dict[str, Any], request: Request) -> JSONResponse:
-        rep, err = _resolve_load_envelope(body, request, "load_envelope@1.0.0")
-        if err is not None:
-            return err
-        assert rep is not None
-        return JSONResponse(_ok("load_envelope@1.0.0", {"envelope_id": rep["envelope_id"]}, rep))
-
-    @app.post("/calc/load-envelope/export-xlsx")
-    def calc_load_envelope_xlsx_endpoint(body: dict[str, Any], request: Request) -> Response:
-        from evidence_coverage.load_envelope_combiner import export_load_envelope_xlsx
-
-        rep, err = _resolve_load_envelope(body, request, "load_envelope_xlsx@1.0.0")
-        if err is not None:
-            return err
-        assert rep is not None
-        exported = export_load_envelope_xlsx(rep)
-        eid = str(rep.get("envelope_id") or "ENV-CS29").replace('"', "")
-        return Response(
-            content=exported["xlsx_bytes"],
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={
-                "Content-Disposition": f'attachment; filename="{eid}_load_envelope.xlsx"',
-                "X-AeroRegu-SHA256": exported["xlsx_sha256"],
-                "X-AeroRegu-Formula-Count": str(exported["formula_count"]),
-            },
-        )
-
-    @app.post("/calc/load-envelope/export-pdf")
-    def calc_load_envelope_pdf_endpoint(body: dict[str, Any], request: Request) -> Response:
-        from evidence_coverage.load_envelope_combiner import export_load_envelope_pdf
-
-        rep, err = _resolve_load_envelope(body, request, "load_envelope_pdf@1.0.0")
-        if err is not None:
-            return err
-        assert rep is not None
-        priv_pem, pub_pem = _attestation_keypair()
-        exported = export_load_envelope_pdf(rep, private_key_pem=priv_pem, public_key_pem=pub_pem)
-        eid = str(rep.get("envelope_id") or "ENV-CS29").replace('"', "")
-        return Response(
-            content=exported["pdf_bytes"],
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f'attachment; filename="{eid}_signed_load_envelope.pdf"',
-                "X-AeroRegu-SHA256": exported["pdf_sha256"],
-                "X-AeroRegu-Merkle-Root": exported["merkle_root"],
-            },
-        )
-
-    def _resolve_moc_matrix(
-        body: dict[str, Any], request: Request, version: str
-    ) -> tuple[dict[str, Any] | None, JSONResponse | None]:
-        from evidence_coverage.certification_moc_matrix import build_part21j_moc_matrix
-
-        if isinstance(body.get("moc_matrix"), dict):
-            return body["moc_matrix"], None
-        program_id = str(body.get("program_id") or "PROG-H145-MOD")
-        record_flag = bool(body.get("record", False))
-        ledger_obj = None
-        tenant_id = _validate_tenant(str(body.get("tenant_id") or DEMO_TENANT)) or DEMO_TENANT
-        actor_id = "cve-office"
-        if record_flag:
-            actor = _session_actor(request, body.get("actor_id"), tenant_id=tenant_id)
-            if actor is None and _is_production_mode():
-                return None, JSONResponse(_abstain(version, {}, "auth_required"), status_code=401)
-            ledger_obj = open_ledger(tenant_id)
-            actor_id = actor or "author"
-        try:
-            mat = build_part21j_moc_matrix(
-                program_id,
-                requirements=body.get("requirements"),
-                stress_dossier=body.get("stress_dossier"),
-                load_envelope=body.get("load_envelope"),
-                fem_audit=body.get("fem_audit"),
-                ledger_event_hashes=body.get("ledger_event_hashes"),
-                cve_signoffs=body.get("cve_signoffs"),
-                active_ecn_revision=str(body.get("active_ecn_revision") or "REV-A"),
-                ledger=ledger_obj,
-                tenant_id=tenant_id,
-                actor_id=actor_id,
-            )
-        except (AbstainError, ValueError, KeyError) as exc:
-            reason = exc.reason if isinstance(exc, AbstainError) else str(exc)
-            return None, JSONResponse(_abstain(version, {}, reason), status_code=400)
-        return mat, None
-
-    @app.post("/certification/moc-matrix")
-    def certification_moc_matrix_endpoint(body: dict[str, Any], request: Request) -> JSONResponse:
-        mat, err = _resolve_moc_matrix(body, request, "part21j_moc_matrix@1.0.0")
-        if err is not None:
-            return err
-        assert mat is not None
-        return JSONResponse(_ok("part21j_moc_matrix@1.0.0", {"program_id": mat["program_id"]}, mat))
-
-    @app.post("/certification/moc-matrix/export-xlsx")
-    def certification_moc_matrix_xlsx_endpoint(body: dict[str, Any], request: Request) -> Response:
-        from evidence_coverage.certification_moc_matrix import export_moc_matrix_xlsx
-
-        mat, err = _resolve_moc_matrix(body, request, "part21j_moc_xlsx@1.0.0")
-        if err is not None:
-            return err
-        assert mat is not None
-        exported = export_moc_matrix_xlsx(mat)
-        pid = str(mat.get("program_id") or "PROG-CS29").replace('"', "")
-        return Response(
-            content=exported["xlsx_bytes"],
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={
-                "Content-Disposition": f'attachment; filename="{pid}_moc_matrix.xlsx"',
-                "X-AeroRegu-SHA256": exported["xlsx_sha256"],
-                "X-AeroRegu-Formula-Count": str(exported["formula_count"]),
-            },
-        )
-
-    @app.post("/certification/moc-matrix/export-pdf")
-    def certification_moc_matrix_pdf_endpoint(body: dict[str, Any], request: Request) -> Response:
-        from evidence_coverage.certification_moc_matrix import export_moc_matrix_pdf
-
-        mat, err = _resolve_moc_matrix(body, request, "part21j_moc_pdf@1.0.0")
-        if err is not None:
-            return err
-        assert mat is not None
-        priv_pem, pub_pem = _attestation_keypair()
-        exported = export_moc_matrix_pdf(mat, private_key_pem=priv_pem, public_key_pem=pub_pem)
-        pid = str(mat.get("program_id") or "PROG-CS29").replace('"', "")
-        return Response(
-            content=exported["pdf_bytes"],
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f'attachment; filename="{pid}_signed_moc_matrix.pdf"',
-                "X-AeroRegu-SHA256": exported["pdf_sha256"],
-                "X-AeroRegu-Merkle-Root": exported["merkle_root"],
-            },
-        )
-
-    def _resolve_risk_frontier(
-        body: dict[str, Any], version: str
-    ) -> tuple[dict[str, Any] | None, JSONResponse | None]:
-        from evidence_coverage.quotation_risk_frontier import run_quotation_risk_frontier
-
-        if isinstance(body.get("risk_report"), dict):
-            return body["risk_report"], None
-        try:
-            rep = run_quotation_risk_frontier(
-                base_cost_eur=body.get("base_cost_eur", "375000"),
-                base_quote_price_eur=body.get("base_quote_price_eur", "480000"),
-                bid_prep_cost_eur=body.get("bid_prep_cost_eur", "25000"),
-                min_margin_floor_pct=body.get("min_margin_floor_pct", "12.00"),
-                num_scenarios=int(body.get("num_scenarios", 500)),
-                seed=int(body.get("seed", 20261126)),
-                risk_drivers=body.get("risk_drivers"),
-                market_price_reference_eur=body.get("market_price_reference_eur"),
-                price_elasticity=body.get("price_elasticity", "6.0"),
-                baseline_dossier=body.get("baseline_dossier"),
-            )
-        except (AbstainError, ValueError, KeyError) as exc:
-            reason = exc.reason if isinstance(exc, AbstainError) else str(exc)
-            return None, JSONResponse(_abstain(version, {}, reason), status_code=400)
-        return rep, None
-
-    @app.post("/quotations/rotorcraft/risk-frontier")
-    def quotation_risk_frontier_endpoint(body: dict[str, Any]) -> JSONResponse:
-        rep, err = _resolve_risk_frontier(body, "quotation_risk_frontier@1.0.0")
-        if err is not None:
-            return err
-        assert rep is not None
-        return JSONResponse(_ok("quotation_risk_frontier@1.0.0", {"seed": rep["seed"]}, rep))
-
-    @app.post("/quotations/rotorcraft/risk-frontier/export-xlsx")
-    def quotation_risk_frontier_xlsx_endpoint(body: dict[str, Any]) -> Response:
-        from evidence_coverage.quotation_risk_frontier import export_risk_frontier_xlsx
-
-        rep, err = _resolve_risk_frontier(body, "quotation_risk_xlsx@1.0.0")
-        if err is not None:
-            return err
-        assert rep is not None
-        exported = export_risk_frontier_xlsx(rep)
-        return Response(
-            content=exported["xlsx_bytes"],
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={
-                "Content-Disposition": 'attachment; filename="aeroregu_risk_frontier.xlsx"',
-                "X-AeroRegu-SHA256": exported["xlsx_sha256"],
-                "X-AeroRegu-Formula-Count": str(exported["formula_count"]),
-            },
-        )
-
-    @app.post("/quotations/rotorcraft/risk-frontier/export-pdf")
-    def quotation_risk_frontier_pdf_endpoint(body: dict[str, Any]) -> Response:
-        from evidence_coverage.quotation_risk_frontier import export_risk_frontier_pdf
-
-        rep, err = _resolve_risk_frontier(body, "quotation_risk_pdf@1.0.0")
-        if err is not None:
-            return err
-        assert rep is not None
-        priv_pem, pub_pem = _attestation_keypair()
-        exported = export_risk_frontier_pdf(rep, private_key_pem=priv_pem, public_key_pem=pub_pem)
-        return Response(
-            content=exported["pdf_bytes"],
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": 'attachment; filename="aeroregu_signed_risk_frontier.pdf"',
-                "X-AeroRegu-SHA256": exported["pdf_sha256"],
-                "X-AeroRegu-Merkle-Root": exported["merkle_root"],
-            },
-        )
+    for _router in (
+        build_security_audit_router(ok_fn=_ok, abstain_fn=_abstain),
+        build_sprint7_engineering_router(
+            ok_fn=_ok,
+            abstain_fn=_abstain,
+            check_endpoint_access_fn=_check_endpoint_access,
+            is_production_mode_fn=_is_production_mode,
+            session_actor_fn=_session_actor,
+            validate_tenant_fn=_validate_tenant,
+            open_ledger_fn=open_ledger,
+            attestation_keypair_fn=_attestation_keypair,
+            decode_body_bytes_fn=_decode_body_bytes,
+            demo_tenant=DEMO_TENANT,
+        ),
+    ):
+        for _route in _router.routes:
+            app.router.routes.append(_route)
 
     @app.get("/mcp/catalog")
-    def get_mcp_catalog_endpoint() -> JSONResponse:
+    def get_mcp_catalog_endpoint(profile: str = "full") -> JSONResponse:
         from evidence_api.mcp_server import get_mcp_catalog
 
-        return JSONResponse(_ok("mcp@1.0.0", {}, get_mcp_catalog()))
+        return JSONResponse(
+            _ok("mcp@1.0.0", {"profile": profile}, get_mcp_catalog(profile=profile))
+        )
 
     @app.get("/")
     def index() -> FileResponse:
@@ -6005,6 +5589,27 @@ def _actor_from_request(request: Request, *, tenant_id: str = DEMO_TENANT) -> st
     if not get_scim_directory().is_actor_active(tenant_id, actor_id):
         return None
     return actor_id
+
+
+def _authenticate_middleware_request(request: Request) -> str | None:
+    """Validate Bearer/Cookie HMAC session across the token's tenant for prod auth."""
+    if _secret() is None:
+        return None
+    raw = request.cookies.get("el_session", "")
+    if not raw:
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            raw = auth_header[7:].strip()
+    if "." not in raw:
+        return None
+    subject, _mac = raw.rsplit(".", 1)
+    parts = subject.split(":")
+    if len(parts) != 3:
+        return None
+    token_tenant = _validate_tenant(parts[0])
+    if token_tenant is None:
+        return None
+    return _actor_from_request(request, tenant_id=token_tenant)
 
 
 def _secret() -> str | None:

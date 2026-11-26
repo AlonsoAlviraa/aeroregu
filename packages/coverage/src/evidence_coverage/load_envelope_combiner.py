@@ -9,7 +9,6 @@ Ed25519 DSSE & ISO QR signed PDF dossiers.
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import io
 import json
@@ -18,17 +17,14 @@ from decimal import Decimal, localcontext
 from pathlib import Path
 from typing import Any
 
-import pymupdf
 from evidence_calc.allowables import lookup_allowable
 from evidence_calc.quantize import format_quantum
-from evidence_kernel.attestation import sign_attestation_dsse
 from evidence_kernel.envelope import make_envelope, project_source
 from evidence_kernel.ledger import Ledger
 from evidence_kernel.orchestrator import record
-from evidence_kernel.qrcode_iso import render_qr_png
 from openpyxl import Workbook
 
-from evidence_coverage.pdf_report import _DSSE_ATTACHMENT_NAME, _PUBKEY_ATTACHMENT_NAME
+from evidence_coverage.pdf_layout import CorporatePDFBuilder, compute_dsse_sig_prefix
 from evidence_coverage.quotation_exporter import (
     _ACCENT_FILL,
     _BOLD_FONT,
@@ -655,11 +651,7 @@ def export_load_envelope_pdf(
         "overall_status": str(report.get("overall_status") or ""),
         "merkle_root": merkle,
     }
-    dsse_envelope = sign_attestation_dsse(attestation_payload, priv_pem)
-    dsse_bytes = json.dumps(dsse_envelope, sort_keys=True, indent=2).encode("utf-8")
-    sig_raw = base64.b64decode(dsse_envelope["signatures"][0]["sig"])
-    sig_sha256 = hashlib.sha256(sig_raw).hexdigest()
-
+    sig_sha256 = compute_dsse_sig_prefix(attestation_payload, priv_pem)
     qr_payload = "aeroregu-env:" + json.dumps(
         {
             "v": 1,
@@ -671,90 +663,58 @@ def export_load_envelope_pdf(
         sort_keys=True,
         separators=(",", ":"),
     )
-    qr_png = render_qr_png(qr_payload, scale=8, border=6)
 
-    doc = pymupdf.open()
-    page = doc.new_page(width=595, height=842)
-    banner_rgb = (15 / 255, 23 / 255, 42 / 255)
-    page.draw_rect(pymupdf.Rect(32, 28, 563, 92), color=banner_rgb, fill=banner_rgb)
-    page.insert_text(
-        (44, 54),
-        f"AeroRegu - Signed CS-29 Load Envelope Summary ({eid})",
-        fontsize=12.5,
-        color=(1, 1, 1),
+    builder = CorporatePDFBuilder(
+        title=f"AeroRegu - Signed CS-29 Load Envelope ({eid})",
+        subtitle=ASSISTANCE_DISCLAIMER,
+        merkle_root=merkle,
+        qr_payload=qr_payload,
+        meta_kpis=[
+            ("Envelope ID", eid),
+            ("Overall Status", str(report.get("overall_status") or "")),
+            (
+                "Scope",
+                f"{report.get('component_count')} Components | "
+                f"{report.get('combination_count')} Combinations | "
+                f"{report.get('evaluated_pairs_count')} Pairs",
+            ),
+            (
+                "Global Min MS",
+                f"{report.get('global_ms_min')} at {report.get('governing_component')} "
+                f"({report.get('governing_combo_id')})",
+            ),
+            ("Ledger Merkle Root", f"{merkle[:36]}..."),
+        ],
+        creator="aeroregu-load-envelope-exporter",
     )
-    page.insert_text((44, 74), ASSISTANCE_DISCLAIMER, fontsize=8.2, color=(0.82, 0.88, 0.96))
-    page.insert_image(pymupdf.Rect(452, 108, 556, 212), stream=qr_png)
-
-    lines = [
-        f"Envelope ID: {eid}  |  Status: {report.get('overall_status')}",
-        (
-            f"Components: {report.get('component_count')}  |  "
-            f"Combinations: {report.get('combination_count')}  |  "
-            f"Pairs: {report.get('evaluated_pairs_count')}"
-        ),
-        (
-            f"Global Min MS: {report.get('global_ms_min')} at "
-            f"{report.get('governing_component')} ({report.get('governing_combo_id')})"
-        ),
-        f"Ledger Merkle Root: {merkle[:48]}...",
+    comp_rows = [
+        [
+            c.get("component_id", ""),
+            c.get("material_id", ""),
+            c.get("governing_combo_id", ""),
+            f"{c.get('governing_factored_stress_mpa', '')} / {c.get('allowable_mpa', '')}",
+            c.get("reserve_factor", c.get("governing_reserve_factor", "")),
+            f"{c.get('governing_ms', '')} (Arb {c.get('governing_arb_lower_ms', '')})",
+        ]
+        for c in (report.get("component_envelopes") or [])
     ]
-    y = 124
-    for ln in lines:
-        page.insert_text((38, y), ln[:92], fontsize=9.0, color=(0.1, 0.14, 0.22))
-        y += 16
-
-    y += 14
-    page.insert_text((38, y), "Component Governing Load-Case Envelopes", fontsize=11.0)
-    y += 16
-    for comp in (report.get("component_envelopes") or [])[:24]:
-        if y > 790:
-            break
-        rf_val = comp.get("reserve_factor", comp.get("governing_reserve_factor", ""))
-        row_s = (
-            f"{comp['component_id'][:18]} | Combo={comp['governing_combo_id'][:12]} | "
-            f"Factored={comp['governing_factored_stress_mpa']} | Allow={comp['allowable_mpa']} | "
-            f"RF={rf_val} | "
-            f"MS={comp['governing_ms']} (ArbLo={comp['governing_arb_lower_ms']})"
-        )
-        page.insert_text((40, y), row_s[:95], fontsize=7.8, color=(0.14, 0.18, 0.26))
-        y += 13
-
-    doc.embfile_add(
-        _DSSE_ATTACHMENT_NAME,
-        dsse_bytes,
-        filename=_DSSE_ATTACHMENT_NAME,
-        desc="DSSE v1 Ed25519 Load-Case Envelope Attestation",
+    builder.add_table(
+        "Component Governing Load-Case Envelopes",
+        [
+            "Component",
+            "Material",
+            "Governing Combo",
+            "Demand / Allow (MPa)",
+            "RF",
+            "MS (Arb Lower)",
+        ],
+        comp_rows,
+        col_widths=[95, 76, 84, 112, 52, 104],
     )
-    doc.embfile_add(
-        _PUBKEY_ATTACHMENT_NAME,
-        pub_pem,
-        filename=_PUBKEY_ATTACHMENT_NAME,
-        desc="Ed25519 Verification Public Key (PEM)",
+    return builder.finalize_signed(
+        attestation_payload=attestation_payload,
+        private_key_pem=priv_pem,
+        public_key_pem=pub_pem,
+        metadata_title=f"AeroRegu Signed Load Envelope ({eid})",
+        output_path=output_path,
     )
-    doc.set_metadata(
-        {
-            "title": f"AeroRegu Signed Load Envelope ({eid})",
-            "subject": f"merkle={merkle}",
-            "keywords": qr_payload,
-            "creator": "aeroregu-load-envelope-exporter",
-        }
-    )
-    pdf_bytes = doc.tobytes(deflate=True)
-    doc.close()
-
-    out_str: str | None = None
-    if output_path is not None:
-        out_p = Path(output_path)
-        out_p.parent.mkdir(parents=True, exist_ok=True)
-        out_p.write_bytes(pdf_bytes)
-        out_str = str(out_p)
-    return {
-        "pdf_bytes": pdf_bytes,
-        "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
-        "merkle_root": merkle,
-        "qr_payload": qr_payload,
-        "dsse_envelope": dsse_envelope,
-        "public_key_pem": pub_pem.decode("ascii"),
-        "output_path": out_str,
-    }

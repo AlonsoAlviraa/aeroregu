@@ -22,6 +22,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from evidence_coverage.pdf_layout import CorporatePDFBuilder, compute_dsse_sig_prefix
 from evidence_coverage.pdf_report import (
     _DSSE_ATTACHMENT_NAME,
     _PUBKEY_ATTACHMENT_NAME,
@@ -814,11 +815,7 @@ def export_quotation_signed_pdf(
         "contract_gate": str(contract_audit.get("overall_contract_gate") or "SUPPORTED"),
         "critical_path": list(dag.get("critical_path_archetypes") or []),
     }
-    dsse_envelope = sign_attestation_dsse(attestation_payload, priv_pem)
-    dsse_bytes = json.dumps(dsse_envelope, sort_keys=True, indent=2).encode("utf-8")
-    sig_raw = base64.b64decode(dsse_envelope["signatures"][0]["sig"])
-    sig_sha256 = hashlib.sha256(sig_raw).hexdigest()
-
+    sig_sha256 = compute_dsse_sig_prefix(attestation_payload, priv_pem)
     qr_payload = "aeroregu-quote:" + json.dumps(
         {
             "v": 1,
@@ -830,127 +827,114 @@ def export_quotation_signed_pdf(
         sort_keys=True,
         separators=(",", ":"),
     )
-    qr_png = render_qr_png(qr_payload, scale=8, border=6)
 
-    doc = pymupdf.open()
-    # PAGE 1: Executive Commercial-Technical Summary, QR, DSSE & Z3 Gates
-    p1 = doc.new_page(width=595, height=842)
-    banner_rgb = (15 / 255, 23 / 255, 42 / 255)
-    p1.draw_rect(pymupdf.Rect(32, 28, 563, 94), color=banner_rgb, fill=banner_rgb)
-    p1.insert_text(
-        (44, 54),
-        "AeroRegu - Signed Aerospace Quotation Dossier",
-        fontsize=14,
-        color=(1, 1, 1),
-    )
-    p1.insert_text(
-        (44, 74),
-        "ASSUMPTION / ESTIMATE aid for engineering managers & Part 21J CVEs. Never certifies.",
-        fontsize=8.2,
-        color=(0.82, 0.88, 0.96),
+    country_code = (dossier.get("country_profile") or {}).get("country_code", "EU_DEFAULT")
+    builder = CorporatePDFBuilder(
+        title="AeroRegu - Signed Aerospace Quotation Dossier",
+        subtitle="ASSUMPTION / ESTIMATE aid for engineering managers & Part 21J CVEs.",
+        merkle_root=merkle,
+        qr_payload=qr_payload,
+        meta_kpis=[
+            ("RFQ / Customer", f"{dossier.get('rfq_id')} | {dossier.get('customer_name')}"),
+            ("Country / Decision", f"{country_code} | {dossier.get('decision_status')}"),
+            (
+                f"Critical Path ({dag.get('project_duration_weeks')} w)",
+                " -> ".join(dag.get("critical_path_archetypes") or []),
+            ),
+            (
+                "Synergy Saved",
+                f"{dag.get('synergy_hours_saved')} h ({dag.get('synergy_savings_pct')}%)",
+            ),
+            ("Unit/Lot P80 Price (ESTIMATE)", f"{pert.get('price_p80_eur')} EUR"),
+            ("Multi-Year Price (ESTIMATE)", f"{my_out.get('quoted_price_eur')} EUR"),
+            (
+                "Multi-Year NPV & Peak Neg CF",
+                f"{my_out.get('net_present_value_eur')} EUR | "
+                f"-{my_out.get('peak_negative_cashflow_eur')} EUR",
+            ),
+            (
+                "Z3 Formal Gates",
+                f"Margin: {z3_margin.get('status', 'SKIPPED')} | "
+                f"Multi-Year NPV: {z3_npv.get('status', 'SKIPPED')}",
+            ),
+            (
+                "Contract Gate",
+                f"{contract_audit.get('overall_contract_gate', 'SUPPORTED')} "
+                f"(Poisons: {contract_audit.get('poison_clauses_count', 0)})",
+            ),
+            ("Merkle Root", f"{merkle[:32]}... (DSSE SHA {sig_sha256[:16]}...)"),
+        ],
+        creator="aeroregu-quotation-exporter",
     )
 
-    p1.draw_rect(
-        pymupdf.Rect(366, 102, 566, 302), color=(0.85, 0.88, 0.92), fill=(1, 1, 1), width=0.6
-    )
-    p1.insert_image(pymupdf.Rect(370, 106, 562, 298), stream=qr_png)
-    p1.insert_text(
-        (386, 314), "Offline ISO QR + Ed25519 DSSE", fontsize=7.5, color=(0.2, 0.25, 0.35)
-    )
-
-    meta_lines = [
-        f"RFQ ID: {dossier.get('rfq_id')}  |  Customer: {dossier.get('customer_name')}",
-        f"Country: {(dossier.get('country_profile') or {}).get('country_code', 'EU_DEFAULT')}  |  "
-        f"Decision: {dossier.get('decision_status')}",
-        f"Critical Path ({dag.get('project_duration_weeks')} w): "
-        + " -> ".join(dag.get("critical_path_archetypes") or []),
-        f"Synergy Saved: {dag.get('synergy_hours_saved')} h ({dag.get('synergy_savings_pct')}%)",
-        f"Unit/Lot P80 Price: {pert.get('price_p80_eur')} EUR",
-        f"Multi-Year Price: {my_out.get('quoted_price_eur')} EUR",
-        f"Multi-Year NPV: {my_out.get('net_present_value_eur')} EUR  |  "
-        f"Peak Neg CF: -{my_out.get('peak_negative_cashflow_eur')} EUR",
-        f"Z3 Margin Gate: {z3_margin.get('status', 'SKIPPED')}  |  "
-        f"Z3 Multi-Year NPV: {z3_npv.get('status', 'SKIPPED')}",
-        f"Contract Gate: {contract_audit.get('overall_contract_gate', 'SUPPORTED')} "
-        f"(Poisons: {contract_audit.get('poison_clauses_count', 0)})",
-        f"Merkle Root: {merkle[:32]}...",
-        f"DSSE Sig SHA-256: {sig_sha256[:32]}...",
+    dag_rows = [
+        [
+            n.get("archetype_id", ""),
+            n.get("family", ""),
+            f"{n.get('net_hours', '')} h",
+            f"{n.get('early_start_week', '')}w - {n.get('early_finish_week', '')}w",
+            "CRITICAL" if n.get("is_critical") else f"Float {n.get('total_float_weeks')}w",
+            f"{n.get('net_price_eur', '')} EUR",
+        ]
+        for n in (dag.get("nodes") or [])
     ]
-    y_c = 120
-    for line in meta_lines:
-        p1.insert_text((36, y_c), line[:62], fontsize=8.8, color=(0.1, 0.14, 0.22))
-        y_c += 16
-
-    y_c = max(y_c + 16, 336)
-    p1.insert_text(
-        (36, y_c),
-        "Composite WBS DAG & Critical Path Schedule",
-        fontsize=11,
-        color=(0.06, 0.1, 0.18),
+    builder.add_table(
+        "Composite WBS DAG & Critical Path Schedule (ESTIMATE)",
+        ["Archetype", "Family", "Net Hours", "ES - EF Window", "CPM Float", "Net Price"],
+        dag_rows,
+        col_widths=[74, 72, 72, 92, 96, 117],
     )
-    y_c += 16
-    for node in (dag.get("nodes") or [])[:18]:
-        crit_tag = (
-            "CRITICAL" if node.get("is_critical") else f"Float {node.get('total_float_weeks')}w"
-        )
-        row_txt = (
-            f"{node['archetype_id']} [{node['family']}]  Net: {node['net_hours']}h  "
-            f"ES={node['early_start_week']}w EF={node['early_finish_week']}w  "
-            f"({crit_tag})  Price={node['net_price_eur']} EUR"
-        )
-        p1.insert_text((40, y_c), row_txt[:96], fontsize=8.0, color=(0.15, 0.2, 0.28))
-        y_c += 13
 
-    # PAGE 2: 9-Country Comparison, Contractual Matrix & Deep IDP Sizing
-    p2 = doc.new_page(width=595, height=842)
-    p2.insert_text((36, 44), "9-Country Rate Comparison & Onshore/Nearshore Hybrid", fontsize=11.5)
-    y2 = 64
-    for r in (comp.get("countries") or [])[:10]:
-        delta_eu = r.get("delta_vs_eu_default_pct", "0.00")
-        p2.insert_text(
-            (40, y2),
-            f"{r['country_code']:10s} | Rate: {r['blended_hourly_rate_eur']:>8s} | "
-            f"Price: {r['quote_price_eur']:>12s} EUR | Delta EU: {delta_eu}%",
-            fontsize=8.2,
-        )
-        y2 += 14
+    ctry_rows = [
+        [
+            r.get("country_code", ""),
+            f"{r.get('blended_hourly_rate_eur', '')} EUR/h",
+            f"{r.get('quote_price_eur', '')} EUR",
+            f"{r.get('delta_vs_eu_default_pct', '0.00')}%",
+        ]
+        for r in (comp.get("countries") or [])
+    ]
+    builder.add_table(
+        "9-Country Rate & Execution Benchmark",
+        ["Country", "Blended Rate", "Quote Price (ESTIMATE)", "Delta vs EU_DEFAULT"],
+        ctry_rows,
+        col_widths=[96, 124, 175, 128],
+    )
+
     hyb = comp.get("onshore_nearshore_hybrid") or {}
     if hyb:
-        p2.insert_text(
-            (40, y2 + 4),
-            f"Hybrid ({hyb.get('onshore_cve_country')}/{hyb.get('nearshore_execution_country')}): "
-            f"{hyb.get('quote_price_eur')} EUR ({hyb.get('delta_vs_onshore_pct')}% vs onshore)",
-            fontsize=8.5,
-            color=(0.05, 0.35, 0.15),
+        builder.add_note(
+            f"Onshore/Nearshore Hybrid ({hyb.get('onshore_cve_country')}/"
+            f"{hyb.get('nearshore_execution_country')}): {hyb.get('quote_price_eur')} EUR "
+            f"({hyb.get('delta_vs_onshore_pct')}% vs onshore)."
         )
-        y2 += 24
 
-    p2.insert_text((36, y2 + 8), "Contractual Clause Audit & Poison-Clause Alerts", fontsize=11.5)
-    y2 += 26
-    for cl in (contract_audit.get("compliance_matrix") or [])[:14]:
-        pflags = ",".join(cl.get("poison_flags") or [])
-        tag = f"[{cl['status']}]" + (f" POISON={pflags}" if pflags else "")
-        color = (0.72, 0.1, 0.1) if pflags else (0.12, 0.18, 0.28)
-        p2.insert_text(
-            (40, y2), f"{cl['clause_id']} {tag}: {cl['text'][:58]}", fontsize=8.0, color=color
-        )
-        y2 += 13
+    clause_rows = [
+        [
+            cl.get("clause_id", ""),
+            cl.get("status", ""),
+            ", ".join(cl.get("poison_flags") or []) or "NONE",
+            cl.get("text", ""),
+        ]
+        for cl in (contract_audit.get("compliance_matrix") or [])
+    ]
+    builder.add_table(
+        "Contractual Clause-by-Clause Audit & Poison Alerts",
+        ["Clause ID", "Status", "Poison Flags", "Extracted Clause Text"],
+        clause_rows,
+        col_widths=[68, 124, 112, 219],
+    )
 
-    y2 += 14
-    p2.insert_text((36, y2), "Deep Physical IDP Summary & Citations", fontsize=11.5)
-    y2 += 16
     bdf_sum = deep_idp.get("bdf_summary") or {}
     cad_sz = deep_idp.get("cad_brep_sizing") or {}
     bom_sz = deep_idp.get("bom_and_drawings") or {}
-    p2.insert_text(
-        (40, y2),
+    builder.add_section_heading("Deep Physical IDP Summary & Verified Citations")
+    builder.add_note(
         f"IDP Maturity={idp.get('derived_idp_maturity')} | Nodes={idp.get('fem_nodes_count')} | "
         f"Active DOFs={(bdf_sum.get('dof_summary') or {}).get('active_dofs', 0)} | "
         f"Buy-to-Fly={cad_sz.get('buy_to_fly_ratio', '1.000')} | "
-        f"BOM Parts={bom_sz.get('bom_parts_count', 0)}",
-        fontsize=8.3,
+        f"BOM Parts={bom_sz.get('bom_parts_count', 0)}"
     )
-    y2 += 18
 
     bbox_cits = list(bom_sz.get("verified_bbox_citations") or [])[:3]
     for cl in contract_audit.get("compliance_matrix") or []:
@@ -965,59 +949,21 @@ def export_quotation_signed_pdf(
                 }
             )
     for cit in bbox_cits:
-        if y2 > 690:
-            break
         thumb = _render_bbox_thumbnail(citation=cit, pdf_sources=pdf_sources)
-        p2.insert_image(pymupdf.Rect(40, y2, 220, y2 + 95), stream=thumb)
-        p2.insert_text(
-            (230, y2 + 24),
-            f"Cited Page {cit['page_no']} | BBox: {cit['bbox']}",
-            fontsize=8.0,
-            color=(0.72, 0.1, 0.1),
+        builder.add_bbox_thumbnail(
+            thumb,
+            f"Cited Page {cit['page_no']} | BBox: {cit['bbox']} | {cit.get('text', '')[:120]}",
         )
-        y2 += 104
 
-    doc.embfile_add(
-        _DSSE_ATTACHMENT_NAME,
-        dsse_bytes,
-        filename=_DSSE_ATTACHMENT_NAME,
-        desc="DSSE v1 Ed25519 Quotation Attestation Envelope",
+    out = builder.finalize_signed(
+        attestation_payload=attestation_payload,
+        private_key_pem=priv_pem,
+        public_key_pem=pub_pem,
+        metadata_title=f"AeroRegu Signed Quotation Dossier ({dossier.get('rfq_id')})",
+        output_path=output_path,
     )
-    doc.embfile_add(
-        _PUBKEY_ATTACHMENT_NAME,
-        pub_pem,
-        filename=_PUBKEY_ATTACHMENT_NAME,
-        desc="Ed25519 Verification Public Key (PEM)",
-    )
-    doc.set_metadata(
-        {
-            "title": f"AeroRegu Signed Quotation Dossier ({dossier.get('rfq_id')})",
-            "subject": f"merkle={merkle}",
-            "keywords": qr_payload,
-            "creator": "aeroregu-quotation-exporter",
-        }
-    )
-
-    pdf_bytes = doc.tobytes(deflate=True)
-    doc.close()
-
-    out_str: str | None = None
-    if output_path is not None:
-        out_p = Path(output_path)
-        out_p.parent.mkdir(parents=True, exist_ok=True)
-        out_p.write_bytes(pdf_bytes)
-        out_str = str(out_p)
-
-    return {
-        "pdf_bytes": pdf_bytes,
-        "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
-        "merkle_root": merkle,
-        "qr_payload": qr_payload,
-        "dsse_envelope": dsse_envelope,
-        "public_key_pem": pub_pem.decode("ascii"),
-        "bbox_thumbnails_count": len(bbox_cits),
-        "output_path": out_str,
-    }
+    out["bbox_thumbnails_count"] = len(bbox_cits)
+    return out
 
 
 def verify_quotation_signed_pdf(

@@ -21,9 +21,10 @@ _BALL_DPS = 50
 _DISPLAY_QUANTUM = Decimal("0.000001")
 
 _CATALOG_META: dict[str, str] = {
-    "metallic_source": "MMPDS-16 (2022)",
-    "composite_source": "CMH-17 Rev H (2023)",
-    "version": "2026.11.0",
+    "metallic_source": "MMPDS-16 Screening Reference (Text/Engineering Table)",
+    "composite_source": "CMH-17 Rev H Screening Reference (Text/Engineering Table)",
+    "data_provenance_notice": "SCREENING_TEXTBOOK_REFERENCE_NOT_LICENSED_MMPDS_DB",
+    "version": "2026.11.1",
 }
 
 # All numeric entries are quoted base-10 strings so Decimal conversion is exact.
@@ -57,7 +58,7 @@ _ALLOWABLES_DB: dict[str, dict[str, Any]] = {
             "fbru_e20_mpa": "1013",
             "fbry_e20_mpa": "793",
         },
-        "env_knockdown": {"CTD": "1.02", "RTD": "1.00", "ETW": "0.86"},
+        "env_knockdown": {"CTD": "1.02", "RTD": "1.00", "ETW": "1.00"},
     },
     "AL-2024-T3": {
         "standard": "MMPDS-16",
@@ -88,7 +89,7 @@ _ALLOWABLES_DB: dict[str, dict[str, Any]] = {
             "fbru_e20_mpa": "889",
             "fbry_e20_mpa": "538",
         },
-        "env_knockdown": {"CTD": "1.02", "RTD": "1.00", "ETW": "0.88"},
+        "env_knockdown": {"CTD": "1.02", "RTD": "1.00", "ETW": "1.00"},
     },
     "TI-6AL-4V": {
         "standard": "MMPDS-16",
@@ -119,7 +120,7 @@ _ALLOWABLES_DB: dict[str, dict[str, Any]] = {
             "fbru_e20_mpa": "1862",
             "fbry_e20_mpa": "1510",
         },
-        "env_knockdown": {"CTD": "1.04", "RTD": "1.00", "ETW": "0.82"},
+        "env_knockdown": {"CTD": "1.04", "RTD": "1.00", "ETW": "1.00"},
     },
     "IM7-8552-UD": {
         "standard": "CMH-17 Rev H",
@@ -187,7 +188,7 @@ _ALLOWABLES_DB: dict[str, dict[str, Any]] = {
             "fbru_e20_mpa": "2206",
             "fbry_e20_mpa": "1758",
         },
-        "env_knockdown": {"CTD": "1.01", "RTD": "1.00", "ETW": "0.89"},
+        "env_knockdown": {"CTD": "1.01", "RTD": "1.00", "ETW": "1.00"},
     },
     "AL-LI-2198-T8": {
         "standard": "MMPDS-16",
@@ -218,7 +219,7 @@ _ALLOWABLES_DB: dict[str, dict[str, Any]] = {
             "fbru_e20_mpa": "965",
             "fbry_e20_mpa": "758",
         },
-        "env_knockdown": {"CTD": "1.03", "RTD": "1.00", "ETW": "0.87"},
+        "env_knockdown": {"CTD": "1.03", "RTD": "1.00", "ETW": "1.00"},
     },
     "AS4-8552-PW": {
         "standard": "CMH-17 Rev H",
@@ -323,7 +324,7 @@ _ALLOWABLES_DB: dict[str, dict[str, Any]] = {
             "fbru_e20_mpa": "2551",
             "fbry_e20_mpa": "1779",
         },
-        "env_knockdown": {"CTD": "1.03", "RTD": "1.00", "ETW": "0.92"},
+        "env_knockdown": {"CTD": "1.03", "RTD": "1.00", "ETW": "1.00"},
     },
     "17-4PH-H1025": {
         "standard": "MMPDS-16",
@@ -354,7 +355,7 @@ _ALLOWABLES_DB: dict[str, dict[str, Any]] = {
             "fbru_e20_mpa": "2206",
             "fbry_e20_mpa": "1758",
         },
-        "env_knockdown": {"CTD": "1.01", "RTD": "1.00", "ETW": "0.89"},
+        "env_knockdown": {"CTD": "1.01", "RTD": "1.00", "ETW": "1.00"},
     },
     "E-GLASS-8552": {
         "standard": "CMH-17 Rev H",
@@ -587,6 +588,10 @@ def lookup_allowable(
         raise AbstainError("unknown_environmental_condition")
 
     env_kd = Decimal(env_map[env_key])
+    # Metals do not absorb moisture under ETW; thermal knockdown already captures heat degradation.
+    moisture_applicable = entry["standard"] != "MMPDS-16"
+    if not moisture_applicable and env_key == "ETW":
+        env_kd = Decimal("1.00")
     thermal_kd = _thermal_knockdown(temp)
     thk_kd = _thickness_knockdown(thk, min_thk, max_thk)
 
@@ -603,6 +608,8 @@ def lookup_allowable(
         "basis": norm_basis,
         "property_name": prop_key,
         "environment": env_key,
+        "moisture_applicable": moisture_applicable,
+        "data_provenance_notice": _CATALOG_META["data_provenance_notice"],
         "base_value_mpa": format_quantum(base_val, Decimal("0.001")),
         "allowable_value_mpa": staged_allow,
         "knockdown_factor": staged_kd,

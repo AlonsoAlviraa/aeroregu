@@ -9,7 +9,6 @@ proves recommended margin floors via Z3 SMT.
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import io
 import json
@@ -18,14 +17,11 @@ from decimal import Decimal, localcontext
 from pathlib import Path
 from typing import Any
 
-import pymupdf
 import z3
 from evidence_calc.quantize import format_quantum
-from evidence_kernel.attestation import sign_attestation_dsse
-from evidence_kernel.qrcode_iso import render_qr_png
 from openpyxl import Workbook
 
-from evidence_coverage.pdf_report import _DSSE_ATTACHMENT_NAME, _PUBKEY_ATTACHMENT_NAME
+from evidence_coverage.pdf_layout import CorporatePDFBuilder, compute_dsse_sig_prefix
 from evidence_coverage.quotation_exporter import (
     _ACCENT_FILL,
     _BOLD_FONT,
@@ -215,7 +211,7 @@ def run_quotation_risk_frontier(
     seed: int = 20261126,
     risk_drivers: list[dict[str, Any]] | None = None,
     market_price_reference_eur: str | Decimal | None = None,
-    price_elasticity: str | Decimal = "6.0",
+    price_elasticity: str | Decimal = "10.0",
     baseline_dossier: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run deterministic low-discrepancy cost risk simulation & EMV Pareto bid optimizer."""
@@ -346,13 +342,14 @@ def run_quotation_risk_frontier(
                 }
             )
 
-        # Pareto Bid-Price Frontier across 11 candidate markups
-        markup_pcts = [Decimal(str(m)) for m in (-5, 0, 5, 10, 14, 18, 20, 22, 25, 28, 32)]
+        # Pareto Bid-Price Frontier across 13 adaptive candidates centered around market/base ref
+        raw_offsets = (-15, -9, -4, 0, 4, 8, 12, 16, 22, 30, 42)
         frontier_rows: list[dict[str, Any]] = []
         best_emv: Decimal | None = None
         recommended_idx = 0
-        for idx, mk in enumerate(markup_pcts):
-            bid_p = p50 * (_ONE + (mk / _HUNDRED))
+        for idx, off_pct in enumerate(raw_offsets):
+            bid_p = market_ref * (_ONE + (Decimal(str(off_pct)) / _HUNDRED))
+            mk = ((bid_p - p50) / p50) * _HUNDRED if p50 > _ZERO else _ZERO
             win_pct = _logistic_win_probability_pct(bid_p, market_ref, elasticity)
             win_prob = win_pct / _HUNDRED
             exp_margin_pct = ((bid_p - cost_mean) / bid_p) * _HUNDRED
@@ -395,6 +392,11 @@ def run_quotation_risk_frontier(
             )
             cand["pareto_efficient"] = not dominated
         frontier_rows[recommended_idx]["recommended_max_emv"] = True
+        optimum_location = (
+            "INTERIOR_MAXIMUM"
+            if 0 < recommended_idx < (len(frontier_rows) - 1)
+            else "BOUNDARY_CLAMPED"
+        )
         rec_row = frontier_rows[recommended_idx]
         rec_bid_dec = rec_row["_raw_bid"]
 
@@ -412,6 +414,7 @@ def run_quotation_risk_frontier(
             "cost_p80_eur": format_quantum(p80, _Q2),
             "recommended_bid_price_eur": rec_row["bid_price_eur"],
             "max_emv_eur": rec_row["expected_monetary_value_eur"],
+            "optimum_location": optimum_location,
         }
         report_sha = hashlib.sha256(
             json.dumps(digest_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -428,6 +431,7 @@ def run_quotation_risk_frontier(
             "market_price_reference_eur": format_quantum(market_ref, _Q2),
             "bid_prep_cost_eur": format_quantum(bid_prep, _Q2),
             "min_margin_floor_pct": format_quantum(margin_floor, _Q2),
+            "optimum_location": optimum_location,
             "cost_distribution": {
                 "cost_mean_eur": format_quantum(cost_mean, _Q2),
                 "cost_p10_eur": format_quantum(p10, _Q2),
@@ -443,6 +447,7 @@ def run_quotation_risk_frontier(
                 "win_probability_pct": rec_row["win_probability_pct"],
                 "expected_margin_pct": rec_row["expected_margin_pct"],
                 "max_expected_monetary_value_eur": rec_row["expected_monetary_value_eur"],
+                "optimum_location": optimum_location,
             },
             "formal_margin_floor_proof": z3_proof,
             "tornado_drivers": tornado_rows,
@@ -646,11 +651,7 @@ def export_risk_frontier_pdf(
         "z3_status": str(z3p.get("status") or ""),
         "report_sha256": merkle,
     }
-    dsse_envelope = sign_attestation_dsse(attestation_payload, priv_pem)
-    dsse_bytes = json.dumps(dsse_envelope, sort_keys=True, indent=2).encode("utf-8")
-    sig_raw = base64.b64decode(dsse_envelope["signatures"][0]["sig"])
-    sig_sha256 = hashlib.sha256(sig_raw).hexdigest()
-
+    sig_sha256 = compute_dsse_sig_prefix(attestation_payload, priv_pem)
     qr_payload = "aeroregu-risk:" + json.dumps(
         {
             "v": 1,
@@ -662,95 +663,56 @@ def export_risk_frontier_pdf(
         sort_keys=True,
         separators=(",", ":"),
     )
-    qr_png = render_qr_png(qr_payload, scale=8, border=6)
 
-    doc = pymupdf.open()
-    page = doc.new_page(width=595, height=842)
-    banner_rgb = (15 / 255, 23 / 255, 42 / 255)
-    page.draw_rect(pymupdf.Rect(32, 28, 563, 92), color=banner_rgb, fill=banner_rgb)
-    page.insert_text(
-        (44, 54),
-        "AeroRegu - Quotation Risk & Pareto Bid Frontier Brief (ESTIMATE)",
-        fontsize=12.0,
-        color=(1, 1, 1),
+    builder = CorporatePDFBuilder(
+        title="AeroRegu - Quotation Risk & Pareto Bid Frontier Brief (ESTIMATE)",
+        subtitle=ASSISTANCE_DISCLAIMER,
+        merkle_root=merkle,
+        qr_payload=qr_payload,
+        meta_kpis=[
+            ("Halton QMC Scenarios", f"{report.get('num_scenarios')} (seed={report.get('seed')})"),
+            (
+                "Cost P10 / P50 / P80 / P95 (EUR)",
+                f"{dist.get('cost_p10_eur')} / {dist.get('cost_p50_eur')} / "
+                f"{dist.get('cost_p80_eur')} / {dist.get('cost_p95_eur')}",
+            ),
+            (
+                "Recommended Max-EMV Bid",
+                f"{rec.get('recommended_bid_price_eur')} EUR ({rec.get('optimum_location', '')})",
+            ),
+            (
+                "Max EMV / Win / Margin",
+                f"{rec.get('max_expected_monetary_value_eur')} EUR | "
+                f"Win {rec.get('win_probability_pct')}% | Margin {rec.get('expected_margin_pct')}%",
+            ),
+            ("Z3 Margin Floor Proof", str(z3p.get("status") or "")),
+            ("SHA-256 Digest", f"{merkle[:36]}..."),
+        ],
+        creator="aeroregu-risk-frontier-exporter",
     )
-    page.insert_text((44, 74), ASSISTANCE_DISCLAIMER, fontsize=8.2, color=(0.82, 0.88, 0.96))
-    page.insert_image(pymupdf.Rect(452, 108, 556, 212), stream=qr_png)
-
-    lines = [
-        f"Halton QMC Scenarios: {report.get('num_scenarios')} (seed={report.get('seed')})",
-        (
-            f"Cost P10/P50/P80/P95: {dist.get('cost_p10_eur')} / {dist.get('cost_p50_eur')} / "
-            f"{dist.get('cost_p80_eur')} / {dist.get('cost_p95_eur')}"
-        ),
-        (
-            f"Rec Max-EMV Bid: {rec.get('recommended_bid_price_eur')} EUR | "
-            f"EMV={rec.get('max_expected_monetary_value_eur')} EUR"
-        ),
-        (
-            f"Win={rec.get('win_probability_pct')}% | Margin={rec.get('expected_margin_pct')}% | "
-            f"Z3={z3p.get('status')}"
-        ),
-        f"SHA-256 Digest: {merkle[:48]}...",
+    cand_rows = [
+        [
+            c.get("candidate_id", ""),
+            f"{c.get('bid_price_eur', '')} EUR",
+            f"{c.get('win_probability_pct', '')}%",
+            f"{c.get('expected_margin_pct', '')}%",
+            f"{c.get('expected_monetary_value_eur', '')} EUR",
+            "RECOMMENDED (*REC*)"
+            if c.get("recommended_max_emv")
+            else ("PARETO" if c.get("pareto_efficient") else "DOMINATED"),
+        ]
+        for c in (report.get("pareto_frontier") or [])
     ]
-    y = 124
-    for ln in lines:
-        page.insert_text((38, y), ln[:92], fontsize=8.8, color=(0.1, 0.14, 0.22))
-        y += 16
-
-    y += 12
-    page.insert_text((38, y), "Bid-Price Pareto Frontier Candidates", fontsize=11.0)
-    y += 15
-    for cand in (report.get("pareto_frontier") or [])[:12]:
-        tag = (
-            "*REC*"
-            if cand.get("recommended_max_emv")
-            else ("PARETO" if cand.get("pareto_efficient") else "DOM")
-        )
-        row_s = (
-            f"{cand['candidate_id']} | Bid={cand['bid_price_eur']} | "
-            f"Win={cand['win_probability_pct']}% | "
-            f"Margin={cand['expected_margin_pct']}% | "
-            f"EMV={cand['expected_monetary_value_eur']} | {tag}"
-        )
-        page.insert_text((40, y), row_s[:95], fontsize=7.8, color=(0.14, 0.18, 0.26))
-        y += 13
-
-    doc.embfile_add(
-        _DSSE_ATTACHMENT_NAME,
-        dsse_bytes,
-        filename=_DSSE_ATTACHMENT_NAME,
-        desc="DSSE v1 Ed25519 Quotation Risk Frontier Attestation",
+    builder.add_table(
+        "Bid-Price Pareto Frontier Candidates (ESTIMATE)",
+        ["ID", "Bid Price (EUR)", "Win Prob", "Exp Margin", "EMV (EUR)", "Frontier Status"],
+        cand_rows,
+        col_widths=[56, 108, 66, 68, 108, 117],
     )
-    doc.embfile_add(
-        _PUBKEY_ATTACHMENT_NAME,
-        pub_pem,
-        filename=_PUBKEY_ATTACHMENT_NAME,
-        desc="Ed25519 Verification Public Key (PEM)",
+    return builder.finalize_signed(
+        attestation_payload=attestation_payload,
+        private_key_pem=priv_pem,
+        public_key_pem=pub_pem,
+        metadata_title="AeroRegu Quotation Risk & Pareto Frontier Brief",
+        output_path=output_path,
     )
-    doc.set_metadata(
-        {
-            "title": "AeroRegu Quotation Risk & Pareto Frontier Brief",
-            "subject": f"sha256={merkle}",
-            "keywords": qr_payload,
-            "creator": "aeroregu-risk-frontier-exporter",
-        }
-    )
-    pdf_bytes = doc.tobytes(deflate=True)
-    doc.close()
-
-    out_str: str | None = None
-    if output_path is not None:
-        out_p = Path(output_path)
-        out_p.parent.mkdir(parents=True, exist_ok=True)
-        out_p.write_bytes(pdf_bytes)
-        out_str = str(out_p)
-    return {
-        "pdf_bytes": pdf_bytes,
-        "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
-        "merkle_root": merkle,
-        "qr_payload": qr_payload,
-        "dsse_envelope": dsse_envelope,
-        "public_key_pem": pub_pem.decode("ascii"),
-        "output_path": out_str,
-    }

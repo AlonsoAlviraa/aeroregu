@@ -335,9 +335,19 @@ try {
     border-radius: 12px;
     padding: 1.05rem;
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 1rem;
+    min-inline-size: 0;
     content-visibility: auto;
     contain-intrinsic-size: auto 420px;
+  }
+
+  .panel-card > *,
+  .panel-card details,
+  .panel-card details > div {
+    min-inline-size: 0;
+    max-inline-size: 99.9%;
+    box-sizing: border-box;
   }
 
   @supports not (content-visibility: auto) {
@@ -502,19 +512,22 @@ try {
   }
 
   .table-wrapper {
+    display: block;
     overflow: auto;
-    max-inline-size: 99%;
-    max-block-size: 22rem;
+    inline-size: 99.9%;
+    max-inline-size: 99.9%;
+    max-block-size: min(440px, 68vh);
     border: 1px solid var(--border);
-    border-radius: 9px;
+    border-radius: 10px;
     container-type: inline-size;
     scrollbar-gutter: stable;
   }
 
-  table {
+  .table-wrapper table {
     border-collapse: separate;
     border-spacing: 0;
-    inline-size: 99%;
+    inline-size: 99.9%;
+    min-inline-size: max-content;
     font-size: 0.84rem;
   }
 
@@ -1463,26 +1476,20 @@ try {
     font-weight: 700;
   }
 
-  .table-wrapper {
-    overflow: auto;
-    max-inline-size: 99.9%;
-    max-block-size: min(440px, 68vh);
-    container-type: inline-size;
-    border: 1px solid var(--border);
-    border-radius: 10px;
+  .json-payload-details {
+    margin-top: 0.65rem;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 0.5rem 0.65rem;
+    background: var(--surface);
   }
 
-  .table-wrapper table {
-    inline-size: 99.9%;
-    border-collapse: separate;
-    border-spacing: 0;
-  }
-
-  .table-wrapper thead th {
-    position: sticky;
-    inset-block-start: 0;
-    z-index: 2;
-    background: var(--surface-2);
+  .json-payload-details textarea {
+    width: 99.9%;
+    min-height: 7.5rem;
+    margin-top: 0.45rem;
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 0.78rem;
   }
 
   .briefing-region {
@@ -1763,7 +1770,7 @@ try {
           <kbd>Ctrl+K</kbd>
         </button>
         <button id="quick-cve-top-btn" class="subtle expert-only" type="button" title="Alternar aeronave SL-1 (Q400 / A320neo / eVTOL)">Cambiar CVE</button>
-        <span id="session-status" class="status-pill">Session: anonymous</span>
+        <span id="session-status" class="status-pill">Sesión local (Demo)</span>
         <button id="open-settings-btn" type="button" command="show-modal" commandfor="settings-dialog">
           Ajustes
         </button>
@@ -3119,6 +3126,11 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
                   <input type="text" id="quote-stress-dossier-id" value="STRESS-H145-V4">
                 </div>
               </div>
+              <details class="json-payload-details">
+                <summary style="cursor:pointer;font-size:0.84rem;font-weight:600;">Editar Checks JSON del Dossier (Tarjetas + Materiales)</summary>
+                <label class="sr-only" for="quote-stress-checks-json">Checks JSON del Dossier</label>
+                <textarea id="quote-stress-checks-json" spellcheck="false"></textarea>
+              </details>
               <div class="row" style="flex-wrap:wrap;gap:0.5rem;margin-top:0.65rem;">
                 <button type="button" id="quote-allow-arb-btn" class="subtle">🧪 Calcular Allowable (Arb 50 dígitos)</button>
                 <button type="button" id="quote-stress-dossier-run-btn" class="primary">🛡️ Ejecutar Lote Stress (Arb + Z3)</button>
@@ -3156,6 +3168,11 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
                   <input type="text" id="quote-env-id" value="ENV-H145-CS29-V5">
                 </div>
               </div>
+              <details class="json-payload-details">
+                <summary style="cursor:pointer;font-size:0.84rem;font-weight:600;">Editar Subcases / Combinaciones CS-29 (JSON)</summary>
+                <label class="sr-only" for="quote-env-payload-json">Payload JSON Envolvente CS-29</label>
+                <textarea id="quote-env-payload-json" spellcheck="false" placeholder="Opcional: {&quot;basic_subcases&quot;: ..., &quot;combinations&quot;: [...], &quot;component_allowables&quot;: ...}"></textarea>
+              </details>
               <div class="row" style="flex-wrap:wrap;gap:0.5rem;margin-top:0.65rem;">
                 <button type="button" id="quote-env-run-btn" class="primary">📐 Combinar Subcases CS-29</button>
                 <button type="button" id="quote-env-xlsx-btn" class="subtle">📊 Descargar Envolvente .xlsx</button>
@@ -3195,6 +3212,11 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
                   <input type="text" id="quote-moc-revision" value="REV-A">
                 </div>
               </div>
+              <details class="json-payload-details">
+                <summary style="cursor:pointer;font-size:0.84rem;font-weight:600;">Editar Requisitos Part 21J MoC 0..9 (JSON)</summary>
+                <label class="sr-only" for="quote-moc-reqs-json">Requisitos JSON Matriz MoC</label>
+                <textarea id="quote-moc-reqs-json" spellcheck="false" placeholder="Opcional: [{&quot;cs_paragraph&quot;: &quot;CS-29.305&quot;, &quot;required_mocs&quot;: [&quot;MoC-2&quot;,&quot;MoC-3&quot;], ...}]"></textarea>
+              </details>
               <div class="row" style="flex-wrap:wrap;gap:0.5rem;margin-top:0.65rem;">
                 <button type="button" id="quote-moc-run-btn" class="primary">📋 Generar Matriz MoC 0..9</button>
                 <button type="button" id="quote-moc-xlsx-btn" class="subtle">📊 Descargar Matriz MoC .xlsx</button>
@@ -3859,6 +3881,24 @@ function activateTab(targetTab) {
   }
   if (targetTab.id === "tab-briefing" && typeof window.loadMorningBriefing === "function") {
     requestAnimationFrame(() => window.loadMorningBriefing());
+  }
+  if (targetTab.id === "tab-quote" && typeof window.onQuoteTabVisible === "function") {
+    requestAnimationFrame(() => window.onQuoteTabVisible());
+  } else if (targetTab.id === "tab-quote" && typeof window.syncInspectorDock === "function") {
+    window.syncInspectorDock({
+      badge: "Cabina v5",
+      pill: "Cotizador y Certificación CS-29",
+      metric: "ESTIMATE / DAG",
+      tone: "ok",
+      meterPct: 72,
+      state: "Listo",
+      precision: "Decimal + Arb",
+      next: "Ejecutar Oferta / Dossier",
+      summaryTitle: "Cabina de Cotización & Stress CS-29",
+      summaryBody: "Los cálculos ejecutados en #tab-quote actualizan este inspector con el veredicto Z3, Márgenes Arb y Merkle Root.",
+      copilotTitle: "Copiloto Comercial & Part 21J",
+      copilotBody: "Usa Preset HEMS STC o abre los paneles Stress, Envolventes CS-29, MoC 0..9 y Frontera EMV.",
+    });
   }
 }
 
@@ -4761,7 +4801,7 @@ document.getElementById("logout-now-btn").onclick = async () => {
   try {
     await post(tenantUrl("/auth/logout"), {});
     const st = document.getElementById("session-status");
-    st.textContent = "Session: anonymous";
+    st.textContent = "Sesión local (Demo)";
     st.dataset.tone = "";
     document.getElementById("settings-dialog").close();
     showToast("Sesion cerrada correctamente.", "warn");
@@ -6216,12 +6256,53 @@ document.getElementById("replay-dlq-btn").onclick = async () => {
   }
 };
 
+function syncInspectorDock(opts = {}) {
+  const badgeEl = document.getElementById("out-badge");
+  const cardEl = document.getElementById("visual-verdict-card");
+  const pillEl = document.getElementById("verdict-status-pill");
+  const metricEl = document.getElementById("verdict-big-metric");
+  const fillEl = document.getElementById("verdict-meter-fill");
+  const kState = document.getElementById("vkpi-state");
+  const kPrec = document.getElementById("vkpi-prec");
+  const kNext = document.getElementById("vkpi-next");
+  const sumCard = document.getElementById("summary-card");
+  const sumTitle = document.getElementById("summary-title");
+  const sumBody = document.getElementById("summary-body");
+  const copTitle = document.getElementById("ai-copilot-title");
+  const copBody = document.getElementById("ai-copilot-body");
+  const outEl = document.getElementById("out");
+
+  const tone = opts.tone || "ok";
+  const colorMap = { ok: "#16a34a", warn: "#d97706", err: "#dc2626" };
+  if (badgeEl && opts.badge) badgeEl.textContent = opts.badge;
+  if (cardEl) cardEl.dataset.tone = tone;
+  if (sumCard) sumCard.dataset.tone = tone;
+  if (pillEl && opts.pill) pillEl.textContent = opts.pill;
+  if (metricEl && opts.metric) metricEl.textContent = opts.metric;
+  if (fillEl) {
+    const pct = Math.max(8, Math.min(96, Number(opts.meterPct || 75)));
+    fillEl.style.inlineSize = `${pct}%`;
+    fillEl.style.background = colorMap[tone] || colorMap.ok;
+  }
+  if (kState && opts.state) kState.textContent = opts.state;
+  if (kPrec && opts.precision) kPrec.textContent = opts.precision;
+  if (kNext && opts.next) kNext.textContent = opts.next;
+  if (sumTitle && opts.summaryTitle) sumTitle.textContent = opts.summaryTitle;
+  if (sumBody && opts.summaryBody) sumBody.textContent = opts.summaryBody;
+  if (copTitle && opts.copilotTitle) copTitle.textContent = opts.copilotTitle;
+  if (copBody && opts.copilotBody) copBody.textContent = opts.copilotBody;
+  if (outEl && opts.rawJson !== undefined) {
+    outEl.textContent = typeof opts.rawJson === "string" ? opts.rawJson : JSON.stringify(opts.rawJson, null, 2);
+  }
+}
+
 Object.assign(window, {
   DEFAULT_INPUTS,
   DEFAULT_STATED,
   activateTab,
   syncMethodTemplates,
   updateBadgesAndTables,
+  syncInspectorDock,
   currentTenant,
   ensureSession,
   showToast,

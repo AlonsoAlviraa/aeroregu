@@ -11,8 +11,10 @@ bounded RAM (< 1.5 GB) via chunked streaming and vectorized numpy reductions:
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -515,29 +517,180 @@ def _reduce_cae_stream(
     }
 
 
+NASTRAN_KNOWN_TABLES: frozenset[str] = frozenset(
+    {
+        "GEOM1",
+        "GEOM2",
+        "GEOM3",
+        "GEOM4",
+        "EPT",
+        "MPT",
+        "DIT",
+        "DYNAMIC",
+        "OUG1",
+        "OUGV1",
+        "OES1",
+        "OES1X",
+        "OES1C",
+        "OEF1",
+        "OEF1X",
+        "OGPFB1",
+        "ONRGY1",
+        "OQG1",
+        "OPG1",
+        "LAMA",
+        "OQMG1",
+    }
+)
+
+
+def inspect_nastran_op2_fortran_blocks(path_or_bytes: Path | str | bytes) -> dict[str, Any]:
+    """Scan real Fortran sequential record markers (`<I` / `>I`) in a Nastran .op2 stream."""
+    raw = (
+        path_or_bytes
+        if isinstance(path_or_bytes, (bytes, bytearray))
+        else Path(path_or_bytes).read_bytes()
+    )
+    if len(raw) < 12:
+        return {
+            "valid_fortran_records": False,
+            "endianness": None,
+            "record_count": 0,
+            "detected_tables": [],
+            "internal_stream_tags": [],
+        }
+
+    best_endian = "<"
+    best_records: list[bytes] = []
+    for endian in ("<", ">"):
+        pos = 0
+        recs: list[bytes] = []
+        ok = True
+        while pos + 8 <= len(raw) and len(recs) < 512:
+            rec_len = struct.unpack(f"{endian}I", raw[pos : pos + 4])[0]
+            end_pos = pos + 4 + rec_len
+            if rec_len > 64 * 1024 * 1024 or end_pos + 4 > len(raw):
+                ok = False
+                break
+            tail_len = struct.unpack(f"{endian}I", raw[end_pos : end_pos + 4])[0]
+            if tail_len != rec_len:
+                ok = False
+                break
+            recs.append(raw[pos + 4 : end_pos])
+            pos = end_pos + 4
+            if pos == len(raw):
+                break
+        if ok and recs and (len(recs) > len(best_records) or pos == len(raw)):
+            best_endian = endian
+            best_records = recs
+            if pos == len(raw):
+                break
+
+    detected_tables: list[str] = []
+    internal_tags: list[str] = []
+    seen_tables: set[str] = set()
+    seen_internal: set[str] = set()
+    for payload in best_records:
+        if len(payload) >= 4:
+            tag4 = payload[:4].decode("ascii", errors="ignore")
+            if tag4 in {"GRID", "ELEM", "EQUL", "STRS", "EOFP"} and tag4 not in seen_internal:
+                seen_internal.add(tag4)
+                internal_tags.append(tag4)
+        ascii_head = payload[:32].decode("ascii", errors="ignore")
+        for token in re.findall(r"[A-Z][A-Z0-9]{2,7}", ascii_head):
+            if token in NASTRAN_KNOWN_TABLES and token not in seen_tables:
+                seen_tables.add(token)
+                detected_tables.append(token)
+
+    return {
+        "valid_fortran_records": bool(best_records),
+        "endianness": best_endian if best_records else None,
+        "record_count": len(best_records),
+        "detected_tables": detected_tables,
+        "internal_stream_tags": internal_tags,
+    }
+
+
+def detect_cae_binary_format(path_or_bytes: Path | str | bytes) -> dict[str, Any]:
+    """Classify binary FEA file headers (HDF5, internal OP2, external OP2, or unknown)."""
+    raw = (
+        path_or_bytes
+        if isinstance(path_or_bytes, (bytes, bytearray))
+        else Path(path_or_bytes).read_bytes()
+    )
+    has_pynastran = importlib.util.find_spec("pyNastran") is not None
+    if raw[:8] == HDF5_SIGNATURE:
+        fmt = "hdf5_aeroh5" if raw[8:16] == AEROH5_MAGIC else "hdf5_nastran"
+        return {
+            "format": fmt,
+            "endianness": None,
+            "fortran_record_count": 0,
+            "detected_tables": [],
+            "pynastran_available": has_pynastran,
+        }
+    fortran = inspect_nastran_op2_fortran_blocks(raw)
+    if fortran["internal_stream_tags"]:
+        fmt = "nastran_op2_internal_stream"
+    elif fortran["valid_fortran_records"] and fortran["detected_tables"]:
+        fmt = "nastran_op2_fortran"
+    else:
+        fmt = "unknown"
+    return {
+        "format": fmt,
+        "endianness": fortran["endianness"],
+        "fortran_record_count": fortran["record_count"],
+        "detected_tables": fortran["detected_tables"],
+        "pynastran_available": has_pynastran,
+    }
+
+
 def parse_nastran_op2_file(path: Path | str, source_hash: str | None = None) -> dict[str, Any]:
     """Stream-parse a Nastran .op2 binary file out of core in bounded memory."""
     p = Path(path)
     if not p.is_file():
         raise FileNotFoundError(f"op2_not_found:{p}")
     digest = source_hash or hashlib.sha256(p.read_bytes()[:65536]).hexdigest()
+    saw_stream_tag = False
 
     def _chunks() -> Iterator[tuple[str, np.ndarray]]:
+        nonlocal saw_stream_tag
         for payload in _iter_fortran_records(p):
             if len(payload) < 4:
                 continue
             tag = payload[:4].decode("ascii", errors="ignore")
             body = payload[4:]
             if tag == "GRID":
+                saw_stream_tag = True
                 yield ("NODE", np.frombuffer(body, dtype=DTYPE_NODE))
             elif tag == "ELEM":
+                saw_stream_tag = True
                 yield ("ELEM", np.frombuffer(body, dtype=DTYPE_ELEM))
             elif tag == "EQUL":
+                saw_stream_tag = True
                 yield ("EQUL", np.frombuffer(body, dtype=DTYPE_EQUILIBRIUM))
             elif tag == "STRS":
+                saw_stream_tag = True
                 yield ("STRS", np.frombuffer(body, dtype=DTYPE_STRESS_CHUNK))
 
-    return _reduce_cae_stream(format_name="nastran_op2", source_hash=digest, chunks_iter=_chunks())
+    try:
+        reduced = _reduce_cae_stream(
+            format_name="nastran_op2", source_hash=digest, chunks_iter=_chunks()
+        )
+    except IngestAbstain:
+        if not saw_stream_tag:
+            fortran_info = inspect_nastran_op2_fortran_blocks(p)
+            if fortran_info["detected_tables"] and importlib.util.find_spec("pyNastran") is None:
+                raise IngestAbstain("pynastran_required_for_full_op2_extraction")
+            if not fortran_info["valid_fortran_records"]:
+                raise IngestAbstain("empty_or_unrecognized_op2")
+        raise
+    if not saw_stream_tag:
+        fortran_info = inspect_nastran_op2_fortran_blocks(p)
+        if fortran_info["detected_tables"] and importlib.util.find_spec("pyNastran") is None:
+            raise IngestAbstain("pynastran_required_for_full_op2_extraction")
+        if not fortran_info["valid_fortran_records"]:
+            raise IngestAbstain("empty_or_unrecognized_op2")
+    return reduced
 
 
 def parse_nastran_op2_bytes(raw: bytes, source_hash: str) -> dict[str, Any]:

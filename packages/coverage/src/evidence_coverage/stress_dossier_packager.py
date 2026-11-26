@@ -9,7 +9,6 @@ single batch event into the SHA-256 Merkle Ledger, and exports native live-formu
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import io
 import json
@@ -18,17 +17,14 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-import pymupdf
 from evidence_calc.quantize import format_quantum
 from evidence_calc.registry import run_method
-from evidence_kernel.attestation import sign_attestation_dsse
 from evidence_kernel.envelope import make_envelope, project_source
 from evidence_kernel.ledger import Ledger
 from evidence_kernel.orchestrator import record
-from evidence_kernel.qrcode_iso import render_qr_png
 from openpyxl import Workbook
 
-from evidence_coverage.pdf_report import _DSSE_ATTACHMENT_NAME, _PUBKEY_ATTACHMENT_NAME
+from evidence_coverage.pdf_layout import CorporatePDFBuilder, compute_dsse_sig_prefix
 from evidence_coverage.quotation_exporter import (
     _ACCENT_FILL,
     _BOLD_FONT,
@@ -440,11 +436,7 @@ def export_stress_dossier_signed_pdf(
         "formal_proved_count": int(dossier.get("formal_proved_count") or 0),
         "merkle_root": merkle,
     }
-    dsse_envelope = sign_attestation_dsse(attestation_payload, priv_pem)
-    dsse_bytes = json.dumps(dsse_envelope, sort_keys=True, indent=2).encode("utf-8")
-    sig_raw = base64.b64decode(dsse_envelope["signatures"][0]["sig"])
-    sig_sha256 = hashlib.sha256(sig_raw).hexdigest()
-
+    sig_sha256 = compute_dsse_sig_prefix(attestation_payload, priv_pem)
     qr_payload = "aeroregu-stress:" + json.dumps(
         {
             "v": 1,
@@ -456,88 +448,52 @@ def export_stress_dossier_signed_pdf(
         sort_keys=True,
         separators=(",", ":"),
     )
-    qr_png = render_qr_png(qr_payload, scale=8, border=6)
-
-    doc = pymupdf.open()
-    page = doc.new_page(width=595, height=842)
-    banner_rgb = (15 / 255, 23 / 255, 42 / 255)
-    page.draw_rect(pymupdf.Rect(32, 28, 563, 92), color=banner_rgb, fill=banner_rgb)
-    page.insert_text(
-        (44, 54),
-        f"AeroRegu - Signed Stress Summary Note ({did})",
-        fontsize=13.0,
-        color=(1, 1, 1),
-    )
-    page.insert_text((44, 74), ASSISTANCE_DISCLAIMER, fontsize=8.2, color=(0.82, 0.88, 0.96))
-    page.insert_image(pymupdf.Rect(452, 108, 556, 212), stream=qr_png)
 
     p_cnt = dossier.get("passed_margin_count")
     t_cnt = dossier.get("check_count")
-    lines = [
-        f"Dossier ID: {did}  |  Overall Status: {dossier.get('overall_status')}",
-        f"Checks Passed / Total: {p_cnt} / {t_cnt}",
-        f"Z3 SMT Formal Proofs Passed: {dossier.get('formal_proved_count')}",
-        f"Governing Min MS: {dossier.get('global_ms_min')} "
-        f"({dossier.get('governing_check_id')} - {dossier.get('governing_component')})",
-        f"Governing Method: {dossier.get('governing_method_id')}",
-        f"Ledger Merkle Root: {merkle[:48]}...",
+    meta_kpis = [
+        ("Dossier ID", did),
+        ("Overall Status", str(dossier.get("overall_status") or "")),
+        ("Checks Passed / Total", f"{p_cnt} / {t_cnt}"),
+        ("Z3 SMT Proved", f"{dossier.get('formal_proved_count')} / {t_cnt}"),
+        (
+            "Governing Min MS",
+            f"{dossier.get('global_ms_min')} ({dossier.get('governing_check_id')} - "
+            f"{dossier.get('governing_component')})",
+        ),
+        ("Governing Method", str(dossier.get("governing_method_id") or "")),
+        ("Ledger Merkle Root", f"{merkle[:36]}..."),
     ]
-    y = 124
-    for ln in lines:
-        page.insert_text((38, y), ln[:90], fontsize=9.0, color=(0.1, 0.14, 0.22))
-        y += 16
-
-    y += 14
-    page.insert_text((38, y), "Component Check Summary Matrix (Arb + Z3 SMT)", fontsize=11.0)
-    y += 16
-    for ch in (dossier.get("checks_results") or [])[:22]:
-        if y > 790:
-            break
-        arb_iv = ch.get("arb_interval") or {}
-        z3_s = (ch.get("formal_proof") or {}).get("status") or "NOT_RUN"
-        row_s = (
-            f"{ch['check_id']} [{ch['component_name'][:20]}] {ch['method_id'][:24]} "
-            f"MS={ch['governing_ms']} Arb=[{arb_iv.get('lower', '-')},{arb_iv.get('upper', '-')}] "
-            f"Z3={z3_s}"
-        )
-        page.insert_text((40, y), row_s[:95], fontsize=7.8, color=(0.14, 0.18, 0.26))
-        y += 13
-
-    doc.embfile_add(
-        _DSSE_ATTACHMENT_NAME,
-        dsse_bytes,
-        filename=_DSSE_ATTACHMENT_NAME,
-        desc="DSSE v1 Ed25519 Stress Summary Attestation Envelope",
+    builder = CorporatePDFBuilder(
+        title=f"AeroRegu - Signed Stress Summary Note ({did})",
+        subtitle=ASSISTANCE_DISCLAIMER,
+        merkle_root=merkle,
+        qr_payload=qr_payload,
+        meta_kpis=meta_kpis,
+        creator="aeroregu-stress-dossier-exporter",
     )
-    doc.embfile_add(
-        _PUBKEY_ATTACHMENT_NAME,
-        pub_pem,
-        filename=_PUBKEY_ATTACHMENT_NAME,
-        desc="Ed25519 Verification Public Key (PEM)",
+    table_rows = [
+        [
+            ch.get("check_id", ""),
+            ch.get("component_name", ""),
+            ch.get("method_id", ""),
+            ch.get("governing_ms", ""),
+            f"[{(ch.get('arb_interval') or {}).get('lower', '-')}, "
+            f"{(ch.get('arb_interval') or {}).get('upper', '-')}]",
+            (ch.get("formal_proof") or {}).get("status") or "NOT_RUN",
+        ]
+        for ch in (dossier.get("checks_results") or [])
+    ]
+    builder.add_table(
+        "Component Check Summary Matrix (Arb 50-Digit Intervals + Z3 SMT)",
+        ["Check ID", "Component", "Method ID", "Min MS", "Arb [Lower, Upper]", "Z3 SMT"],
+        table_rows,
+        col_widths=[56, 98, 126, 52, 114, 77],
     )
-    doc.set_metadata(
-        {
-            "title": f"AeroRegu Signed Stress Summary ({did})",
-            "subject": f"merkle={merkle}",
-            "keywords": qr_payload,
-            "creator": "aeroregu-stress-dossier-exporter",
-        }
+    return builder.finalize_signed(
+        attestation_payload=attestation_payload,
+        private_key_pem=priv_pem,
+        public_key_pem=pub_pem,
+        metadata_title=f"AeroRegu Signed Stress Summary ({did})",
+        output_path=output_path,
     )
-    pdf_bytes = doc.tobytes(deflate=True)
-    doc.close()
-
-    out_str: str | None = None
-    if output_path is not None:
-        out_p = Path(output_path)
-        out_p.parent.mkdir(parents=True, exist_ok=True)
-        out_p.write_bytes(pdf_bytes)
-        out_str = str(out_p)
-    return {
-        "pdf_bytes": pdf_bytes,
-        "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
-        "merkle_root": merkle,
-        "qr_payload": qr_payload,
-        "dsse_envelope": dsse_envelope,
-        "public_key_pem": pub_pem.decode("ascii"),
-        "output_path": out_str,
-    }

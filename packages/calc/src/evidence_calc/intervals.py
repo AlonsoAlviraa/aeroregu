@@ -920,7 +920,7 @@ def evaluate_aerospace_multiyear_cashflow_learning_intervals(
     }
 
 
-def evaluate_method_intervals(
+def _dispatch_method_intervals(
     method_id: str,
     inputs: dict[str, Any],
     staged_outputs: dict[str, Any],
@@ -1005,6 +1005,52 @@ def evaluate_method_intervals(
 
         return evaluate_declarative_intervals(card, inputs, staged_outputs, _drift_entry)
     return {}
+
+
+def evaluate_method_intervals(
+    method_id: str,
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+    *,
+    card: dict[str, Any] | None = None,
+    input_intervals: dict[str, tuple[str, str]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Evaluate FLINT/Arb intervals, propagating bounded input intervals from lookups."""
+    base = _dispatch_method_intervals(method_id, inputs, staged_outputs, card=card)
+    if not input_intervals or not base:
+        return base
+
+    lo_inputs = dict(inputs)
+    hi_inputs = dict(inputs)
+    active_keys: list[str] = []
+    for key, (lo_s, hi_s) in input_intervals.items():
+        if key in inputs:
+            lo_inputs[key] = lo_s
+            hi_inputs[key] = hi_s
+            active_keys.append(key)
+    if not active_keys:
+        return base
+
+    lo_iv = _dispatch_method_intervals(method_id, lo_inputs, staged_outputs, card=card)
+    hi_iv = _dispatch_method_intervals(method_id, hi_inputs, staged_outputs, card=card)
+
+    widened: dict[str, dict[str, Any]] = {}
+    for out_k, entry in base.items():
+        new_entry = dict(entry)
+        lows = [Decimal(str(entry["lower"]))]
+        highs = [Decimal(str(entry["upper"]))]
+        if out_k in lo_iv:
+            lows.append(Decimal(str(lo_iv[out_k]["lower"])))
+            highs.append(Decimal(str(lo_iv[out_k]["upper"])))
+        if out_k in hi_iv:
+            lows.append(Decimal(str(hi_iv[out_k]["lower"])))
+            highs.append(Decimal(str(hi_iv[out_k]["upper"])))
+        new_entry["lower"] = format(min(lows), "f")
+        new_entry["upper"] = format(max(highs), "f")
+        new_entry["propagated_input_uncertainty"] = True
+        new_entry["input_uncertainty_sources"] = sorted(active_keys)
+        widened[out_k] = new_entry
+    return widened
 
 
 def _arb_mid_dec(ball: arb) -> Decimal:

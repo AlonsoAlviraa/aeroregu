@@ -59,6 +59,18 @@ _RUNNERS = {
 }
 _CARDS: dict[str, dict[str, Any]] = {}
 
+# Canonical grouping metadata mapping overlapping specialized cards to primary entry points.
+CARD_CONSOLIDATION_MAP: dict[str, str] = {
+    "tsai_wu_ply_failure": "composite_failure_criteria",
+    "hashin_composite_modes": "composite_failure_criteria",
+    "rainflow_spectrum_damage": "palmgren_miner_fatigue",
+    "walker_mean_stress_crack_growth": "nasgro_paris_crack_growth",
+    "johnson_euler_column": "column_plate_buckling",
+    "needham_crippling_section": "column_plate_buckling",
+    "aerospace_quotation_costing": "rotorcraft_archetype_quote",
+    "engineering_workpackage_quote": "rotorcraft_archetype_quote",
+}
+
 
 def cards_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "cards"
@@ -76,8 +88,16 @@ def list_method_ids(*, include_plugins: bool = True) -> list[str]:
 
 
 def list_cards(*, include_plugins: bool = True) -> list[dict[str, Any]]:
-    """Return all built-in and declarative plugin calculation cards."""
-    return [load_card(method_id) for method_id in list_method_ids(include_plugins=include_plugins)]
+    """Return all built-in and declarative plugin calculation cards with canonical aliases."""
+    cards: list[dict[str, Any]] = []
+    for method_id in list_method_ids(include_plugins=include_plugins):
+        card = dict(load_card(method_id))
+        if method_id in CARD_CONSOLIDATION_MAP:
+            card["canonical_card_id"] = CARD_CONSOLIDATION_MAP[method_id]
+        else:
+            card.setdefault("canonical_card_id", method_id)
+        cards.append(card)
+    return cards
 
 
 def load_card(method_id: str) -> dict[str, Any]:
@@ -120,6 +140,7 @@ def run_method(
     raw_inputs = dict(inputs)
     lookup_spec = raw_inputs.pop("material_lookup", None)
     allowable_provenance: dict[str, dict[str, Any]] = {}
+    propagated_intervals: dict[str, tuple[str, str]] = {}
     if isinstance(lookup_spec, dict):
         # Support either {field_name: {material_id, ...}} or flat {target_field, material_id, ...}
         if "material_id" in lookup_spec:
@@ -145,6 +166,9 @@ def run_method(
                 thickness_uncertainty_mm=str(spec.get("thickness_uncertainty_mm", "0")),
             )
             raw_inputs[field_name] = str(mat_res["allowable_value_mpa"])
+            mat_iv = (mat_res.get("exact_intervals") or {}).get("allowable_value_mpa")
+            if isinstance(mat_iv, dict) and "lower" in mat_iv and "upper" in mat_iv:
+                propagated_intervals[field_name] = (str(mat_iv["lower"]), str(mat_iv["upper"]))
             if "_input_units" in raw_inputs:
                 in_units.setdefault(field_name, "megapascal")
             allowable_provenance[field_name] = mat_res
@@ -163,7 +187,11 @@ def run_method(
         outcome = {**outcome, "allowable_provenance": allowable_provenance}
     if include_intervals:
         intervals = evaluate_method_intervals(
-            method_id, numeric_inputs, outcome["outputs"], card=card
+            method_id,
+            numeric_inputs,
+            outcome["outputs"],
+            card=card,
+            input_intervals=propagated_intervals or None,
         )
         outcome = {**outcome, "exact_intervals": intervals}
     if normalize_units:

@@ -460,6 +460,23 @@
         if (statusEl) {
           statusEl.textContent = `ABSTAIN (${reason}) — Requiere revisión humana / CVE / Legal.`;
         }
+        if (typeof window.syncInspectorDock === "function") {
+          window.syncInspectorDock({
+            badge: "ABSTAIN",
+            pill: `⚠ Bloqueado: ${reason}`,
+            metric: "REVISIÓN CVE",
+            tone: "warn",
+            meterPct: 28,
+            state: "Abstención",
+            precision: "Fail-Closed",
+            next: "Resolver cláusula / gap",
+            summaryTitle: `Oferta en abstención (${reason})`,
+            summaryBody: "Se detectó un riesgo contractual, falta de datos o umbral fuera de tolerancia.",
+            copilotTitle: "Revisión humana requerida",
+            copilotBody: "Inspecciona la matriz contractual y las cláusulas trampa en la pestaña Cotizador.",
+            rawJson: data,
+          });
+        }
         if (data.contract_audit) {
           renderTables({
             rfq_id: payload.rfq_text.slice(0, 18),
@@ -473,6 +490,26 @@
       }
       latestDossier = data.result;
       renderTables(latestDossier);
+      if (typeof window.syncInspectorDock === "function" && latestDossier) {
+        const my = latestDossier.multiyear_cashflow_learning?.outputs || {};
+        const dag = latestDossier.composite_wbs_dag || {};
+        const z3m = latestDossier.formal_margin_proof || {};
+        window.syncInspectorDock({
+          badge: "Cotizado ✓",
+          pill: `✓ ${latestDossier.rfq_id} (${latestDossier.country_profile?.country_code || "EU"})`,
+          metric: `${my.quoted_price_eur || "0"} EUR`,
+          tone: "ok",
+          meterPct: 84,
+          state: `${dag.project_duration_weeks || "?"} sem CPM`,
+          precision: `Z3 ${z3m.status || "OK"}`,
+          next: "Exportar .xlsx / PDF DSSE",
+          summaryTitle: `Cotización Plurianual (${latestDossier.country_profile?.country_code || "EU"})`,
+          summaryBody: `NPV ${my.net_present_value_eur || "—"} EUR · Sinergia -${dag.synergy_savings_pct || "0"}% · Merkle ${String(latestDossier.merkle_root || "").slice(0, 14)}...`,
+          copilotTitle: "ESTIMATE / ASSUMPTION verificable",
+          copilotBody: "Todos los totales están sellados en Merkle+DSSE y trazados por nodo en el DAG Part 21J.",
+          rawJson: data,
+        });
+      }
     } catch (err) {
       if (statusEl) statusEl.textContent = `Error al cotizar: ${err?.message || err}`;
     } finally {
@@ -924,12 +961,19 @@
     }
   }
 
-  async function runBatchStressDossier() {
-    const statusEl = document.getElementById("quote-stress-dossier-status");
-    const tbody = document.querySelector("#quote-stress-table tbody");
-    const dossierId = document.getElementById("quote-stress-dossier-id")?.value || "STRESS-H145-V4";
-    const mat = document.getElementById("quote-allow-mat")?.value || "AL-7075-T651";
-    const checks = [
+  function parseOptionalJsonField(elId, statusEl, label) {
+    const raw = document.getElementById(elId)?.value?.trim();
+    if (!raw) return { ok: true, value: null };
+    try {
+      return { ok: true, value: JSON.parse(raw) };
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `JSON inválido en ${label}: ${err?.message || err}`;
+      return { ok: false, value: null };
+    }
+  }
+
+  function defaultStressChecks(mat) {
+    return [
       {
         check_id: "SKID-01",
         component_name: "Skid Cross-Tube Aft",
@@ -981,6 +1025,16 @@
         },
       },
     ];
+  }
+
+  async function runBatchStressDossier() {
+    const statusEl = document.getElementById("quote-stress-dossier-status");
+    const tbody = document.querySelector("#quote-stress-table tbody");
+    const dossierId = document.getElementById("quote-stress-dossier-id")?.value || "STRESS-H145-V4";
+    const mat = document.getElementById("quote-allow-mat")?.value || "AL-7075-T651";
+    const parsedChecks = parseOptionalJsonField("quote-stress-checks-json", statusEl, "Checks Dossier");
+    if (!parsedChecks.ok) return;
+    const checks = Array.isArray(parsedChecks.value) && parsedChecks.value.length > 0 ? parsedChecks.value : defaultStressChecks(mat);
     try {
       const resp = await fetch("/calc/batch-stress-dossier", {
         method: "POST",
@@ -1009,6 +1063,24 @@
             </tr>`
           )
           .join("");
+      }
+      if (typeof window.syncInspectorDock === "function") {
+        const minMs = Number(latestStressDossier.global_ms_min || 0);
+        window.syncInspectorDock({
+          badge: "Stress + Z3",
+          pill: minMs >= 0 ? `✓ MS Mín ${latestStressDossier.global_ms_min}` : `⚠ MS Negativo ${latestStressDossier.global_ms_min}`,
+          metric: `MS ${latestStressDossier.global_ms_min || "—"}`,
+          tone: minMs >= 0 ? "ok" : "err",
+          meterPct: minMs >= 0 ? 88 : 25,
+          state: `${latestStressDossier.passed_margin_count}/${latestStressDossier.check_count} OK`,
+          precision: `Arb + Z3(${latestStressDossier.formal_proved_count})`,
+          next: "Descargar Stress PDF DSSE",
+          summaryTitle: `Dossier ${latestStressDossier.dossier_id}`,
+          summaryBody: `Governing check: ${latestStressDossier.governing_check_id} · Allowables propagados por FLINT/Arb.`,
+          copilotTitle: "Propagación de incertidumbre activa",
+          copilotBody: "El allowable con incertidumbre térmica se propaga por aritmética de intervalos hasta el margen final.",
+          rawJson: json,
+        });
       }
     } catch (err) {
       if (statusEl) statusEl.textContent = `Error Stress Dossier: ${err?.message || err}`;
@@ -1171,12 +1243,15 @@
       const statusEl = document.getElementById("quote-env-status");
       const tbody = document.querySelector("#quote-env-table tbody");
       const envId = document.getElementById("quote-env-id")?.value || "ENV-H145-CS29-V5";
+      const parsedEnv = parseOptionalJsonField("quote-env-payload-json", statusEl, "Envolvente CS-29");
+      if (!parsedEnv.ok) return;
+      const extraEnv = parsedEnv.value && typeof parsedEnv.value === "object" ? parsedEnv.value : {};
       try {
         const resp = await fetch("/calc/load-envelope/combine", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify({ envelope_id: envId, tenant_id: tenantOf(), record: false }),
+          body: JSON.stringify({ envelope_id: envId, tenant_id: tenantOf(), record: false, ...extraEnv }),
         });
         const json = await resp.json();
         latestLoadEnvelope = json?.result || {};
@@ -1199,6 +1274,24 @@
               </tr>`
             )
             .join("");
+        }
+        if (typeof window.syncInspectorDock === "function") {
+          const minMs = Number(latestLoadEnvelope.global_ms_min || 0);
+          window.syncInspectorDock({
+            badge: "Envolvente CS-29",
+            pill: minMs >= 0 ? `✓ ${latestLoadEnvelope.governing_combo_id}` : `⚠ ${latestLoadEnvelope.governing_combo_id}`,
+            metric: `MS ${latestLoadEnvelope.global_ms_min || "—"}`,
+            tone: minMs >= 0 ? "ok" : "err",
+            meterPct: minMs >= 0 ? 82 : 24,
+            state: `${latestLoadEnvelope.evaluated_pairs_count || 0} pares`,
+            precision: "Decimal + Arb",
+            next: "Alimentar Matriz MoC",
+            summaryTitle: `Envolvente ${latestLoadEnvelope.envelope_id}`,
+            summaryBody: `Crítico: ${latestLoadEnvelope.governing_component} en ${latestLoadEnvelope.governing_combo_id}.`,
+            copilotTitle: "Combinación lineal exacta",
+            copilotBody: "Todos los factores últimos de carga y allowables Arb evaluados sin punto flotante binario.",
+            rawJson: json,
+          });
         }
       } catch (err) {
         if (statusEl) statusEl.textContent = `Error Load Envelope: ${err?.message || err}`;
@@ -1240,6 +1333,8 @@
       const tbody = document.querySelector("#quote-moc-table tbody");
       const programId = document.getElementById("quote-moc-program-id")?.value || "PROG-H145-STC";
       const rev = document.getElementById("quote-moc-revision")?.value || "REV-A";
+      const parsedReqs = parseOptionalJsonField("quote-moc-reqs-json", statusEl, "Requisitos MoC");
+      if (!parsedReqs.ok) return;
       try {
         const resp = await fetch("/certification/moc-matrix", {
           method: "POST",
@@ -1248,6 +1343,7 @@
           body: JSON.stringify({
             program_id: programId,
             active_ecn_revision: rev,
+            requirements: Array.isArray(parsedReqs.value) ? parsedReqs.value : undefined,
             stress_dossier: latestStressDossier || undefined,
             load_envelope: latestLoadEnvelope || undefined,
             tenant_id: tenantOf(),
@@ -1275,6 +1371,24 @@
               </tr>`
             )
             .join("");
+        }
+        if (typeof window.syncInspectorDock === "function") {
+          const gaps = Number(latestMocMatrix.open_gap_count || 0);
+          window.syncInspectorDock({
+            badge: "Part 21J MoC",
+            pill: gaps === 0 ? `✓ Readiness ${latestMocMatrix.readiness_pct}%` : `⚠ ${gaps} Gaps Abiertos`,
+            metric: `${latestMocMatrix.readiness_pct || "0"}% MoC`,
+            tone: gaps === 0 ? "ok" : "warn",
+            meterPct: Number(latestMocMatrix.readiness_pct || 50),
+            state: `${latestMocMatrix.ready_count}/${latestMocMatrix.requirement_count} Ready`,
+            precision: latestMocMatrix.active_ecn_revision || "REV",
+            next: gaps === 0 ? "Descargar Matriz PDF" : "Cerrar gaps CVE/Test",
+            summaryTitle: `Programa ${latestMocMatrix.program_id}`,
+            summaryBody: `Gaps abiertos: ${gaps}. Apoyo determinista a revisión humana CVE.`,
+            copilotTitle: "Trazabilidad ECN y Márgenes",
+            copilotBody: "Detecta automáticamente revisiones obsoletas, firmas CVE pendientes y márgenes negativos.",
+            rawJson: json,
+          });
         }
       } catch (err) {
         if (statusEl) statusEl.textContent = `Error MoC Matrix: ${err?.message || err}`;
@@ -1357,6 +1471,23 @@
             )
             .join("");
         }
+        if (typeof window.syncInspectorDock === "function") {
+          window.syncInspectorDock({
+            badge: "Frontera EMV",
+            pill: `✓ Óptimo ${rec.recommended_bid_price_eur || "—"} EUR`,
+            metric: `${rec.recommended_bid_price_eur || "—"} EUR`,
+            tone: "ok",
+            meterPct: 78,
+            state: `Win ${rec.win_probability_pct || "?"}%`,
+            precision: `Z3 ${z3p.status || "OK"}`,
+            next: "Descargar Frontera PDF",
+            summaryTitle: `Óptimo EMV (${rec.optimum_location || "INTERIOR"})`,
+            summaryBody: `Coste P50=${dist.cost_p50_eur} EUR · P80=${dist.cost_p80_eur} EUR · EMV Máx=${rec.max_expected_monetary_value_eur} EUR.`,
+            copilotTitle: "Halton QMC + Prueba Z3 Margen",
+            copilotBody: "La oferta recomendada maximiza el valor monetario esperado sujeto al suelo de margen formal.",
+            rawJson: json,
+          });
+        }
       } catch (err) {
         if (statusEl) statusEl.textContent = `Error Risk Frontier: ${err?.message || err}`;
       }
@@ -1428,6 +1559,48 @@
         }
       }
     });
+
+    const checksTa = document.getElementById("quote-stress-checks-json");
+    if (checksTa && !checksTa.value.trim()) {
+      checksTa.value = JSON.stringify(defaultStressChecks(document.getElementById("quote-allow-mat")?.value || "AL-7075-T651"), null, 2);
+    }
+
+    window.onQuoteTabVisible = () => {
+      if (typeof window.syncInspectorDock !== "function") return;
+      if (latestDossier?.multiyear_cashflow_learning?.outputs) {
+        const my = latestDossier.multiyear_cashflow_learning.outputs;
+        const dag = latestDossier.composite_wbs_dag || {};
+        window.syncInspectorDock({
+          badge: "Cabina v5",
+          pill: `✓ ${latestDossier.rfq_id}`,
+          metric: `${my.quoted_price_eur || "—"} EUR`,
+          tone: "ok",
+          meterPct: 84,
+          state: `${dag.project_duration_weeks || "?"} sem CPM`,
+          precision: "Decimal + Z3",
+          next: "Stress / Envolvente / MoC",
+          summaryTitle: `Cotización activa (${latestDossier.rfq_id})`,
+          summaryBody: `NPV ${my.net_present_value_eur || "—"} EUR · Merkle ${String(latestDossier.merkle_root || "").slice(0, 14)}...`,
+          copilotTitle: "Cabina Comercial & CS-29",
+          copilotBody: "Usa los paneles Stress, Envolventes CS-29, MoC 0..9 y Frontera EMV para emitir entregables firmados.",
+        });
+      } else {
+        window.syncInspectorDock({
+          badge: "Cabina v5",
+          pill: "Cotizador y Certificación CS-29",
+          metric: "ESTIMATE / DAG",
+          tone: "ok",
+          meterPct: 72,
+          state: "Listo",
+          precision: "Decimal + Arb",
+          next: "Ejecutar Oferta / Dossier",
+          summaryTitle: "Cabina de Cotización & Stress CS-29",
+          summaryBody: "Los cálculos ejecutados en #tab-quote actualizan este inspector con el veredicto Z3, Márgenes Arb y Merkle Root.",
+          copilotTitle: "Copiloto Comercial & Part 21J",
+          copilotBody: "Pulsa Preset HEMS STC o abre los paneles Stress, Envolventes CS-29, MoC 0..9 y Frontera EMV.",
+        });
+      }
+    };
   }
 
   if (document.readyState === "loading") {

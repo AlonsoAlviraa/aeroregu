@@ -8,7 +8,6 @@ Every artifact carries the mandatory human-reviewer advisory disclaimer.
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import io
 import json
@@ -17,16 +16,13 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-import pymupdf
 from evidence_calc.quantize import format_quantum
-from evidence_kernel.attestation import sign_attestation_dsse
 from evidence_kernel.envelope import make_envelope, project_source
 from evidence_kernel.ledger import Ledger
 from evidence_kernel.orchestrator import record
-from evidence_kernel.qrcode_iso import render_qr_png
 from openpyxl import Workbook
 
-from evidence_coverage.pdf_report import _DSSE_ATTACHMENT_NAME, _PUBKEY_ATTACHMENT_NAME
+from evidence_coverage.pdf_layout import CorporatePDFBuilder, compute_dsse_sig_prefix
 from evidence_coverage.quotation_exporter import (
     _ACCENT_FILL,
     _BOLD_FONT,
@@ -579,11 +575,7 @@ def export_moc_matrix_pdf(
         "readiness_pct": str(matrix.get("readiness_pct") or "0.00"),
         "merkle_root": merkle,
     }
-    dsse_envelope = sign_attestation_dsse(attestation_payload, priv_pem)
-    dsse_bytes = json.dumps(dsse_envelope, sort_keys=True, indent=2).encode("utf-8")
-    sig_raw = base64.b64decode(dsse_envelope["signatures"][0]["sig"])
-    sig_sha256 = hashlib.sha256(sig_raw).hexdigest()
-
+    sig_sha256 = compute_dsse_sig_prefix(attestation_payload, priv_pem)
     qr_payload = "aeroregu-moc:" + json.dumps(
         {
             "v": 1,
@@ -595,84 +587,46 @@ def export_moc_matrix_pdf(
         sort_keys=True,
         separators=(",", ":"),
     )
-    qr_png = render_qr_png(qr_payload, scale=8, border=6)
 
-    doc = pymupdf.open()
-    page = doc.new_page(width=595, height=842)
-    banner_rgb = (15 / 255, 23 / 255, 42 / 255)
-    page.draw_rect(pymupdf.Rect(32, 28, 563, 92), color=banner_rgb, fill=banner_rgb)
-    page.insert_text(
-        (44, 54),
-        f"AeroRegu - Part 21J MoC Readiness Package ({pid})",
-        fontsize=12.5,
-        color=(1, 1, 1),
+    builder = CorporatePDFBuilder(
+        title=f"AeroRegu - Part 21J MoC Readiness ({pid})",
+        subtitle=ASSISTANCE_DISCLAIMER,
+        merkle_root=merkle,
+        qr_payload=qr_payload,
+        meta_kpis=[
+            ("Program ID", pid),
+            ("Active ECN Revision", str(matrix.get("active_ecn_revision") or "")),
+            (
+                "Readiness",
+                f"{matrix.get('readiness_pct')}% ({matrix.get('ready_count')}/"
+                f"{matrix.get('requirement_count')}) | CVE: {matrix.get('cve_signed_count')}",
+            ),
+            ("Open Gaps", f"{matrix.get('open_gap_count')} ({matrix.get('overall_status')})"),
+            ("Ledger Merkle Root", f"{merkle[:36]}..."),
+        ],
+        creator="aeroregu-moc-matrix-exporter",
     )
-    page.insert_text((44, 74), ASSISTANCE_DISCLAIMER, fontsize=8.2, color=(0.82, 0.88, 0.96))
-    page.insert_image(pymupdf.Rect(452, 108, 556, 212), stream=qr_png)
-
-    lines = [
-        f"Program ID: {pid}  |  ECN Revision: {matrix.get('active_ecn_revision')}",
-        (
-            f"Readiness: {matrix.get('readiness_pct')}% "
-            f"({matrix.get('ready_count')}/{matrix.get('requirement_count')}) | "
-            f"CVE Signed: {matrix.get('cve_signed_count')}"
-        ),
-        f"Open Gaps: {matrix.get('open_gap_count')} | Overall: {matrix.get('overall_status')}",
-        f"Ledger Merkle Root: {merkle[:48]}...",
+    moc_rows = [
+        [
+            row.get("cs_paragraph", ""),
+            row.get("title", ""),
+            ", ".join(row.get("required_mocs") or []),
+            row.get("min_governing_ms", "N/A"),
+            row.get("revision", ""),
+            row.get("status", ""),
+        ]
+        for row in (matrix.get("matrix_rows") or [])
     ]
-    y = 124
-    for ln in lines:
-        page.insert_text((38, y), ln[:92], fontsize=9.0, color=(0.1, 0.14, 0.22))
-        y += 16
-
-    y += 14
-    page.insert_text((38, y), "CS-29 Means-of-Compliance Matrix", fontsize=11.0)
-    y += 16
-    for row in (matrix.get("matrix_rows") or [])[:26]:
-        if y > 790:
-            break
-        row_s = (
-            f"{row['cs_paragraph']:10s} | MoCs={','.join(row['required_mocs'])[:16]} | "
-            f"MS={row['min_governing_ms']} | Rev={row['revision']} | {row['status']}"
-        )
-        page.insert_text((40, y), row_s[:95], fontsize=7.8, color=(0.14, 0.18, 0.26))
-        y += 13
-
-    doc.embfile_add(
-        _DSSE_ATTACHMENT_NAME,
-        dsse_bytes,
-        filename=_DSSE_ATTACHMENT_NAME,
-        desc="DSSE v1 Ed25519 Part 21J MoC Matrix Attestation",
+    builder.add_table(
+        "CS-29 Means-of-Compliance (MoC 0..9) Matrix",
+        ["CS Paragraph", "Title", "Required MoCs", "Min MS", "Rev", "Status"],
+        moc_rows,
+        col_widths=[68, 128, 92, 52, 46, 137],
     )
-    doc.embfile_add(
-        _PUBKEY_ATTACHMENT_NAME,
-        pub_pem,
-        filename=_PUBKEY_ATTACHMENT_NAME,
-        desc="Ed25519 Verification Public Key (PEM)",
+    return builder.finalize_signed(
+        attestation_payload=attestation_payload,
+        private_key_pem=priv_pem,
+        public_key_pem=pub_pem,
+        metadata_title=f"AeroRegu Part 21J MoC Readiness ({pid})",
+        output_path=output_path,
     )
-    doc.set_metadata(
-        {
-            "title": f"AeroRegu Part 21J MoC Readiness ({pid})",
-            "subject": f"merkle={merkle}",
-            "keywords": qr_payload,
-            "creator": "aeroregu-moc-matrix-exporter",
-        }
-    )
-    pdf_bytes = doc.tobytes(deflate=True)
-    doc.close()
-
-    out_str: str | None = None
-    if output_path is not None:
-        out_p = Path(output_path)
-        out_p.parent.mkdir(parents=True, exist_ok=True)
-        out_p.write_bytes(pdf_bytes)
-        out_str = str(out_p)
-    return {
-        "pdf_bytes": pdf_bytes,
-        "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
-        "merkle_root": merkle,
-        "qr_payload": qr_payload,
-        "dsse_envelope": dsse_envelope,
-        "public_key_pem": pub_pem.decode("ascii"),
-        "output_path": out_str,
-    }
