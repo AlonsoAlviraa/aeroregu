@@ -3079,7 +3079,7 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
             </details>
 
             <details id="quote-stress-dossier-details" style="margin-top:0.95rem;border:1px solid var(--border);border-radius:10px;padding:0.75rem;background:var(--surface-alt);">
-              <summary style="cursor:pointer;font-weight:700;">Dossier Stress-Note por Lotes (56 Tarjetas + Allowables Arb + Z3 + Step-Up Passkey) (v4)</summary>
+              <summary style="cursor:pointer;font-weight:700;">Dossier Stress-Note por Lotes (60 Tarjetas + Allowables Arb + Z3 + Step-Up Passkey) (v5)</summary>
               <div class="sub-grid" style="margin-top:0.75rem;">
                 <div class="field">
                   <label for="quote-allow-mat">Material MMPDS-16 / CMH-17 (12 Aleaciones)</label>
@@ -3137,9 +3137,126 @@ SL-1.REQ-02: Primary structural margin shall be evaluated for all load cells.</t
                       <tr>
                         <th scope="col">Check ID</th>
                         <th scope="col">Componente</th>
-                        <th scope="col">Método (56)</th>
+                        <th scope="col">Método (60)</th>
                         <th scope="col">MS [Arb Lower, Upper]</th>
                         <th scope="col">Prueba Z3 SMT</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+            </details>
+
+            <details id="quote-load-envelope-details" style="margin-top:0.95rem;border:1px solid var(--border);border-radius:10px;padding:0.75rem;background:var(--surface-alt);">
+              <summary style="cursor:pointer;font-weight:700;">Combinador de Envolventes de Carga CS-29 + Allowables MMPDS Arb (v5)</summary>
+              <div class="sub-grid" style="margin-top:0.75rem;">
+                <div class="field">
+                  <label for="quote-env-id">ID Estudio de Envolvente</label>
+                  <input type="text" id="quote-env-id" value="ENV-H145-CS29-V5">
+                </div>
+              </div>
+              <div class="row" style="flex-wrap:wrap;gap:0.5rem;margin-top:0.65rem;">
+                <button type="button" id="quote-env-run-btn" class="primary">📐 Combinar Subcases CS-29</button>
+                <button type="button" id="quote-env-xlsx-btn" class="subtle">📊 Descargar Envolvente .xlsx</button>
+                <button type="button" id="quote-env-pdf-btn" class="subtle">📜 Descargar Envolvente PDF DSSE+QR</button>
+              </div>
+              <div id="quote-env-status" role="status" aria-live="polite" style="margin-top:0.65rem;padding:0.55rem 0.75rem;border-radius:8px;border:1px solid var(--border);background:var(--surface);">
+                Superpone subcases de vuelo/tierra/crash CS-29 en precisión Decimal contra allowables MMPDS/CMH-17 Arb.
+              </div>
+              <div style="margin-top:0.75rem;">
+                <h3 id="quote-env-caption">Matriz de Envolventes Críticas por Componente</h3>
+                <div tabindex="0" role="region" aria-labelledby="quote-env-caption" class="table-wrapper">
+                  <table id="quote-env-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Componente</th>
+                        <th scope="col">Material</th>
+                        <th scope="col">Combo Crítico</th>
+                        <th scope="col">Von Mises Factorado (MPa)</th>
+                        <th scope="col">MS / Arb Lower MS</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+            </details>
+
+            <details id="quote-moc-matrix-details" style="margin-top:0.95rem;border:1px solid var(--border);border-radius:10px;padding:0.75rem;background:var(--surface-alt);">
+              <summary style="cursor:pointer;font-weight:700;">Matriz Part 21J Means-of-Compliance (MoC 0..9) &amp; Gaps CVE (v5)</summary>
+              <div class="sub-grid" style="margin-top:0.75rem;">
+                <div class="field">
+                  <label for="quote-moc-program-id">ID Programa Part 21J</label>
+                  <input type="text" id="quote-moc-program-id" value="PROG-H145-STC">
+                </div>
+                <div class="field">
+                  <label for="quote-moc-revision">Revisión ECN Activa</label>
+                  <input type="text" id="quote-moc-revision" value="REV-A">
+                </div>
+              </div>
+              <div class="row" style="flex-wrap:wrap;gap:0.5rem;margin-top:0.65rem;">
+                <button type="button" id="quote-moc-run-btn" class="primary">📋 Generar Matriz MoC 0..9</button>
+                <button type="button" id="quote-moc-xlsx-btn" class="subtle">📊 Descargar Matriz MoC .xlsx</button>
+                <button type="button" id="quote-moc-pdf-btn" class="subtle">📜 Descargar Matriz MoC PDF DSSE+QR</button>
+              </div>
+              <div id="quote-moc-status" role="status" aria-live="polite" style="margin-top:0.65rem;padding:0.55rem 0.75rem;border-radius:8px;border:1px solid var(--border);background:var(--surface);">
+                Trazabilidad determinista de requisitos CS-29 frente a cálculos, envolventes y revisiones ECN (apoyo a revisión humana).
+              </div>
+              <div style="margin-top:0.75rem;">
+                <h3 id="quote-moc-caption">Estado de Verificación CS-29 por Párrafo (MoC 0..9)</h3>
+                <div tabindex="0" role="region" aria-labelledby="quote-moc-caption" class="table-wrapper">
+                  <table id="quote-moc-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Párrafo CS-29</th>
+                        <th scope="col">MoC Requeridos</th>
+                        <th scope="col">Min MS</th>
+                        <th scope="col">Revisión</th>
+                        <th scope="col">Estado Readiness / Gap</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+            </details>
+
+            <details id="quote-risk-frontier-details" style="margin-top:0.95rem;border:1px solid var(--border);border-radius:10px;padding:0.75rem;background:var(--surface-alt);">
+              <summary style="cursor:pointer;font-weight:700;">Simulación de Riesgo Halton QMC &amp; Frontera Pareto EMV de Oferta (v5)</summary>
+              <div class="sub-grid" style="margin-top:0.75rem;">
+                <div class="field">
+                  <label for="quote-risk-base-cost">Coste Base Estimado (EUR)</label>
+                  <input type="text" id="quote-risk-base-cost" value="375000">
+                </div>
+                <div class="field">
+                  <label for="quote-risk-base-price">Precio Referencia Mercado (EUR)</label>
+                  <input type="text" id="quote-risk-base-price" value="480000">
+                </div>
+                <div class="field">
+                  <label for="quote-risk-scenarios">Escenarios Halton QMC</label>
+                  <input type="number" id="quote-risk-scenarios" min="50" max="2000" value="500">
+                </div>
+              </div>
+              <div class="row" style="flex-wrap:wrap;gap:0.5rem;margin-top:0.65rem;">
+                <button type="button" id="quote-risk-run-btn" class="primary">📈 Simular Riesgo &amp; Frontera Pareto</button>
+                <button type="button" id="quote-risk-xlsx-btn" class="subtle">📊 Descargar Frontera .xlsx</button>
+                <button type="button" id="quote-risk-pdf-btn" class="subtle">📜 Descargar Frontera PDF DSSE+QR</button>
+              </div>
+              <div id="quote-risk-status" role="status" aria-live="polite" style="margin-top:0.65rem;padding:0.55rem 0.75rem;border-radius:8px;border:1px solid var(--border);background:var(--surface);">
+                Cuantiles P10..P95/CVaR95, análisis Tornado de drivers, precio óptimo por EMV y prueba formal Z3 de margen mínimo (ESTIMATE).
+              </div>
+              <div style="margin-top:0.75rem;">
+                <h3 id="quote-risk-caption">Frontera Pareto Precio-Probabilidad de Éxito (ESTIMATE)</h3>
+                <div tabindex="0" role="region" aria-labelledby="quote-risk-caption" class="table-wrapper">
+                  <table id="quote-risk-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Candidato</th>
+                        <th scope="col">Precio Oferta (EUR)</th>
+                        <th scope="col">Win Rate (%)</th>
+                        <th scope="col">Margen Esperado (%)</th>
+                        <th scope="col">EMV (EUR)</th>
                       </tr>
                     </thead>
                     <tbody></tbody>

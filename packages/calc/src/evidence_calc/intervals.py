@@ -990,6 +990,14 @@ def evaluate_method_intervals(
         return evaluate_firewall_thermal_intervals(inputs, staged_outputs)
     if method_id == "hertzian_bearing_contact_stress":
         return evaluate_hertzian_contact_intervals(inputs, staged_outputs)
+    if method_id == "composite_bolted_joint_bearing_tension_shear":
+        return evaluate_composite_bolted_joint_intervals(inputs, staged_outputs)
+    if method_id == "rotor_hub_elastomeric_bearing_strain":
+        return evaluate_elastomeric_bearing_intervals(inputs, staged_outputs)
+    if method_id == "cs29_ditching_water_impact_panel":
+        return evaluate_cs29_ditching_intervals(inputs, staged_outputs)
+    if method_id == "pressure_bulkhead_hoop_longitudinal_stress":
+        return evaluate_pressure_bulkhead_intervals(inputs, staged_outputs)
     if method_id in STRESS_MANUAL_RUNNERS:
         return evaluate_stress_manual_intervals(method_id, inputs, staged_outputs)
     if card is not None and card.get("plugin") and card.get("formulas"):
@@ -2002,6 +2010,160 @@ def evaluate_hertzian_contact_intervals(
         ),
         "shear_depth_z_mm": _drift_entry(z_depth, str(staged_outputs["shear_depth_z_mm"])),
         "margin_of_safety": _drift_entry(ms, str(staged_outputs["margin_of_safety"])),
+    }
+
+
+def evaluate_composite_bolted_joint_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    load_n = _arb_from_decimal_text(str(inputs["applied_load_n"]))
+    d_mm = _arb_from_decimal_text(str(inputs["bolt_diameter_mm"]))
+    thk_mm = _arb_from_decimal_text(str(inputs["laminate_thickness_mm"]))
+    e_mm = _arb_from_decimal_text(str(inputs["edge_distance_e_mm"]))
+    w_mm = _arb_from_decimal_text(str(inputs["strip_width_w_mm"]))
+    f_br = _arb_from_decimal_text(str(inputs["bearing_allowable_mpa"]))
+    f_oht = _arb_from_decimal_text(str(inputs["oht_allowable_mpa"]))
+    f_so = _arb_from_decimal_text(str(inputs["shear_out_allowable_mpa"]))
+    kd = _arb_from_decimal_text(str(inputs["knockdown_factor"]))
+    sf = _arb_from_decimal_text(str(inputs["safety_factor"]))
+
+    half = _arb_from_decimal_text("0.5")
+    sig_br = load_n / (d_mm * thk_mm)
+    sig_nt = load_n / ((w_mm - d_mm) * thk_mm)
+    tau_so = load_n / (arb(2) * (e_mm - (d_mm * half)) * thk_mm)
+    ms_br = ((kd * f_br) / (sf * sig_br)) - arb(1)
+    ms_nt = ((kd * f_oht) / (sf * sig_nt)) - arb(1)
+    ms_so = ((kd * f_so) / (sf * tau_so)) - arb(1)
+    gov_ms = ms_br if _arb_mid_dec(ms_br) <= _arb_mid_dec(ms_nt) else ms_nt
+    if _arb_mid_dec(ms_so) < _arb_mid_dec(gov_ms):
+        gov_ms = ms_so
+
+    return {
+        "bearing_stress_mpa": _drift_entry(sig_br, str(staged_outputs["bearing_stress_mpa"])),
+        "net_tension_stress_mpa": _drift_entry(
+            sig_nt, str(staged_outputs["net_tension_stress_mpa"])
+        ),
+        "shear_out_stress_mpa": _drift_entry(tau_so, str(staged_outputs["shear_out_stress_mpa"])),
+        "bearing_ms": _drift_entry(ms_br, str(staged_outputs["bearing_ms"])),
+        "net_tension_ms": _drift_entry(ms_nt, str(staged_outputs["net_tension_ms"])),
+        "shear_out_ms": _drift_entry(ms_so, str(staged_outputs["shear_out_ms"])),
+        "governing_ms": _drift_entry(gov_ms, str(staged_outputs["governing_ms"])),
+    }
+
+
+def evaluate_elastomeric_bearing_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    f_cf = _arb_from_decimal_text(str(inputs["axial_cf_load_n"]))
+    area = _arb_from_decimal_text(str(inputs["bonded_area_mm2"]))
+    t_layer = _arb_from_decimal_text(str(inputs["layer_thickness_mm"]))
+    n_layers = _arb_from_decimal_text(str(inputs["num_layers"]))
+    g_mpa = _arb_from_decimal_text(str(inputs["elastomer_shear_modulus_mpa"]))
+    s_fac = _arb_from_decimal_text(str(inputs["shape_factor_s"]))
+    delta_s = _arb_from_decimal_text(str(inputs["shear_deflection_mm"]))
+    k_wt = _arb_from_decimal_text(str(inputs["compression_strain_weight_k"]))
+    eps_allow = _arb_from_decimal_text(str(inputs["allowable_equiv_strain"]))
+    sf = _arb_from_decimal_text(str(inputs["safety_factor"]))
+
+    four_five = _arb_from_decimal_text("4.5")
+    e_c = g_mpa * (arb(3) + (four_five * s_fac * s_fac))
+    sig_c = f_cf / area
+    eps_c = sig_c / e_c
+    gamma_s = delta_s / (n_layers * t_layer)
+    gamma_eq = (((k_wt * eps_c) ** 2) + (gamma_s * gamma_s)).sqrt()
+    ms = (eps_allow / (sf * gamma_eq)) - arb(1)
+
+    return {
+        "effective_compression_modulus_mpa": _drift_entry(
+            e_c, str(staged_outputs["effective_compression_modulus_mpa"])
+        ),
+        "compressive_stress_mpa": _drift_entry(
+            sig_c, str(staged_outputs["compressive_stress_mpa"])
+        ),
+        "compressive_strain": _drift_entry(eps_c, str(staged_outputs["compressive_strain"])),
+        "shear_strain": _drift_entry(gamma_s, str(staged_outputs["shear_strain"])),
+        "equivalent_octahedral_strain": _drift_entry(
+            gamma_eq, str(staged_outputs["equivalent_octahedral_strain"])
+        ),
+        "margin_of_safety": _drift_entry(ms, str(staged_outputs["margin_of_safety"])),
+    }
+
+
+def evaluate_cs29_ditching_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    v_z = _arb_from_decimal_text(str(inputs["vertical_sink_speed_m_s"]))
+    rho_w = _arb_from_decimal_text(str(inputs["water_density_kg_m3"]))
+    beta_deg = _arb_from_decimal_text(str(inputs["deadrise_angle_deg"]))
+    b_mm = _arb_from_decimal_text(str(inputs["panel_width_b_mm"]))
+    t_mm = _arb_from_decimal_text(str(inputs["panel_thickness_t_mm"]))
+    beta_plate = _arb_from_decimal_text(str(inputs["bending_coeff_beta"]))
+    fy_mpa = _arb_from_decimal_text(str(inputs["yield_allowable_mpa"]))
+    sf = _arb_from_decimal_text(str(inputs["safety_factor"]))
+
+    pi_val = arb.pi()
+    beta_rad = beta_deg * pi_val / arb(180)
+    tan_beta = beta_rad.tan()
+    c_p = (pi_val / (arb(2) * tan_beta)) ** 2
+    half = _arb_from_decimal_text("0.5")
+    p_imp = (half * rho_w * v_z * v_z * (arb(1) + c_p)) / arb(1000000)
+    sig_bend = beta_plate * p_imp * ((b_mm / t_mm) ** 2)
+    ms = (fy_mpa / (sf * sig_bend)) - arb(1)
+
+    return {
+        "deadrise_tan_beta": _drift_entry(tan_beta, str(staged_outputs["deadrise_tan_beta"])),
+        "wagner_pressure_coeff": _drift_entry(c_p, str(staged_outputs["wagner_pressure_coeff"])),
+        "impact_pressure_mpa": _drift_entry(p_imp, str(staged_outputs["impact_pressure_mpa"])),
+        "panel_bending_stress_mpa": _drift_entry(
+            sig_bend, str(staged_outputs["panel_bending_stress_mpa"])
+        ),
+        "margin_of_safety": _drift_entry(ms, str(staged_outputs["margin_of_safety"])),
+    }
+
+
+def evaluate_pressure_bulkhead_intervals(
+    inputs: dict[str, Any],
+    staged_outputs: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    ctx.dps = _BALL_DPS
+    delta_p = _arb_from_decimal_text(str(inputs["internal_delta_p_mpa"]))
+    r_mm = _arb_from_decimal_text(str(inputs["cylinder_radius_mm"]))
+    t_mm = _arb_from_decimal_text(str(inputs["wall_thickness_mm"]))
+    t_nm = _arb_from_decimal_text(str(inputs["applied_torsion_nm"]))
+    fy = _arb_from_decimal_text(str(inputs["yield_allowable_mpa"]))
+    k_ic = _arb_from_decimal_text(str(inputs["fracture_toughness_kic_mpa_sqrt_m"]))
+    a_mm = _arb_from_decimal_text(str(inputs["half_crack_length_a_mm"]))
+    sf = _arb_from_decimal_text(str(inputs["safety_factor"]))
+
+    pi_val = arb.pi()
+    sig_h = (delta_p * r_mm) / t_mm
+    sig_l = (delta_p * r_mm) / (arb(2) * t_mm)
+    tau_t = (t_nm * arb(1000)) / (arb(2) * pi_val * r_mm * r_mm * t_mm)
+    sig_vm = ((sig_h * sig_h) - (sig_h * sig_l) + (sig_l * sig_l) + (arb(3) * tau_t * tau_t)).sqrt()
+    ms_yield = (fy / (sf * sig_vm)) - arb(1)
+    k_app = sig_h * (pi_val * (a_mm / arb(1000))).sqrt()
+    ms_frac = (k_ic / (sf * k_app)) - arb(1)
+    gov_ms = ms_yield if _arb_mid_dec(ms_yield) <= _arb_mid_dec(ms_frac) else ms_frac
+
+    return {
+        "hoop_stress_mpa": _drift_entry(sig_h, str(staged_outputs["hoop_stress_mpa"])),
+        "longitudinal_stress_mpa": _drift_entry(
+            sig_l, str(staged_outputs["longitudinal_stress_mpa"])
+        ),
+        "torsional_shear_mpa": _drift_entry(tau_t, str(staged_outputs["torsional_shear_mpa"])),
+        "von_mises_stress_mpa": _drift_entry(sig_vm, str(staged_outputs["von_mises_stress_mpa"])),
+        "stress_intensity_k_mpa_sqrt_m": _drift_entry(
+            k_app, str(staged_outputs["stress_intensity_k_mpa_sqrt_m"])
+        ),
+        "yield_ms": _drift_entry(ms_yield, str(staged_outputs["yield_ms"])),
+        "fracture_ms": _drift_entry(ms_frac, str(staged_outputs["fracture_ms"])),
+        "governing_ms": _drift_entry(gov_ms, str(staged_outputs["governing_ms"])),
     }
 
 

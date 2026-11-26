@@ -23,6 +23,7 @@ from evidence_calc.quotation_costing import (
     run_rotorcraft_historical_calibration,
 )
 from evidence_calc.rigid_body_point_mass import run_rigid_body_point_mass
+from evidence_calc.rotorcraft_airframe_stress import ROTORCRAFT_AIRFRAME_CARD_RUNNERS
 from evidence_calc.rotorcraft_stress import ROTORCRAFT_STRESS_CARD_RUNNERS
 from evidence_calc.rotorcraft_stress_ext import ROTORCRAFT_STRESS_EXT_CARD_RUNNERS
 from evidence_calc.rotorcraft_systems_stress import ROTORCRAFT_SYSTEMS_CARD_RUNNERS
@@ -53,6 +54,7 @@ _RUNNERS = {
     **ROTORCRAFT_STRESS_CARD_RUNNERS,
     **ROTORCRAFT_STRESS_EXT_CARD_RUNNERS,
     **ROTORCRAFT_SYSTEMS_CARD_RUNNERS,
+    **ROTORCRAFT_AIRFRAME_CARD_RUNNERS,
     **STRESS_MANUAL_EXT_CARD_RUNNERS,
 }
 _CARDS: dict[str, dict[str, Any]] = {}

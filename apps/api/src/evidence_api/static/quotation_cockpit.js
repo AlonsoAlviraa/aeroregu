@@ -878,6 +878,9 @@
   }
 
   let latestStressDossier = null;
+  let latestLoadEnvelope = null;
+  let latestMocMatrix = null;
+  let latestRiskReport = null;
   let reauthAbortController = new AbortController();
 
   async function runAllowableArbLookup() {
@@ -1163,6 +1166,257 @@
       downloadStressDossierBinary("/calc/batch-stress-dossier/export-pdf", "aeroregu_signed_stress_dossier.pdf");
     });
     document.getElementById("quote-passkey-reauth-btn")?.addEventListener("click", triggerPasskeyStepUpReauth);
+
+    async function runLoadEnvelope() {
+      const statusEl = document.getElementById("quote-env-status");
+      const tbody = document.querySelector("#quote-env-table tbody");
+      const envId = document.getElementById("quote-env-id")?.value || "ENV-H145-CS29-V5";
+      try {
+        const resp = await fetch("/calc/load-envelope/combine", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ envelope_id: envId, tenant_id: tenantOf(), record: false }),
+        });
+        const json = await resp.json();
+        latestLoadEnvelope = json?.result || {};
+        if (statusEl) {
+          safeSetHTML(
+            statusEl,
+            `Envolvente <strong>${escapeHtml(latestLoadEnvelope.envelope_id)}</strong>: ${escapeHtml(latestLoadEnvelope.evaluated_pairs_count)} pares | MS Mín=<strong>${escapeHtml(latestLoadEnvelope.global_ms_min)}</strong> (${escapeHtml(latestLoadEnvelope.governing_component)} / ${escapeHtml(latestLoadEnvelope.governing_combo_id)})`
+          );
+        }
+        if (tbody) {
+          tbody.innerHTML = (latestLoadEnvelope.component_envelopes || [])
+            .map(
+              (c) => `
+              <tr>
+                <th scope="row">${escapeHtml(c.component_id)}</th>
+                <td>${escapeHtml(c.material_id)}</td>
+                <td>${escapeHtml(c.governing_combo_id)}</td>
+                <td>${escapeHtml(c.governing_factored_stress_mpa)} / ${escapeHtml(c.allowable_mpa)}</td>
+                <td>${escapeHtml(c.governing_ms)} (Arb ${escapeHtml(c.governing_arb_lower_ms)})</td>
+              </tr>`
+            )
+            .join("");
+        }
+      } catch (err) {
+        if (statusEl) statusEl.textContent = `Error Load Envelope: ${err?.message || err}`;
+      }
+    }
+
+    async function downloadEnvelopeBinary(url, filename) {
+      const statusEl = document.getElementById("quote-env-status");
+      const envId = document.getElementById("quote-env-id")?.value || "ENV-H145-CS29-V5";
+      try {
+        const payload = latestLoadEnvelope ? { envelope_report: latestLoadEnvelope } : { envelope_id: envId, tenant_id: tenantOf() };
+        const resp = await fetch(url, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!resp.ok) {
+          if (statusEl) statusEl.textContent = `Error descargando ${filename} (${resp.status})`;
+          return;
+        }
+        const blob = await resp.blob();
+        const objUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = objUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(objUrl);
+        if (statusEl) statusEl.textContent = `Descargado Envolvente: ${filename}`;
+      } catch (err) {
+        if (statusEl) statusEl.textContent = `Error descargando ${filename}: ${err?.message || err}`;
+      }
+    }
+
+    async function runMocMatrix() {
+      const statusEl = document.getElementById("quote-moc-status");
+      const tbody = document.querySelector("#quote-moc-table tbody");
+      const programId = document.getElementById("quote-moc-program-id")?.value || "PROG-H145-STC";
+      const rev = document.getElementById("quote-moc-revision")?.value || "REV-A";
+      try {
+        const resp = await fetch("/certification/moc-matrix", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            program_id: programId,
+            active_ecn_revision: rev,
+            stress_dossier: latestStressDossier || undefined,
+            load_envelope: latestLoadEnvelope || undefined,
+            tenant_id: tenantOf(),
+            record: false,
+          }),
+        });
+        const json = await resp.json();
+        latestMocMatrix = json?.result || {};
+        if (statusEl) {
+          safeSetHTML(
+            statusEl,
+            `Matriz MoC <strong>${escapeHtml(latestMocMatrix.program_id)}</strong> (${escapeHtml(latestMocMatrix.active_ecn_revision)}): Readiness=<strong>${escapeHtml(latestMocMatrix.readiness_pct)}%</strong> (${escapeHtml(latestMocMatrix.ready_count)}/${escapeHtml(latestMocMatrix.requirement_count)}) | Gaps abiertos=${escapeHtml(latestMocMatrix.open_gap_count)}`
+          );
+        }
+        if (tbody) {
+          tbody.innerHTML = (latestMocMatrix.matrix_rows || [])
+            .map(
+              (r) => `
+              <tr>
+                <th scope="row">${escapeHtml(r.cs_paragraph)}</th>
+                <td>${escapeHtml((r.required_mocs || []).join(", "))}</td>
+                <td>${escapeHtml(r.min_governing_ms)}</td>
+                <td>${escapeHtml(r.revision)}</td>
+                <td>${escapeHtml(r.status)}</td>
+              </tr>`
+            )
+            .join("");
+        }
+      } catch (err) {
+        if (statusEl) statusEl.textContent = `Error MoC Matrix: ${err?.message || err}`;
+      }
+    }
+
+    async function downloadMocBinary(url, filename) {
+      const statusEl = document.getElementById("quote-moc-status");
+      const programId = document.getElementById("quote-moc-program-id")?.value || "PROG-H145-STC";
+      const rev = document.getElementById("quote-moc-revision")?.value || "REV-A";
+      try {
+        const payload = latestMocMatrix
+          ? { moc_matrix: latestMocMatrix }
+          : { program_id: programId, active_ecn_revision: rev, stress_dossier: latestStressDossier || undefined, load_envelope: latestLoadEnvelope || undefined };
+        const resp = await fetch(url, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!resp.ok) {
+          if (statusEl) statusEl.textContent = `Error descargando ${filename} (${resp.status})`;
+          return;
+        }
+        const blob = await resp.blob();
+        const objUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = objUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(objUrl);
+        if (statusEl) statusEl.textContent = `Descargado MoC Matrix: ${filename}`;
+      } catch (err) {
+        if (statusEl) statusEl.textContent = `Error descargando ${filename}: ${err?.message || err}`;
+      }
+    }
+
+    async function runRiskFrontier() {
+      const statusEl = document.getElementById("quote-risk-status");
+      const tbody = document.querySelector("#quote-risk-table tbody");
+      const baseCost = document.getElementById("quote-risk-base-cost")?.value || "375000";
+      const basePrice = document.getElementById("quote-risk-base-price")?.value || "480000";
+      const scenarios = Number(document.getElementById("quote-risk-scenarios")?.value || 500);
+      try {
+        const resp = await fetch("/quotations/rotorcraft/risk-frontier", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            base_cost_eur: baseCost,
+            base_quote_price_eur: basePrice,
+            num_scenarios: scenarios,
+            baseline_dossier: latestDossier || undefined,
+          }),
+        });
+        const json = await resp.json();
+        latestRiskReport = json?.result || {};
+        const rec = latestRiskReport.recommended_bid || {};
+        const dist = latestRiskReport.cost_distribution || {};
+        const z3p = latestRiskReport.formal_margin_floor_proof || {};
+        if (statusEl) {
+          safeSetHTML(
+            statusEl,
+            `Halton QMC (N=${escapeHtml(latestRiskReport.num_scenarios)}): Coste P50=<strong>${escapeHtml(dist.cost_p50_eur)} EUR</strong> / P80=<strong>${escapeHtml(dist.cost_p80_eur)} EUR</strong> | Oferta Óptima EMV=<strong>${escapeHtml(rec.recommended_bid_price_eur)} EUR</strong> (EMV=${escapeHtml(rec.max_expected_monetary_value_eur)} EUR, Win=${escapeHtml(rec.win_probability_pct)}%) | Z3=${escapeHtml(z3p.status)}`
+          );
+        }
+        if (tbody) {
+          tbody.innerHTML = (latestRiskReport.pareto_frontier || [])
+            .map(
+              (c) => `
+              <tr>
+                <th scope="row">${escapeHtml(c.candidate_id)}${c.recommended_max_emv ? " ★" : ""}</th>
+                <td>${escapeHtml(c.bid_price_eur)}</td>
+                <td>${escapeHtml(c.win_probability_pct)}%</td>
+                <td>${escapeHtml(c.expected_margin_pct)}%</td>
+                <td>${escapeHtml(c.expected_monetary_value_eur)}</td>
+              </tr>`
+            )
+            .join("");
+        }
+      } catch (err) {
+        if (statusEl) statusEl.textContent = `Error Risk Frontier: ${err?.message || err}`;
+      }
+    }
+
+    async function downloadRiskBinary(url, filename) {
+      const statusEl = document.getElementById("quote-risk-status");
+      const baseCost = document.getElementById("quote-risk-base-cost")?.value || "375000";
+      const basePrice = document.getElementById("quote-risk-base-price")?.value || "480000";
+      const scenarios = Number(document.getElementById("quote-risk-scenarios")?.value || 500);
+      try {
+        const payload = latestRiskReport
+          ? { risk_report: latestRiskReport }
+          : { base_cost_eur: baseCost, base_quote_price_eur: basePrice, num_scenarios: scenarios };
+        const resp = await fetch(url, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!resp.ok) {
+          if (statusEl) statusEl.textContent = `Error descargando ${filename} (${resp.status})`;
+          return;
+        }
+        const blob = await resp.blob();
+        const objUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = objUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(objUrl);
+        if (statusEl) statusEl.textContent = `Descargado Risk Frontier: ${filename}`;
+      } catch (err) {
+        if (statusEl) statusEl.textContent = `Error descargando ${filename}: ${err?.message || err}`;
+      }
+    }
+
+    document.getElementById("quote-env-run-btn")?.addEventListener("click", runLoadEnvelope);
+    document.getElementById("quote-env-xlsx-btn")?.addEventListener("click", () => {
+      downloadEnvelopeBinary("/calc/load-envelope/export-xlsx", "aeroregu_load_envelope.xlsx");
+    });
+    document.getElementById("quote-env-pdf-btn")?.addEventListener("click", () => {
+      downloadEnvelopeBinary("/calc/load-envelope/export-pdf", "aeroregu_signed_load_envelope.pdf");
+    });
+    document.getElementById("quote-moc-run-btn")?.addEventListener("click", runMocMatrix);
+    document.getElementById("quote-moc-xlsx-btn")?.addEventListener("click", () => {
+      downloadMocBinary("/certification/moc-matrix/export-xlsx", "aeroregu_moc_matrix.xlsx");
+    });
+    document.getElementById("quote-moc-pdf-btn")?.addEventListener("click", () => {
+      downloadMocBinary("/certification/moc-matrix/export-pdf", "aeroregu_signed_moc_matrix.pdf");
+    });
+    document.getElementById("quote-risk-run-btn")?.addEventListener("click", runRiskFrontier);
+    document.getElementById("quote-risk-xlsx-btn")?.addEventListener("click", () => {
+      downloadRiskBinary("/quotations/rotorcraft/risk-frontier/export-xlsx", "aeroregu_risk_frontier.xlsx");
+    });
+    document.getElementById("quote-risk-pdf-btn")?.addEventListener("click", () => {
+      downloadRiskBinary("/quotations/rotorcraft/risk-frontier/export-pdf", "aeroregu_signed_risk_frontier.pdf");
+    });
 
     document.addEventListener("keydown", (e) => {
       if (e.altKey && e.key === "7") {

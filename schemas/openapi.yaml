@@ -2142,6 +2142,156 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Envelope"
+  /calc/load-envelope/combine:
+    post:
+      operationId: combineStructuralLoadEnvelopes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Run exact Decimal linear load-case superposition across components and MMPDS/CMH-17 Arb allowables.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /calc/load-envelope/export-xlsx:
+    post:
+      operationId: exportStructuralLoadEnvelopeXlsx
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Download live-formula Excel (.xlsx) structural load-case envelope matrix.
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+  /calc/load-envelope/export-pdf:
+    post:
+      operationId: exportStructuralLoadEnvelopePdf
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Download Ed25519 DSSE and ISO QR signed load-case envelope PDF.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  /certification/moc-matrix:
+    post:
+      operationId: buildPart21jMocMatrix
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Build EASA Part 21J Means-of-Compliance (MoC 0..9) readiness matrix and gap register.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /certification/moc-matrix/export-xlsx:
+    post:
+      operationId: exportPart21jMocMatrixXlsx
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Download live-formula Excel (.xlsx) Part 21J MoC readiness matrix.
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+  /certification/moc-matrix/export-pdf:
+    post:
+      operationId: exportPart21jMocMatrixPdf
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Download Ed25519 DSSE and ISO QR signed Part 21J MoC readiness PDF.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  /quotations/rotorcraft/risk-frontier:
+    post:
+      operationId: runQuotationRiskFrontier
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Run seeded Halton QMC cost risk simulation, Tornado drivers, Pareto EMV bid frontier, and Z3 margin floor proof.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+  /quotations/rotorcraft/risk-frontier/export-xlsx:
+    post:
+      operationId: exportQuotationRiskFrontierXlsx
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Download live-formula Excel (.xlsx) quotation risk simulation and Pareto EMV workbook.
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+  /quotations/rotorcraft/risk-frontier/export-pdf:
+    post:
+      operationId: exportQuotationRiskFrontierPdf
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Download Ed25519 DSSE and ISO QR signed quotation risk & Pareto EMV brief PDF.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
 components:
   schemas:
     Envelope:

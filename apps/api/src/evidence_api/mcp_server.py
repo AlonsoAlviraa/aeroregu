@@ -1056,6 +1056,63 @@ MCP_TOOLS: tuple[dict[str, Any], ...] = (
             },
         },
     },
+    {
+        "name": "combine_structural_load_envelopes",
+        "description": (
+            "Run exact Decimal multi-subcase structural load-case superposition across "
+            "components and MMPDS-16 / CMH-17 Arb allowables, identify governing CS-29 load "
+            "combinations, and optionally export .xlsx/.pdf."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "envelope_id": {"type": "string", "default": "ENV-H145-CS29-001"},
+                "basic_subcases": {"type": "object"},
+                "combinations": {"type": "array", "items": {"type": "object"}},
+                "component_allowables": {"type": "object"},
+                "tenant_id": {"type": "string", "default": "demo"},
+                "record": {"type": "boolean", "default": False},
+            },
+        },
+    },
+    {
+        "name": "build_part21j_moc_compliance_matrix",
+        "description": (
+            "Build deterministic EASA Part 21J Means-of-Compliance (MoC 0..9) readiness "
+            "matrix across CS-29 paragraphs with ECN staleness and negative-margin gap checks."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "program_id": {"type": "string", "default": "PROG-H145-MOD"},
+                "active_ecn_revision": {"type": "string", "default": "REV-A"},
+                "requirements": {"type": "array", "items": {"type": "object"}},
+                "stress_dossier": {"type": "object"},
+                "load_envelope": {"type": "object"},
+                "cve_signoffs": {"type": "object"},
+                "tenant_id": {"type": "string", "default": "demo"},
+                "record": {"type": "boolean", "default": False},
+            },
+        },
+    },
+    {
+        "name": "optimize_quotation_risk_frontier",
+        "description": (
+            "Run deterministic Halton low-discrepancy cost risk simulation, Tornado sensitivity, "
+            "Bid-Price Pareto EMV frontier optimization (ESTIMATE), and Z3 SMT margin floor proof."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "base_cost_eur": {"type": "string", "default": "375000"},
+                "base_quote_price_eur": {"type": "string", "default": "480000"},
+                "bid_prep_cost_eur": {"type": "string", "default": "25000"},
+                "min_margin_floor_pct": {"type": "string", "default": "12.00"},
+                "num_scenarios": {"type": "integer", "default": 500},
+                "seed": {"type": "integer", "default": 20261126},
+            },
+        },
+    },
 )
 
 MCP_RESOURCES: tuple[dict[str, Any], ...] = (
@@ -2894,6 +2951,63 @@ def _call_tool(
             "cluster_verified": cluster_res["verified"],
             "cluster_checks": cluster_res["checks"],
         }
+
+    if name == "combine_structural_load_envelopes":
+        from evidence_coverage.load_envelope_combiner import (
+            combine_structural_load_envelopes,
+            default_cs29_load_envelope_payload,
+        )
+
+        from evidence_api.app import _validate_tenant, open_ledger
+
+        defaults = default_cs29_load_envelope_payload()
+        tenant_id = _validate_tenant(str(arguments.get("tenant_id") or "demo"))
+        if tenant_id is None:
+            return True, {"error": "invalid_tenant"}
+        ledger_obj = open_ledger(tenant_id) if bool(arguments.get("record", False)) else None
+        res = combine_structural_load_envelopes(
+            str(arguments.get("envelope_id") or defaults["envelope_id"]),
+            arguments.get("basic_subcases") or defaults["basic_subcases"],
+            arguments.get("combinations") or defaults["combinations"],
+            arguments.get("component_allowables") or defaults["component_allowables"],
+            ledger=ledger_obj,
+            tenant_id=tenant_id,
+        )
+        return False, res
+
+    if name == "build_part21j_moc_compliance_matrix":
+        from evidence_coverage.certification_moc_matrix import build_part21j_moc_matrix
+
+        from evidence_api.app import _validate_tenant, open_ledger
+
+        tenant_id = _validate_tenant(str(arguments.get("tenant_id") or "demo"))
+        if tenant_id is None:
+            return True, {"error": "invalid_tenant"}
+        ledger_obj = open_ledger(tenant_id) if bool(arguments.get("record", False)) else None
+        res = build_part21j_moc_matrix(
+            str(arguments.get("program_id") or "PROG-H145-MOD"),
+            requirements=arguments.get("requirements"),
+            stress_dossier=arguments.get("stress_dossier"),
+            load_envelope=arguments.get("load_envelope"),
+            cve_signoffs=arguments.get("cve_signoffs"),
+            active_ecn_revision=str(arguments.get("active_ecn_revision") or "REV-A"),
+            ledger=ledger_obj,
+            tenant_id=tenant_id,
+        )
+        return False, res
+
+    if name == "optimize_quotation_risk_frontier":
+        from evidence_coverage.quotation_risk_frontier import run_quotation_risk_frontier
+
+        res = run_quotation_risk_frontier(
+            base_cost_eur=arguments.get("base_cost_eur", "375000"),
+            base_quote_price_eur=arguments.get("base_quote_price_eur", "480000"),
+            bid_prep_cost_eur=arguments.get("bid_prep_cost_eur", "25000"),
+            min_margin_floor_pct=arguments.get("min_margin_floor_pct", "12.00"),
+            num_scenarios=int(arguments.get("num_scenarios", 500)),
+            seed=int(arguments.get("seed", 20261126)),
+        )
+        return False, res
 
     return True, {"error": f"unknown_tool: {name}"}
 

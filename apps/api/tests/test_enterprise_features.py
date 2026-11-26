@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Any
 
 import cv2
-import fitz
 import httpx
 import numpy as np
+import pymupdf
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -35,7 +35,7 @@ def _int_b64(n: int) -> str:
 
 
 def _make_sample_pdf_bytes() -> bytes:
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=595, height=842)
     page.insert_text((72, 120), "CS-27.625 Fitting Factor MS shall remain positive.")
     page.insert_text((72, 180), "CS-27.571 Fatigue damage spectrum limit verification.")
@@ -354,7 +354,7 @@ def test_sso_rbac_distinct_signoff_blobs_webhooks_and_signed_pdf_e2e(
     assert pdf_resp.status_code == 200
     assert pdf_resp.content.startswith(b"%PDF-")
 
-    doc = fitz.open(stream=pdf_resp.content, filetype="pdf")
+    doc = pymupdf.open(stream=pdf_resp.content, filetype="pdf")
     total_imgs = sum(len(doc[i].get_images(full=True)) for i in range(len(doc)))
     assert total_imgs >= 2  # QR code + >=1 cropped bbox visual thumbnail
     pix = doc[0].get_pixmap(dpi=220)

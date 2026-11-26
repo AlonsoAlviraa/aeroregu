@@ -74,6 +74,11 @@ METHOD_FAMILIES: dict[str, str] = {
     "shaft_whirl_critical_speed_screen": "rotorcraft_dynamics",
     "firewall_thermal_buckling_screen": "thin_walled_stability",
     "hertzian_bearing_contact_stress": "fasteners_joints",
+    # Airframe & Hub Extensions (Sprint 7 — 60-card catalog)
+    "composite_bolted_joint_bearing_tension_shear": "fasteners_joints",
+    "rotor_hub_elastomeric_bearing_strain": "rotorcraft_dynamics",
+    "cs29_ditching_water_impact_panel": "rotorcraft_dynamics",
+    "pressure_bulkhead_hoop_longitudinal_stress": "thin_walled_stability",
 }
 
 METHOD_DEFAULT_INPUTS: dict[str, dict[str, Any]] = {
@@ -559,6 +564,51 @@ METHOD_DEFAULT_INPUTS: dict[str, dict[str, Any]] = {
         "poissons_ratio_2": "0.290",
         "contact_allowable_mpa": "2800",
         "safety_factor": "1.250",
+    },
+    "composite_bolted_joint_bearing_tension_shear": {
+        "applied_load_n": "8500",
+        "bolt_diameter_mm": "6.35",
+        "laminate_thickness_mm": "4.0",
+        "edge_distance_e_mm": "22.0",
+        "strip_width_w_mm": "38.0",
+        "bearing_allowable_mpa": "680",
+        "oht_allowable_mpa": "390",
+        "shear_out_allowable_mpa": "195",
+        "knockdown_factor": "0.900",
+        "safety_factor": "1.500",
+    },
+    "rotor_hub_elastomeric_bearing_strain": {
+        "axial_cf_load_n": "85000",
+        "bonded_area_mm2": "6200",
+        "layer_thickness_mm": "1.80",
+        "num_layers": "14",
+        "elastomer_shear_modulus_mpa": "1.10",
+        "shape_factor_s": "11.5",
+        "shear_deflection_mm": "6.50",
+        "compression_strain_weight_k": "3.00",
+        "allowable_equiv_strain": "0.750",
+        "safety_factor": "1.250",
+    },
+    "cs29_ditching_water_impact_panel": {
+        "vertical_sink_speed_m_s": "2.40",
+        "water_density_kg_m3": "1025",
+        "deadrise_angle_deg": "16.0",
+        "panel_span_a_mm": "400",
+        "panel_width_b_mm": "220",
+        "panel_thickness_t_mm": "3.80",
+        "bending_coeff_beta": "0.308",
+        "yield_allowable_mpa": "410",
+        "safety_factor": "1.150",
+    },
+    "pressure_bulkhead_hoop_longitudinal_stress": {
+        "internal_delta_p_mpa": "0.062",
+        "cylinder_radius_mm": "850",
+        "wall_thickness_mm": "2.00",
+        "applied_torsion_nm": "18000",
+        "yield_allowable_mpa": "325",
+        "fracture_toughness_kic_mpa_sqrt_m": "42.0",
+        "half_crack_length_a_mm": "12.0",
+        "safety_factor": "1.500",
     },
 }
 
@@ -2837,6 +2887,179 @@ def _prove_builtin_method(
             build_violation=_v_hz,
             proved_reason="Hertzian peak contact pressure p0 satisfies static bearing allowable",
             cex_reason="Hertzian contact pressure exceeds factored static bearing limit",
+        ).to_dict()
+
+    if method_id == "composite_bolted_joint_bearing_tension_shear":
+        keys = [
+            "applied_load_n",
+            "bolt_diameter_mm",
+            "laminate_thickness_mm",
+            "edge_distance_e_mm",
+            "strip_width_w_mm",
+            "bearing_allowable_mpa",
+            "oht_allowable_mpa",
+            "shear_out_allowable_mpa",
+            "knockdown_factor",
+            "safety_factor",
+        ]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+
+        def _v_cbj(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            sig_br = p["applied_load_n"] / (p["bolt_diameter_mm"] * p["laminate_thickness_mm"])
+            sig_nt = p["applied_load_n"] / (
+                (p["strip_width_w_mm"] - p["bolt_diameter_mm"]) * p["laminate_thickness_mm"]
+            )
+            tau_so = p["applied_load_n"] / (
+                2
+                * (p["edge_distance_e_mm"] - (p["bolt_diameter_mm"] / 2))
+                * p["laminate_thickness_mm"]
+            )
+            s.add(
+                z3.Or(
+                    p["strip_width_w_mm"] <= p["bolt_diameter_mm"],
+                    p["edge_distance_e_mm"] <= p["bolt_diameter_mm"] / 2,
+                    p["safety_factor"] * sig_br
+                    > p["knockdown_factor"] * p["bearing_allowable_mpa"],
+                    p["safety_factor"] * sig_nt > p["knockdown_factor"] * p["oht_allowable_mpa"],
+                    p["safety_factor"] * tau_so
+                    > p["knockdown_factor"] * p["shear_out_allowable_mpa"],
+                )
+            )
+
+        return engine.prove_z3_property(
+            property_name="cmh17_composite_bolted_joint_safety",
+            bounds=b,
+            constants=c,
+            assertion="SF * max_mode_stress <= knockdown * mode_allowable",
+            build_violation=_v_cbj,
+            proved_reason="Composite bolted joint bearing, net-tension and shear-out MS >= 0",
+            cex_reason="Composite bolted joint violates bearing, net-tension or shear-out limit",
+        ).to_dict()
+
+    if method_id == "rotor_hub_elastomeric_bearing_strain":
+        keys = [
+            "axial_cf_load_n",
+            "bonded_area_mm2",
+            "layer_thickness_mm",
+            "num_layers",
+            "elastomer_shear_modulus_mpa",
+            "shape_factor_s",
+            "shear_deflection_mm",
+            "compression_strain_weight_k",
+            "allowable_equiv_strain",
+            "safety_factor",
+        ]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+
+        def _v_reb(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            e_c = p["elastomer_shear_modulus_mpa"] * (
+                3 + z3.RealVal("4.5") * (p["shape_factor_s"] ** 2)
+            )
+            eps_c = (p["axial_cf_load_n"] / p["bonded_area_mm2"]) / e_c
+            gamma_s = p["shear_deflection_mm"] / (p["num_layers"] * p["layer_thickness_mm"])
+            gamma_eq_sq = ((p["compression_strain_weight_k"] * eps_c) ** 2) + (gamma_s**2)
+            s.add((p["safety_factor"] ** 2) * gamma_eq_sq > (p["allowable_equiv_strain"] ** 2))
+
+        return engine.prove_z3_property(
+            property_name="cs29_elastomeric_hub_bearing_strain_safety",
+            bounds=b,
+            constants=c,
+            assertion="SF * sqrt((k*eps_c)^2 + gamma_s^2) <= allowable_equiv_strain",
+            build_violation=_v_reb,
+            proved_reason="Elastomeric hub bearing combined octahedral strain satisfies allowable",
+            cex_reason="Elastomeric bearing equivalent strain exceeds factored limit",
+        ).to_dict()
+
+    if method_id == "cs29_ditching_water_impact_panel":
+        from evidence_calc.rotorcraft_stress_ext import _tan_deg
+
+        keys = [
+            "vertical_sink_speed_m_s",
+            "water_density_kg_m3",
+            "panel_width_b_mm",
+            "panel_thickness_t_mm",
+            "bending_coeff_beta",
+            "yield_allowable_mpa",
+            "safety_factor",
+        ]
+        beta_lo_raw, beta_hi_raw = _pair_bounds(
+            formal_bounds.get("deadrise_angle_deg", merged["deadrise_angle_deg"]),
+            (str(merged["deadrise_angle_deg"]), str(merged["deadrise_angle_deg"])),
+        )
+        tan_lo = format(_tan_deg(Decimal(beta_lo_raw)), "f")
+        tan_hi = format(_tan_deg(Decimal(beta_hi_raw)), "f")
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+        if tan_lo == tan_hi:
+            c["deadrise_tan_beta"] = tan_lo
+        else:
+            b["deadrise_tan_beta"] = (min(tan_lo, tan_hi), max(tan_lo, tan_hi))
+
+        def _v_ditch(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            c_p = (pi_v / (2 * p["deadrise_tan_beta"])) ** 2
+            p_imp = (
+                z3.RealVal("0.5")
+                * p["water_density_kg_m3"]
+                * (p["vertical_sink_speed_m_s"] ** 2)
+                * (1 + c_p)
+            ) / z3.RealVal("1000000")
+            sig_bend = (
+                p["bending_coeff_beta"]
+                * p_imp
+                * ((p["panel_width_b_mm"] / p["panel_thickness_t_mm"]) ** 2)
+            )
+            s.add(p["safety_factor"] * sig_bend > p["yield_allowable_mpa"])
+
+        return engine.prove_z3_property(
+            property_name="cs29_801_ditching_hull_panel_safety",
+            bounds=b,
+            constants=c,
+            assertion="SF * sigma_bend_wagner <= yield_allowable_mpa",
+            build_violation=_v_ditch,
+            proved_reason="CS 29.801 ditching bottom-hull panel bending MS >= 0 across interval",
+            cex_reason="Ditching impact bending stress exceeds factored yield allowable",
+        ).to_dict()
+
+    if method_id == "pressure_bulkhead_hoop_longitudinal_stress":
+        keys = [
+            "internal_delta_p_mpa",
+            "cylinder_radius_mm",
+            "wall_thickness_mm",
+            "applied_torsion_nm",
+            "yield_allowable_mpa",
+            "fracture_toughness_kic_mpa_sqrt_m",
+            "half_crack_length_a_mm",
+            "safety_factor",
+        ]
+        b, c = _split_bounds_and_consts(merged, formal_bounds, keys)
+
+        def _v_pb(s: z3.Solver, zv: dict[str, Any], zc: dict[str, Any]) -> None:
+            p = {**zv, **zc}
+            sig_h = (p["internal_delta_p_mpa"] * p["cylinder_radius_mm"]) / p["wall_thickness_mm"]
+            sig_l = sig_h / 2
+            tau_t = (p["applied_torsion_nm"] * 1000) / (
+                2 * pi_v * (p["cylinder_radius_mm"] ** 2) * p["wall_thickness_mm"]
+            )
+            sig_vm_sq = (sig_h**2) - (sig_h * sig_l) + (sig_l**2) + 3 * (tau_t**2)
+            k_app_sq = (sig_h**2) * pi_v * (p["half_crack_length_a_mm"] / 1000)
+            s.add(
+                z3.Or(
+                    (p["safety_factor"] ** 2) * sig_vm_sq > (p["yield_allowable_mpa"] ** 2),
+                    (p["safety_factor"] ** 2) * k_app_sq
+                    > (p["fracture_toughness_kic_mpa_sqrt_m"] ** 2),
+                )
+            )
+
+        return engine.prove_z3_property(
+            property_name="pressure_bulkhead_biaxial_fracture_safety",
+            bounds=b,
+            constants=c,
+            assertion="SF*sigma_vm <= F_ty and SF*K_I <= K_Ic",
+            build_violation=_v_pb,
+            proved_reason="Pressure bulkhead biaxial+torsion yield & LEFM fracture MS >= 0",
+            cex_reason="Pressure bulkhead exceeds factored yield or fracture toughness limit",
         ).to_dict()
 
     return {

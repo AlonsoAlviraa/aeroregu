@@ -1,0 +1,51 @@
+{
+  "method_id": "cs29_ditching_water_impact_panel",
+  "method_version": "cs29_ditching_water_impact_panel@1.0.0",
+  "title": "CS 29.801 Ditching Bottom-Hull Wagner Impact Pressure & Plate Bending Screen",
+  "label": "ASSUMPTION",
+  "equation": "C_p = (pi/(2*tan(beta)))^2; p_imp = 0.5*rho_w*V_z^2*(1+C_p)/1e6; sigma_bend = beta_plate*p_imp*(b/t)^2; MS = F_ty/(SF*sigma_bend) - 1",
+  "note": "Rotorcraft fuselage bottom-hull panel Wagner deadrise wedge water-entry impact pressure and Roark plate bending screen under CS 29.801.",
+  "quantum": "0.0001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "vertical_sink_speed_m_s": "meter / second",
+    "water_density_kg_m3": "kilogram / meter ** 3",
+    "deadrise_angle_deg": "degree",
+    "panel_span_a_mm": "millimeter",
+    "panel_width_b_mm": "millimeter",
+    "panel_thickness_t_mm": "millimeter",
+    "bending_coeff_beta": "dimensionless",
+    "yield_allowable_mpa": "megapascal",
+    "safety_factor": "dimensionless"
+  },
+  "required": [
+    "vertical_sink_speed_m_s",
+    "water_density_kg_m3",
+    "deadrise_angle_deg",
+    "panel_span_a_mm",
+    "panel_width_b_mm",
+    "panel_thickness_t_mm",
+    "bending_coeff_beta",
+    "yield_allowable_mpa",
+    "safety_factor"
+  ],
+  "limits": {
+    "vertical_sink_speed_m_s": { "min_exclusive": "0", "max": "30" },
+    "water_density_kg_m3": { "min": "500", "max": "1500" },
+    "deadrise_angle_deg": { "min_exclusive": "2", "max_exclusive": "60" },
+    "panel_span_a_mm": { "min_exclusive": "0", "max": "10000" },
+    "panel_width_b_mm": { "min_exclusive": "0", "max": "10000" },
+    "panel_thickness_t_mm": { "min_exclusive": "0", "max": "200" },
+    "bending_coeff_beta": { "min_exclusive": "0", "max": "2" },
+    "yield_allowable_mpa": { "min_exclusive": "0", "max": "5000" },
+    "safety_factor": { "min": "1", "max": "10" }
+  },
+  "sources": [
+    {
+      "source_id": "cs29-801-wagner-ditching",
+      "uri": "https://aeroregu.local/cards/cs29_ditching_water_impact_panel",
+      "content_hash": "33c2e604b0f3199542da04c13e7f60b246d331a09e8f5c7d12341ac506f9e303",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

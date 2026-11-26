@@ -9,18 +9,19 @@
 ## Core Capabilities
 
 1. **Zero LLM Math (`Decimal` + 50-Digit `FLINT/Arb` Intervals + Rotorcraft Stress & Financial Cards):**
-   - `56` total deterministic calculation cards (`5` quotation costing cards + `51` aerospace & rotorcraft stress sizing cards; `12` MMPDS-16 / CMH-17 Rev H materials with S-N/NASGRO fatigue constants, 50-digit `FLINT/Arb` interval-bounded thermal/thickness interpolation & synchronized STEP B-Rep densities; commercial outputs labeled `ASSUMPTION` / `ESTIMATE`, `not_a_certification_method: true`) compute every price, labor cost, overhead, contingency, PERT percentile (`P50 / P80 / P90`), learning curve, country inflation, monthly working-capital cash flow, and margin with zero floating-point arithmetic:
+   - `60` total deterministic calculation cards (`5` quotation costing cards + `55` aerospace & rotorcraft stress sizing cards; `12` MMPDS-16 / CMH-17 Rev H materials with S-N/NASGRO fatigue constants, 50-digit `FLINT/Arb` interval-bounded thermal/thickness interpolation & synchronized STEP B-Rep densities; commercial outputs labeled `ASSUMPTION` / `ESTIMATE`, `not_a_certification_method: true`) compute every price, labor cost, overhead, contingency, PERT percentile (`P50 / P80 / P90`), learning curve, country inflation, monthly working-capital cash flow, and margin with zero floating-point arithmetic:
      - [`aerospace_quotation_costing.json`](../../packages/calc/cards/aerospace_quotation_costing.json)
      - [`engineering_workpackage_quote.json`](../../packages/calc/cards/engineering_workpackage_quote.json)
      - [`rotorcraft_archetype_quote.json`](../../packages/calc/cards/rotorcraft_archetype_quote.json)
      - [`rotorcraft_historical_calibration.json`](../../packages/calc/cards/rotorcraft_historical_calibration.json)
      - [`aerospace_multiyear_cashflow_learning.json`](../../packages/calc/cards/aerospace_multiyear_cashflow_learning.json) (`14` inputs, `16` outputs: Wright & Crawford unit/batch learning curves, Y1–Y5 country inflation, monthly Cash-Flow / Peak Negative CF / working-capital financing cost, and net present value)
-   - Plus 19 deterministic Stress Office & Rotorcraft extension cards across [`rotorcraft_stress.py`](../../packages/calc/src/evidence_calc/rotorcraft_stress.py), [`rotorcraft_stress_ext.py`](../../packages/calc/src/evidence_calc/rotorcraft_stress_ext.py), [`stress_manual_ext.py`](../../packages/calc/src/evidence_calc/stress_manual_ext.py), and [`rotorcraft_systems_stress.py`](../../packages/calc/src/evidence_calc/rotorcraft_systems_stress.py) with 50-digit FLINT/Arb intervals & Z3 SMT proofs:
+   - Plus 23 deterministic Stress Office & Rotorcraft extension cards across [`rotorcraft_stress.py`](../../packages/calc/src/evidence_calc/rotorcraft_stress.py), [`rotorcraft_stress_ext.py`](../../packages/calc/src/evidence_calc/rotorcraft_stress_ext.py), [`stress_manual_ext.py`](../../packages/calc/src/evidence_calc/stress_manual_ext.py), [`rotorcraft_systems_stress.py`](../../packages/calc/src/evidence_calc/rotorcraft_systems_stress.py), and [`rotorcraft_airframe_stress.py`](../../packages/calc/src/evidence_calc/rotorcraft_airframe_stress.py) with 50-digit FLINT/Arb intervals & Z3 SMT proofs:
      - Sprint 2: [`clt_laminate_abd_stiffness.json`](../../packages/calc/cards/clt_laminate_abd_stiffness.json), [`rotor_blade_centrifugal_bending.json`](../../packages/calc/cards/rotor_blade_centrifugal_bending.json), [`ground_resonance_coleman_screen.json`](../../packages/calc/cards/ground_resonance_coleman_screen.json), [`cs29_crashworthiness_561_562_load.json`](../../packages/calc/cards/cs29_crashworthiness_561_562_load.json), [`multirow_bolt_load_distribution.json`](../../packages/calc/cards/multirow_bolt_load_distribution.json).
      - Sprint 3: [`larc04_composite_failure.json`](../../packages/calc/cards/larc04_composite_failure.json), [`cs29_bird_strike_penetration_screen.json`](../../packages/calc/cards/cs29_bird_strike_penetration_screen.json), [`campbell_rotor_harmonic_clearance.json`](../../packages/calc/cards/campbell_rotor_harmonic_clearance.json), [`tailboom_boxbeam_combined_stress.json`](../../packages/calc/cards/tailboom_boxbeam_combined_stress.json), [`statistical_ab_basis_tolerance_bound.json`](../../packages/calc/cards/statistical_ab_basis_tolerance_bound.json).
      - Sprint 4: [`bolt_prying_combined_tension_shear.json`](../../packages/calc/cards/bolt_prying_combined_tension_shear.json), [`goland_reissner_adhesive_peel_shear.json`](../../packages/calc/cards/goland_reissner_adhesive_peel_shear.json), [`orthotropic_composite_plate_buckling.json`](../../packages/calc/cards/orthotropic_composite_plate_buckling.json), [`skin_stringer_crippling_interaction.json`](../../packages/calc/cards/skin_stringer_crippling_interaction.json), [`walker_mean_stress_crack_growth.json`](../../packages/calc/cards/walker_mean_stress_crack_growth.json).
      - Sprint 5: [`cs29_skid_landing_gear_drop_energy.json`](../../packages/calc/cards/cs29_skid_landing_gear_drop_energy.json), [`shaft_whirl_critical_speed_screen.json`](../../packages/calc/cards/shaft_whirl_critical_speed_screen.json), [`firewall_thermal_buckling_screen.json`](../../packages/calc/cards/firewall_thermal_buckling_screen.json), [`hertzian_bearing_contact_stress.json`](../../packages/calc/cards/hertzian_bearing_contact_stress.json).
-   - Automated Batch Stress-Note Dossier Packager ([`stress_dossier_packager.py`](../../packages/coverage/src/evidence_coverage/stress_dossier_packager.py)) & Qualification Aid IQ/OQ v2 ([`qualification_aid.py`](../../packages/coverage/src/evidence_coverage/qualification_aid.py)).
+     - Sprint 7: [`composite_bolted_joint_bearing_tension_shear.json`](../../packages/calc/cards/composite_bolted_joint_bearing_tension_shear.json), [`rotor_hub_elastomeric_bearing_strain.json`](../../packages/calc/cards/rotor_hub_elastomeric_bearing_strain.json), [`cs29_ditching_water_impact_panel.json`](../../packages/calc/cards/cs29_ditching_water_impact_panel.json), [`pressure_bulkhead_hoop_longitudinal_stress.json`](../../packages/calc/cards/pressure_bulkhead_hoop_longitudinal_stress.json).
+   - Automated Batch Stress-Note Dossier Packager ([`stress_dossier_packager.py`](../../packages/coverage/src/evidence_coverage/stress_dossier_packager.py)), CS-29 Load-Case Envelope Combiner ([`load_envelope_combiner.py`](../../packages/coverage/src/evidence_coverage/load_envelope_combiner.py)), Part 21J Means-of-Compliance Matrix ([`certification_moc_matrix.py`](../../packages/coverage/src/evidence_coverage/certification_moc_matrix.py)), Quotation Risk Frontier Optimizer ([`quotation_risk_frontier.py`](../../packages/coverage/src/evidence_coverage/quotation_risk_frontier.py)), & Qualification Aid IQ/OQ v2 ([`qualification_aid.py`](../../packages/coverage/src/evidence_coverage/qualification_aid.py)).
    - Implemented with 50-digit unrounded ball enclosures in [`intervals.py`](../../packages/calc/src/evidence_calc/intervals.py) and full built-in shadowing protection in [`plugins.py`](../../packages/calc/src/evidence_calc/plugins.py).
 
 2. **Composite WBS DAG (Q1) + 18 Rotorcraft Engineering Archetypes (`Q-DES-01` .. `Q-TST-02`):**
@@ -138,9 +139,12 @@ uv run python -m evidence_api.cli quote fem-vv-audit --f06-file sol105.f06 --aba
 - `POST /quotations/rotorcraft/fx-hedging` & `POST /quotations/rotorcraft/evm-postmortem`
 - `POST /quotations/rotorcraft/evm-postmortem/export-xlsx` & `POST /quotations/rotorcraft/evm-postmortem/export-pdf`
 - `POST /nafems/audit-sol105-gpforce`
-- `GET /demo` (`#tab-quote` / `Alt+7`, Web Cockpit v4 with Stress Dossier, Allowables Arb, Portfolio exports & Passkey step-up) & `GET /static/quotation_cockpit.js`
+- `POST /calc/load-envelope/combine` & `/export-xlsx` & `/export-pdf` (CS-29 multi-subcase superposition + MMPDS/CMH-17 Arb)
+- `POST /certification/moc-matrix` & `/export-xlsx` & `/export-pdf` (Part 21J MoC 0..9 readiness & gap register)
+- `POST /quotations/rotorcraft/risk-frontier` & `/export-xlsx` & `/export-pdf` (Halton QMC risk & Pareto EMV optimizer)
+- `GET /demo` (`#tab-quote` / `Alt+7`, Web Cockpit v5 with Stress Dossier, Allowables Arb, Load Envelope, Part 21J MoC, Risk Frontier, Portfolio exports & Passkey step-up) & `GET /static/quotation_cockpit.js`
 
-### MCP Tools ([`mcp_server.py`](../../apps/api/src/evidence_api/mcp_server.py) — 18 Quotation/FEM/Security Tools / 50 Total)
+### MCP Tools ([`mcp_server.py`](../../apps/api/src/evidence_api/mcp_server.py) — 21 Quotation/FEM/Security/Cert Tools / 53 Total)
 
 - `generate_multiagent_quotation`
 - `scrape_global_quotation_repos`
@@ -157,6 +161,9 @@ uv run python -m evidence_api.cli quote fem-vv-audit --f06-file sol105.f06 --aba
 - `run_bid_actual_evm_postmortem` & `export_evm_postmortem_oem_artifacts`
 - `audit_fem_sol105_gpforce_abaqus` & `run_batch_stress_summary_dossier`
 - `audit_airgap_sbom_and_cluster_readiness`
+- `combine_structural_load_envelopes`
+- `build_part21j_moc_compliance_matrix`
+- `optimize_quotation_risk_frontier`
 
 ### Test Suites
 
@@ -170,3 +177,4 @@ uv run python -m evidence_api.cli quote fem-vv-audit --f06-file sol105.f06 --aba
 - [`test_sprint5_allowables_arb_stress56_portfolio_exports_dossier.py`](../../tests/test_sprint5_allowables_arb_stress56_portfolio_exports_dossier.py)
 - [`test_sprint6_literature_200_benchmarks.py`](../../tests/test_sprint6_literature_200_benchmarks.py)
 - [`test_sprint6_cockpit_v4_infra_cad_ocr_kms_benchmarks.py`](../../tests/test_sprint6_cockpit_v4_infra_cad_ocr_kms_benchmarks.py)
+- [`test_sprint7_stress60_envelopes_moc_risk_cockpit_v5.py`](../../tests/test_sprint7_stress60_envelopes_moc_risk_cockpit_v5.py)

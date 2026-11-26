@@ -1,0 +1,48 @@
+{
+  "method_id": "pressure_bulkhead_hoop_longitudinal_stress",
+  "method_version": "pressure_bulkhead_hoop_longitudinal_stress@1.0.0",
+  "title": "Pressurized Fuselage & Fuel-Cell Shell Combined Hoop, Axial, Torsion & Fracture Screen",
+  "label": "ASSUMPTION",
+  "equation": "sigma_h = p*R/t; sigma_l = p*R/(2*t); tau_t = (T*1000)/(2*pi*R^2*t); sigma_vm = sqrt(sigma_h^2-sigma_h*sigma_l+sigma_l^2+3*tau_t^2); K_I = sigma_h*sqrt(pi*a_m)",
+  "note": "Thin-walled pressurized cylinder / fuselage pressure bulkhead combined biaxial + torsion von Mises yield and leak-before-break fracture toughness check.",
+  "quantum": "0.0001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "internal_delta_p_mpa": "megapascal",
+    "cylinder_radius_mm": "millimeter",
+    "wall_thickness_mm": "millimeter",
+    "applied_torsion_nm": "newton * meter",
+    "yield_allowable_mpa": "megapascal",
+    "fracture_toughness_kic_mpa_sqrt_m": "dimensionless",
+    "half_crack_length_a_mm": "millimeter",
+    "safety_factor": "dimensionless"
+  },
+  "required": [
+    "internal_delta_p_mpa",
+    "cylinder_radius_mm",
+    "wall_thickness_mm",
+    "applied_torsion_nm",
+    "yield_allowable_mpa",
+    "fracture_toughness_kic_mpa_sqrt_m",
+    "half_crack_length_a_mm",
+    "safety_factor"
+  ],
+  "limits": {
+    "internal_delta_p_mpa": { "min_exclusive": "0", "max": "50" },
+    "cylinder_radius_mm": { "min_exclusive": "0", "max": "10000" },
+    "wall_thickness_mm": { "min_exclusive": "0", "max": "200" },
+    "applied_torsion_nm": { "min": "0", "max": "10000000" },
+    "yield_allowable_mpa": { "min_exclusive": "0", "max": "5000" },
+    "fracture_toughness_kic_mpa_sqrt_m": { "min_exclusive": "0", "max": "500" },
+    "half_crack_length_a_mm": { "min_exclusive": "0", "max": "1000" },
+    "safety_factor": { "min": "1", "max": "10" }
+  },
+  "sources": [
+    {
+      "source_id": "pressure-bulkhead-lbb",
+      "uri": "https://aeroregu.local/cards/pressure_bulkhead_hoop_longitudinal_stress",
+      "content_hash": "44d3f715c1042aa653eb15d24f8071c357e442b1af906d8e23452bd6170af404",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

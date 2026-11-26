@@ -1,0 +1,54 @@
+{
+  "method_id": "composite_bolted_joint_bearing_tension_shear",
+  "method_version": "composite_bolted_joint_bearing_tension_shear@1.0.0",
+  "title": "CMH-17 Vol. 3 Composite Bolted Joint Bearing, Net-Tension & Shear-Out Screening",
+  "label": "ASSUMPTION",
+  "equation": "sigma_br = P/(d*t); sigma_nt = P/((w-d)*t); tau_so = P/(2*(e-d/2)*t); governing_ms = min(ms_br, ms_nt, ms_so)",
+  "note": "Multi-mode composite single-fastener lug/splice screening with environmental knockdown and reserve/safety factor.",
+  "quantum": "0.0001",
+  "not_a_certification_method": true,
+  "input_units": {
+    "applied_load_n": "newton",
+    "bolt_diameter_mm": "millimeter",
+    "laminate_thickness_mm": "millimeter",
+    "edge_distance_e_mm": "millimeter",
+    "strip_width_w_mm": "millimeter",
+    "bearing_allowable_mpa": "megapascal",
+    "oht_allowable_mpa": "megapascal",
+    "shear_out_allowable_mpa": "megapascal",
+    "knockdown_factor": "dimensionless",
+    "safety_factor": "dimensionless"
+  },
+  "required": [
+    "applied_load_n",
+    "bolt_diameter_mm",
+    "laminate_thickness_mm",
+    "edge_distance_e_mm",
+    "strip_width_w_mm",
+    "bearing_allowable_mpa",
+    "oht_allowable_mpa",
+    "shear_out_allowable_mpa",
+    "knockdown_factor",
+    "safety_factor"
+  ],
+  "limits": {
+    "applied_load_n": { "min_exclusive": "0", "max": "10000000" },
+    "bolt_diameter_mm": { "min_exclusive": "0", "max": "500" },
+    "laminate_thickness_mm": { "min_exclusive": "0", "max": "200" },
+    "edge_distance_e_mm": { "min_exclusive": "0", "max": "2000" },
+    "strip_width_w_mm": { "min_exclusive": "0", "max": "5000" },
+    "bearing_allowable_mpa": { "min_exclusive": "0", "max": "5000" },
+    "oht_allowable_mpa": { "min_exclusive": "0", "max": "5000" },
+    "shear_out_allowable_mpa": { "min_exclusive": "0", "max": "5000" },
+    "knockdown_factor": { "min_exclusive": "0", "max": "1.2" },
+    "safety_factor": { "min": "1", "max": "10" }
+  },
+  "sources": [
+    {
+      "source_id": "cmh17-vol3-bolted-joint",
+      "uri": "https://aeroregu.local/cards/composite_bolted_joint_bearing_tension_shear",
+      "content_hash": "11a0c4e298d1f77320be82a91c5d4e9024b11f8e7c6d3a5b9012f8a3e4d7c101",
+      "label": "ASSUMPTION"
+    }
+  ]
+}

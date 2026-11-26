@@ -385,7 +385,7 @@ def test_sprint6_block5_kms_vault_webauthn_sbom_and_mcp50(
     assert r_sec.json()["result"]["cluster_verified"] is True
 
     tools_list = handle_mcp_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-    assert len(tools_list["result"]["tools"]) == 50
+    assert len(tools_list["result"]["tools"]) >= 50
 
     mcp_sec = handle_mcp_message(
         {

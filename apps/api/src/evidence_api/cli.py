@@ -3639,6 +3639,181 @@ def quote_stress_dossier_cmd(
     )
 
 
+@quote_app.command("load-envelope")
+def quote_load_envelope_cmd(
+    envelope_id: str = typer.Option("ENV-H145-CS29-001", "--envelope-id", help="Envelope ID."),
+    xlsx_out: Path | None = typer.Option(None, "--xlsx-out", help="Write native .xlsx matrix."),
+    pdf_out: Path | None = typer.Option(None, "--pdf-out", help="Write signed DSSE/QR .pdf."),
+    tenant: str = typer.Option("demo", "--tenant", help="Tenant ID."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Combine CS-29 structural load subcases across components & export OEM artifacts."""
+    from evidence_coverage.load_envelope_combiner import (
+        combine_structural_load_envelopes,
+        default_cs29_load_envelope_payload,
+        export_load_envelope_pdf,
+        export_load_envelope_xlsx,
+    )
+
+    from evidence_api.app import _attestation_keypair, open_ledger
+
+    checked = _tenant_or_exit(tenant)
+    ledger = open_ledger(checked)
+    defaults = default_cs29_load_envelope_payload()
+    res = combine_structural_load_envelopes(
+        envelope_id,
+        defaults["basic_subcases"],
+        defaults["combinations"],
+        defaults["component_allowables"],
+        ledger=ledger,
+        tenant_id=checked,
+    )
+    if xlsx_out is not None:
+        xr = export_load_envelope_xlsx(res, output_path=xlsx_out)
+        res["xlsx_export"] = {
+            "output_path": xr["output_path"],
+            "xlsx_sha256": xr["xlsx_sha256"],
+            "formula_count": xr["formula_count"],
+        }
+    if pdf_out is not None:
+        priv_pem, pub_pem = _attestation_keypair()
+        pr = export_load_envelope_pdf(
+            res, private_key_pem=priv_pem, public_key_pem=pub_pem, output_path=pdf_out
+        )
+        res["pdf_export"] = {
+            "output_path": pr["output_path"],
+            "pdf_sha256": pr["pdf_sha256"],
+            "merkle_root": pr["merkle_root"],
+        }
+    if _wants_json(json_out):
+        _emit_json(res)
+        return
+    console.print(
+        f"[green]Load Envelope {res['envelope_id']}[/green] | "
+        f"Pairs={res['evaluated_pairs_count']} | "
+        f"MinMS={res['global_ms_min']} ({res['governing_component']} / {res['governing_combo_id']})"
+    )
+
+
+@quote_app.command("moc-matrix")
+def quote_moc_matrix_cmd(
+    program_id: str = typer.Option("PROG-H145-MOD", "--program-id", help="Program ID."),
+    revision: str = typer.Option("REV-A", "--revision", help="Active ECN revision."),
+    xlsx_out: Path | None = typer.Option(None, "--xlsx-out", help="Write native .xlsx matrix."),
+    pdf_out: Path | None = typer.Option(None, "--pdf-out", help="Write signed DSSE/QR .pdf."),
+    tenant: str = typer.Option("demo", "--tenant", help="Tenant ID."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Build Part 21J Means-of-Compliance (MoC 0..9) CS-29 readiness matrix & export OEM docs."""
+    from evidence_coverage.certification_moc_matrix import (
+        build_part21j_moc_matrix,
+        export_moc_matrix_pdf,
+        export_moc_matrix_xlsx,
+    )
+    from evidence_coverage.load_envelope_combiner import (
+        combine_structural_load_envelopes,
+        default_cs29_load_envelope_payload,
+    )
+
+    from evidence_api.app import _attestation_keypair, open_ledger
+
+    checked = _tenant_or_exit(tenant)
+    ledger = open_ledger(checked)
+    defaults = default_cs29_load_envelope_payload()
+    env = combine_structural_load_envelopes(
+        defaults["envelope_id"],
+        defaults["basic_subcases"],
+        defaults["combinations"],
+        defaults["component_allowables"],
+    )
+    res = build_part21j_moc_matrix(
+        program_id,
+        load_envelope=env,
+        active_ecn_revision=revision,
+        ledger=ledger,
+        tenant_id=checked,
+    )
+    if xlsx_out is not None:
+        xr = export_moc_matrix_xlsx(res, output_path=xlsx_out)
+        res["xlsx_export"] = {
+            "output_path": xr["output_path"],
+            "xlsx_sha256": xr["xlsx_sha256"],
+            "formula_count": xr["formula_count"],
+        }
+    if pdf_out is not None:
+        priv_pem, pub_pem = _attestation_keypair()
+        pr = export_moc_matrix_pdf(
+            res, private_key_pem=priv_pem, public_key_pem=pub_pem, output_path=pdf_out
+        )
+        res["pdf_export"] = {
+            "output_path": pr["output_path"],
+            "pdf_sha256": pr["pdf_sha256"],
+            "merkle_root": pr["merkle_root"],
+        }
+    if _wants_json(json_out):
+        _emit_json(res)
+        return
+    console.print(
+        f"[green]Part 21J MoC {res['program_id']}[/green] | "
+        f"Readiness={res['readiness_pct']}% ({res['ready_count']}/{res['requirement_count']}) | "
+        f"OpenGaps={res['open_gap_count']}"
+    )
+
+
+@quote_app.command("risk-frontier")
+def quote_risk_frontier_cmd(
+    base_cost: str = typer.Option("375000", "--base-cost", help="Baseline cost (EUR)."),
+    base_price: str = typer.Option("480000", "--base-price", help="Baseline quote price (EUR)."),
+    scenarios: int = typer.Option(500, "--scenarios", help="Deterministic Halton QMC scenarios."),
+    seed: int = typer.Option(20261126, "--seed", help="Deterministic simulation seed."),
+    xlsx_out: Path | None = typer.Option(None, "--xlsx-out", help="Write native .xlsx workbook."),
+    pdf_out: Path | None = typer.Option(None, "--pdf-out", help="Write signed DSSE/QR .pdf."),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Run deterministic risk simulation & EMV Pareto bid-price optimizer (ESTIMATE)."""
+    from evidence_coverage.quotation_risk_frontier import (
+        export_risk_frontier_pdf,
+        export_risk_frontier_xlsx,
+        run_quotation_risk_frontier,
+    )
+
+    from evidence_api.app import _attestation_keypair
+
+    res = run_quotation_risk_frontier(
+        base_cost_eur=base_cost,
+        base_quote_price_eur=base_price,
+        num_scenarios=scenarios,
+        seed=seed,
+    )
+    if xlsx_out is not None:
+        xr = export_risk_frontier_xlsx(res, output_path=xlsx_out)
+        res["xlsx_export"] = {
+            "output_path": xr["output_path"],
+            "xlsx_sha256": xr["xlsx_sha256"],
+            "formula_count": xr["formula_count"],
+        }
+    if pdf_out is not None:
+        priv_pem, pub_pem = _attestation_keypair()
+        pr = export_risk_frontier_pdf(
+            res, private_key_pem=priv_pem, public_key_pem=pub_pem, output_path=pdf_out
+        )
+        res["pdf_export"] = {
+            "output_path": pr["output_path"],
+            "pdf_sha256": pr["pdf_sha256"],
+            "merkle_root": pr["merkle_root"],
+        }
+    if _wants_json(json_out):
+        _emit_json(res)
+        return
+    rec = res["recommended_bid"]
+    console.print(
+        f"[green]Risk Frontier (seed={res['seed']}, N={res['num_scenarios']})[/green] | "
+        f"RecBid={rec['recommended_bid_price_eur']} EUR | "
+        f"EMV={rec['max_expected_monetary_value_eur']} EUR | "
+        f"Z3={res['formal_margin_floor_proof']['status']}"
+    )
+
+
 def main() -> None:
     app()
 

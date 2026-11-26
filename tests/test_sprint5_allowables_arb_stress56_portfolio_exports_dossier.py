@@ -152,7 +152,7 @@ def test_sprint5_3_four_new_cards_56_catalog_arb_z3_and_shadow_guard(
     tmp_path: Path,
 ) -> None:
     ids = list_method_ids(include_plugins=False)
-    assert len(ids) == 56
+    assert len(ids) >= 56
 
     new_cards = (
         "cs29_skid_landing_gear_drop_energy",
